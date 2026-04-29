@@ -27,6 +27,7 @@
 
 pub mod config;
 pub mod discover;
+pub mod link;
 pub mod paths;
 
 use std::path::{Path, PathBuf};
@@ -97,15 +98,22 @@ impl Tool for LmStudioPlugin {
 
     async fn link(
         &self,
-        _canonical_src: &Path,
-        _model: &ModelMeta,
+        canonical_src: &Path,
+        model: &ModelMeta,
     ) -> Result<LinkOutcome, LinkError> {
-        // Per ADR-004 OQ-2, the link strategy for LM Studio is documented in
-        // `plugins/lm-studio/PATHS.md` (numbered fs ops). Implementation lands
-        // in step 03-02.
-        Err(LinkError::NotYetImplemented(
-            "lm-studio link arrives in step 03-02 (see plugins/lm-studio/PATHS.md)".to_string(),
-        ))
+        // Per ADR-004 OQ-2 / `plugins/lm-studio/PATHS.md`, the target path is
+        // the model's existing `on_disk_path` — LM Studio re-reads the file
+        // on next selection, so atomic-replace at that exact path is correct.
+        let target = model.on_disk_path.clone();
+        let canonical = canonical_src.to_path_buf();
+        let id = model.id_in_tool.clone();
+        tokio::task::spawn_blocking(move || link::link_at(&canonical, &target, &id))
+            .await
+            .map_err(|join_err| {
+                LinkError::Io(std::io::Error::other(format!(
+                    "lm-studio link task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn delete_one(&self, _model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {

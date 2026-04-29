@@ -20,6 +20,7 @@
 pub mod config;
 pub mod discover;
 pub mod gguf_header;
+pub mod link;
 
 use std::path::{Path, PathBuf};
 
@@ -89,12 +90,22 @@ impl Tool for LlamaCliPlugin {
 
     async fn link(
         &self,
-        _canonical_src: &Path,
-        _model: &ModelMeta,
+        canonical_src: &Path,
+        model: &ModelMeta,
     ) -> Result<LinkOutcome, LinkError> {
-        Err(LinkError::NotYetImplemented(
-            "llama-cli link arrives in step 03-02".to_string(),
-        ))
+        // llama-cli's `target` is the model's on_disk_path itself — there's
+        // no manifest indirection. Per ADR-004 OQ-1, this is a direct
+        // file replacement via the atomic-rename pattern.
+        let target = model.on_disk_path.clone();
+        let canonical = canonical_src.to_path_buf();
+        let id = model.id_in_tool.clone();
+        tokio::task::spawn_blocking(move || link::link_at(&canonical, &target, &id))
+            .await
+            .map_err(|join_err| {
+                LinkError::Io(std::io::Error::other(format!(
+                    "llama-cli link task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn delete_one(&self, _model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {

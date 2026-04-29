@@ -48,3 +48,28 @@ pub trait Hasher: Send + Sync {
         progress: &mut dyn FnMut(HashProgress),
     ) -> std::io::Result<ContentHash>;
 }
+
+// ---------------------------------------------------------------------------
+// FsProbe (US-10 unify, ADR-008)
+// ---------------------------------------------------------------------------
+
+/// Driven port for filesystem-level inspection used by the unify planner.
+///
+/// `canonical_selector::select_canonical` needs to know whether two paths
+/// are already hardlinked (same inode) and whether they reside on the same
+/// filesystem (so a future hardlink would not fail with `EXDEV`). Real I/O
+/// lives behind this port so the pure logic in `modeltap-core::logic` can
+/// be tested with synthetic probes.
+///
+/// The real adapter is trivial (one `stat` call per path); a future home is
+/// `modeltap-app::fs_probe`. For now the trait alone lives here so the
+/// planner can compile and be unit-tested with a fake.
+pub trait FsProbe: Send + Sync {
+    /// Returns the device id + inode pair for `path`. Two paths share an
+    /// inode iff their `(dev, ino)` tuples are equal — that is the canonical
+    /// "already hardlinked" check on POSIX.
+    ///
+    /// `None` if the path does not exist or cannot be statted (the planner
+    /// treats this as "no information, proceed conservatively").
+    fn dev_and_inode(&self, path: &Path) -> Option<(u64, u64)>;
+}

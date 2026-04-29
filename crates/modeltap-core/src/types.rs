@@ -161,7 +161,17 @@ pub struct LinkOutcome {
 
 #[derive(Debug, Clone, Serialize)]
 pub enum LinkResult {
+    /// The target was created (or replaced) as a hardlink to the canonical
+    /// inode. The standard success outcome of `Tool::link` per ADR-002.
     HardLinked {
+        canonical: PathBuf,
+        target: PathBuf,
+        inode: u64,
+    },
+    /// Idempotent re-invocation: the target already shared the canonical's
+    /// inode, so no filesystem mutation occurred. Per ADR-002, `link()` is
+    /// idempotent — calling it twice leaves the state identical.
+    AlreadyLinked {
         canonical: PathBuf,
         target: PathBuf,
         inode: u64,
@@ -218,6 +228,29 @@ pub enum LinkError {
     NotYetImplemented(String),
     #[error("cross-filesystem hardlink not possible: canonical={canonical:?} target={target:?}")]
     CrossFilesystem { canonical: PathBuf, target: PathBuf },
+    /// The canonical's content sha256 does not match what the tool expects at
+    /// `target`. Defensive check for content-addressed stores (Ollama, HF).
+    /// Should be impossible given the dedup-key precondition, but enforced
+    /// per ADR-008's "no partial-state corruption" rule.
+    #[error("content mismatch at {target:?}: expected sha256 {expected}, canonical computes to {actual}")]
+    ContentMismatch {
+        target: PathBuf,
+        expected: String,
+        actual: String,
+    },
+    /// Permission denied accessing `path` (parent dir not writable, target
+    /// unwritable, etc.). Surface so the UI can show a coherent message.
+    #[error("permission denied: {path:?}: {source}")]
+    PermissionDenied {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+    /// The model metadata supplied to `link()` did not give the plugin enough
+    /// information to compute a target path (e.g., HF `ModelMeta` without a
+    /// recognizable `<hub>/blobs/<sha256>` on_disk_path).
+    #[error("malformed model metadata: {reason}")]
+    MalformedMeta { reason: String },
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 }

@@ -23,6 +23,7 @@
 
 pub mod cache_walk;
 pub mod discover;
+pub mod link;
 pub mod symlink_resolve;
 
 use std::path::{Path, PathBuf};
@@ -99,15 +100,22 @@ impl Tool for HfPlugin {
 
     async fn link(
         &self,
-        _canonical_src: &Path,
-        _model: &ModelMeta,
+        canonical_src: &Path,
+        model: &ModelMeta,
     ) -> Result<LinkOutcome, LinkError> {
-        // Per ADR-004 OQ-1, the link strategy for HF is documented in
-        // `plugins/hf/LINKING.md` (numbered fs ops). Implementation lands
-        // in step 03-02.
-        Err(LinkError::NotYetImplemented(
-            "hf link arrives in step 03-02 (see plugins/hf/LINKING.md)".to_string(),
-        ))
+        // Per ADR-004 OQ-1 / `plugins/hf/LINKING.md`: the target is the
+        // discovered blob path itself. Snapshot symlinks point at the blob
+        // by content sha256 and are not touched.
+        let target = model.on_disk_path.clone();
+        let canonical = canonical_src.to_path_buf();
+        let id = model.id_in_tool.clone();
+        tokio::task::spawn_blocking(move || link::link_at(&canonical, &target, &id))
+            .await
+            .map_err(|join_err| {
+                LinkError::Io(std::io::Error::other(format!(
+                    "hf link task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn delete_one(&self, _model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {

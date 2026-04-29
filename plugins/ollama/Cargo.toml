@@ -36,6 +36,9 @@ inventory = "0.3"
 # Diagnostic logging (per AC-4 — plugin warnings go to diagnostics.log).
 tracing = { workspace = true }
 
+# SHA-256 verification before blob replacement (ADR-002, OQ-3).
+sha2 = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

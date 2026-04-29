@@ -17,6 +17,7 @@
 
 pub mod delete;
 pub mod discovery;
+pub mod link;
 pub mod manifest;
 
 use std::path::{Path, PathBuf};
