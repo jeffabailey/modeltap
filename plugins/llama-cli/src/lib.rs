@@ -1,15 +1,27 @@
-//! llama-cli plugin stub for modeltap (per ADR-001).
+//! llama-cli plugin for modeltap (per ADR-001).
 //!
-//! Step 01-03 ships this as a stub so the left pane has 4 tool slots from
-//! day one; the real discovery / link / delete implementation lands in
-//! step 02-02. The stub returns `DiscoverError::NotInstalled` from
-//! `discover()` so the production left pane shows
-//! "llama-cli  0  (not installed)" — matching the @walking-skeleton @us-02
-//! "Devon has only Ollama installed" scenario.
+//! Walks the configured search paths (default: `~/llms/`, `~/models/`) for
+//! `.gguf` files and parses each header for `general.architecture` and the
+//! quantization label. Corrupt/truncated files are surfaced with
+//! `Format::Other` + `ModelStatus::Corrupt` rather than silently dropped, so
+//! the TUI can render them as `[format: corrupt]` (US-07 AC-4).
+//!
+//! Configuration sources (highest priority first):
+//!   1. `MODELTAP_LLAMACLI_DIRS` env (colon-separated; test seam).
+//!   2. `~/.modeltap/config.toml` `[plugins.llama-cli] search_paths`
+//!      (overridable via `MODELTAP_CONFIG_PATH` for tests).
+//!   3. Defaults: `$HOME/llms`, `$HOME/models` (same on macOS + Linux).
+//!
+//! `link()` / `delete_one()` / `delete_all()` are stubbed; they land in
+//! steps 03-02 / 03-06 / 03-04. `accepted_formats()` reports `[Gguf]`.
 
 #![forbid(unsafe_code)]
 
-use std::path::Path;
+pub mod config;
+pub mod discover;
+pub mod gguf_header;
+
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use modeltap_core::{
@@ -20,10 +32,40 @@ use modeltap_core::{
 pub const TOOL_NAME: ToolId = ToolId("llama-cli");
 const ACCEPTED: &[Format] = &[Format::Gguf];
 
-pub struct LlamaCliPluginStub;
+/// The llama-cli plugin instance. Holds the resolved search paths so
+/// `discover()` can run without re-reading env/config on every call.
+pub struct LlamaCliPlugin {
+    search_paths: Vec<PathBuf>,
+}
+
+impl LlamaCliPlugin {
+    /// Construct using the production config resolution (env -> TOML -> defaults).
+    pub fn new() -> Self {
+        let env = config::from_process_env();
+        let cfg = config::load_config(&env);
+        Self {
+            search_paths: cfg.search_paths,
+        }
+    }
+
+    /// Test-only constructor with explicit search paths.
+    pub fn new_with_search_paths(search_paths: Vec<PathBuf>) -> Self {
+        Self { search_paths }
+    }
+
+    pub fn search_paths(&self) -> &[PathBuf] {
+        &self.search_paths
+    }
+}
+
+impl Default for LlamaCliPlugin {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait]
-impl Tool for LlamaCliPluginStub {
+impl Tool for LlamaCliPlugin {
     fn name(&self) -> ToolId {
         TOOL_NAME
     }
@@ -33,10 +75,16 @@ impl Tool for LlamaCliPluginStub {
     }
 
     async fn discover(&self) -> Result<Vec<DiscoveredModel>, DiscoverError> {
-        // Step 02-02 fills in the real walker over llama-cli's search paths.
-        // Until then, report not-installed so the left pane shows the
-        // canonical "(not installed)" annotation.
-        Err(DiscoverError::NotInstalled)
+        let roots = self.search_paths.clone();
+        // Per ADR-005: directory walk is sync, so wrap in spawn_blocking to
+        // avoid stalling the runtime thread.
+        tokio::task::spawn_blocking(move || discover::discover_in(&roots))
+            .await
+            .map_err(|join_err| {
+                DiscoverError::Io(std::io::Error::other(format!(
+                    "llama-cli discovery task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn link(
@@ -64,6 +112,6 @@ impl Tool for LlamaCliPluginStub {
 
 inventory::submit! {
     PluginFactory {
-        make: || Box::new(LlamaCliPluginStub),
+        make: || Box::new(LlamaCliPlugin::new()),
     }
 }

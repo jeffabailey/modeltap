@@ -125,6 +125,102 @@ build_devon_empty() {
   mkdir -p "$root"
 }
 
+# -----------------------------------------------------------------------------
+# GGUF helpers (US-07).
+#
+# A valid GGUF header (https://github.com/ggerganov/ggml/blob/master/docs/gguf.md):
+#
+#   magic         : 4 bytes  ASCII "GGUF" (0x47 0x47 0x55 0x46)
+#   version       : u32 LE   (we emit 3)
+#   tensor_count  : u64 LE   (we emit 0 — fixtures have no tensor metadata)
+#   kv_count      : u64 LE   (we emit 2 — architecture + file_type)
+#
+#   then 2 KV entries:
+#     "general.architecture" -> string value
+#     "general.file_type"    -> uint32 value (Ollama-style quant id)
+#
+#   String value layout (gguf_value_type::STRING = 8):
+#     value_type (u32 LE = 8)
+#     length     (u64 LE)
+#     bytes
+#
+#   Numeric value layout (gguf_value_type::UINT32 = 4):
+#     value_type (u32 LE = 4)
+#     value      (u32 LE)
+#
+#   Key layout: u64 LE len + bytes. (Same as a string value, minus the type tag.)
+#
+# We synthesize headers via printf + Python so build.sh stays portable across
+# macOS BSD tooling and Linux GNU tooling.
+write_gguf() {
+  # Args: <gguf-path> <architecture> <file-type-uint32>
+  local path="$1" arch="$2" file_type="$3"
+  mkdir -p "$(dirname "$path")"
+  GGUF_OUT="$path" GGUF_ARCH="$arch" GGUF_FT="$file_type" python3 - <<'PY'
+import os, struct
+path = os.environ["GGUF_OUT"]
+arch = os.environ["GGUF_ARCH"].encode("utf-8")
+ft = int(os.environ["GGUF_FT"])
+
+# Header.
+out = bytearray()
+out += b"GGUF"                       # magic
+out += struct.pack("<I", 3)          # version
+out += struct.pack("<Q", 0)          # tensor_count
+out += struct.pack("<Q", 2)          # kv_count
+
+# KV[0]: "general.architecture" -> string(arch)
+key = b"general.architecture"
+out += struct.pack("<Q", len(key)) + key
+out += struct.pack("<I", 8)          # GGUF_TYPE_STRING
+out += struct.pack("<Q", len(arch)) + arch
+
+# KV[1]: "general.file_type" -> uint32(ft)
+key = b"general.file_type"
+out += struct.pack("<Q", len(key)) + key
+out += struct.pack("<I", 4)          # GGUF_TYPE_UINT32
+out += struct.pack("<I", ft)
+
+with open(path, "wb") as f:
+    f.write(out)
+PY
+}
+
+write_corrupt_gguf() {
+  # Args: <path>
+  # 4 bytes that are NOT the GGUF magic, then garbage.
+  local path="$1"
+  mkdir -p "$(dirname "$path")"
+  printf 'XXXX\x00\x00\x00\x01' > "$path"
+}
+
+build_devon_llama_cli() {
+  # Standalone llama-cli fixture for US-07 acceptance + plugin contract tests.
+  # Lays out:
+  #   <root>/llms/llama-3-8b-q4_K_M.gguf   (valid, ft=15 → "Q4_K_M")
+  #   <root>/llms/mistral-7b-q4.gguf       (valid, ft=2  → "Q4_0")
+  #   <root>/llms/corrupt.gguf             (truncated; bad magic)
+  #   <root>/models/qwen-1_5b.gguf         (valid; in the alternate root)
+  local root="$1"
+  rm -rf "$root"
+  mkdir -p "$root/llms"
+  mkdir -p "$root/models"
+  write_gguf "$root/llms/llama-3-8b-q4_K_M.gguf" "llama" 15
+  write_gguf "$root/llms/mistral-7b-q4.gguf"     "mistral" 2
+  write_corrupt_gguf "$root/llms/corrupt.gguf"
+  write_gguf "$root/models/qwen-1_5b.gguf"       "qwen2"  15
+}
+
+build_devon_llama_cli_extra() {
+  # For "Configured additional search path is honored" — a single extra root
+  # outside the defaults. The default roots (<root>/llms, <root>/models) are
+  # ABSENT; only the configured path holds models.
+  local root="$1"
+  rm -rf "$root"
+  mkdir -p "$root/data/models"
+  write_gguf "$root/data/models/extra.gguf" "llama" 2
+}
+
 build_devon_long_list() {
   # 31 distinct Ollama manifest entries — enough to exercise right-pane
   # scroll position indicator (US-03 "Down Arrow scrolls a long model list").
@@ -153,11 +249,15 @@ case "$NAME" in
   devon-permission-denied)  build_devon_permission_denied "$TARGET" ;;
   devon-empty)              build_devon_empty "$TARGET" ;;
   devon-long-list)          build_devon_long_list "$TARGET" ;;
+  devon-llama-cli)          build_devon_llama_cli "$TARGET" ;;
+  devon-llama-cli-extra)    build_devon_llama_cli_extra "$TARGET" ;;
   all)
     build_devon_only_ollama "tests/fixtures/.build/devon-only-ollama"
     build_devon_multi_tool "tests/fixtures/.build/devon-multi-tool"
     build_devon_empty "tests/fixtures/.build/devon-empty"
     build_devon_long_list "tests/fixtures/.build/devon-long-list"
+    build_devon_llama_cli "tests/fixtures/.build/devon-llama-cli"
+    build_devon_llama_cli_extra "tests/fixtures/.build/devon-llama-cli-extra"
     ;;
   *)
     echo "unknown fixture: $NAME" >&2

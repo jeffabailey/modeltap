@@ -57,11 +57,32 @@ pub enum RecordKind {
         bytes_reclaimed: u64,
         outcome: &'static str,
     },
+    /// One entry per discovered model. Written to a separate `models.log`
+    /// file (NOT `launch.log`) so per-model metadata stays out of the
+    /// privacy-sensitive launch event stream. Used by acceptance tests to
+    /// assert per-model `format`, `display_label`, `status` without going
+    /// through the TUI.
+    ///
+    /// This is internal-tooling-only — the user is opted-in via the existing
+    /// log dir, and the file lives next to launch.log under the same
+    /// MODELTAP_LOG_DIR.
+    DiscoveredModel {
+        tool: String,
+        id_in_tool: String,
+        display_label: String,
+        format: &'static str,
+        status: &'static str,
+        size_bytes: u64,
+    },
 }
 
 pub struct LaunchLogger {
     session_id: String,
     log_path: Option<PathBuf>,
+    /// Path for per-model JSONL entries. Lives next to `launch.log` under
+    /// the same `MODELTAP_LOG_DIR`. Optional because the log dir may be
+    /// unwritable; we silently no-op model writes in that case.
+    models_log_path: Option<PathBuf>,
     /// True once we've warned to stderr about an unwritable log dir; prevents
     /// repeated warnings if multiple writes fail.
     warned_unwritable: bool,
@@ -73,10 +94,12 @@ impl LaunchLogger {
     /// emitting one warning to stderr (per AC-7).
     pub fn open(log_dir: Option<PathBuf>) -> Self {
         let session_id = Ulid::new().to_string();
-        let log_path = log_dir.map(|d| d.join("launch.log"));
+        let log_path = log_dir.as_ref().map(|d| d.join("launch.log"));
+        let models_log_path = log_dir.as_ref().map(|d| d.join("models.log"));
         let mut me = Self {
             session_id,
             log_path,
+            models_log_path,
             warned_unwritable: false,
         };
         // Probe writability up-front so we can emit the warning once before
@@ -101,11 +124,36 @@ impl LaunchLogger {
         eprintln!("warning: cannot write launch log to {}", dir);
         self.warned_unwritable = true;
         self.log_path = None;
+        // Don't try to write per-model entries either if the dir is dead.
+        self.models_log_path = None;
     }
 
     /// Append one JSONL event. Best-effort; failures degrade silently after
     /// the first stderr warning.
     pub fn record(&mut self, kind: RecordKind) {
+        // `DiscoveredModel` writes to a separate file; everything else writes
+        // to launch.log. Branch up front so the launch.log path computation
+        // does not need to gate the per-model write.
+        if let RecordKind::DiscoveredModel {
+            tool,
+            id_in_tool,
+            display_label,
+            format,
+            status,
+            size_bytes,
+        } = kind
+        {
+            self.write_model_entry(
+                &tool,
+                &id_in_tool,
+                &display_label,
+                format,
+                status,
+                size_bytes,
+            );
+            return;
+        }
+
         let Some(path) = self.log_path.clone() else {
             return;
         };
@@ -155,6 +203,7 @@ impl LaunchLogger {
                 env["outcome"] = json!(outcome);
                 env
             }
+            RecordKind::DiscoveredModel { .. } => unreachable!("handled above"),
         };
         let mut serialized = payload.to_string();
         serialized.push('\n');
@@ -166,6 +215,40 @@ impl LaunchLogger {
         if result.is_err() && !self.warned_unwritable {
             self.warn_and_disable(&path);
         }
+    }
+
+    fn write_model_entry(
+        &mut self,
+        tool: &str,
+        id_in_tool: &str,
+        display_label: &str,
+        format: &'static str,
+        status: &'static str,
+        size_bytes: u64,
+    ) {
+        let Some(path) = self.models_log_path.clone() else {
+            return;
+        };
+        let env = json!({
+            "schema": "modeltap.models.v1",
+            "ts": current_timestamp(),
+            "session_id": self.session_id,
+            "tool": tool,
+            "id_in_tool": id_in_tool,
+            "display_label": display_label,
+            "format": format,
+            "status": status,
+            "size_bytes": size_bytes,
+        });
+        let mut serialized = env.to_string();
+        serialized.push('\n');
+        let _ = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut f| f.write_all(serialized.as_bytes()));
+        // Per-model entries are a tooling convenience; if writing fails we
+        // silently drop. The user already saw a warning if launch.log failed.
     }
 
     fn base_envelope(&self, event: &str) -> serde_json::Value {

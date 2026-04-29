@@ -107,6 +107,24 @@ fn main() -> ExitCode {
         format_locked_count: summary.format_locked_count(),
         tool_errors: summary.tool_errors(),
     });
+    // Per-model JSONL entries (writes to models.log next to launch.log) so
+    // acceptance tests can assert per-model metadata (display_label, format,
+    // status) without going through the TUI.
+    for outcome in &summary.outcomes {
+        if let Ok(models) = &outcome.result {
+            let tool_name = outcome.tool.to_string();
+            for m in models {
+                logger.record(RecordKind::DiscoveredModel {
+                    tool: tool_name.clone(),
+                    id_in_tool: m.id_in_tool.clone(),
+                    display_label: m.display_label.0.clone(),
+                    format: format_label(m.format),
+                    status: status_label(&m.status),
+                    size_bytes: m.size_bytes,
+                });
+            }
+        }
+    }
 
     let initial_state = build_app_state(&summary);
 
@@ -160,6 +178,33 @@ fn build_app_state(summary: &InventorySummary) -> AppState {
         .map(plugin_outcome_to_view)
         .collect();
     AppState::new_with_default_selection(tools)
+}
+
+/// Stable string label for a `Format` variant. Used in JSONL events; the TUI
+/// uses its own renderer. We prefer literal `&'static str` over Debug to keep
+/// the schema invariant under `derive(Debug)` evolution.
+fn format_label(f: modeltap_core::Format) -> &'static str {
+    use modeltap_core::Format::*;
+    match f {
+        Gguf => "Gguf",
+        Safetensors => "Safetensors",
+        Bin => "Bin",
+        Awq => "Awq",
+        Gptq => "Gptq",
+        OllamaBlob => "OllamaBlob",
+        Mlx => "Mlx",
+        Other => "Other",
+    }
+}
+
+fn status_label(s: &modeltap_core::ModelStatus) -> &'static str {
+    use modeltap_core::ModelStatus::*;
+    match s {
+        Healthy => "Healthy",
+        BrokenSymlink { .. } => "BrokenSymlink",
+        Corrupt { .. } => "Corrupt",
+        Unreadable { .. } => "Unreadable",
+    }
 }
 
 fn plugin_outcome_to_view(outcome: &PluginOutcome) -> ToolView {
