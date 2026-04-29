@@ -22,6 +22,9 @@ modeltap-tui = { path = "../modeltap-tui" }
 # `inventory::submit!` blocks are pulled in. Per ADR-001, modeltap-app is the
 # ONLY place that knows the concrete plugin set.
 modeltap-plugin-ollama = { path = "../../plugins/ollama" }
+modeltap-plugin-llama-cli = { path = "../../plugins/llama-cli" }
+modeltap-plugin-hf = { path = "../../plugins/hf" }
+modeltap-plugin-lm-studio = { path = "../../plugins/lm-studio" }
 
 # Plugin discovery via `inventory::iter`.
 inventory = "0.3"

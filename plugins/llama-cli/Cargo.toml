@@ -1,0 +1,16 @@
+[package]
+name = "modeltap-plugin-llama-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "llama-cli plugin stub for modeltap (per ADR-001). Filled in step 02-02."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+modeltap-core = { path = "../../crates/modeltap-core" }
+async-trait = "0.1"
+inventory = "0.3"

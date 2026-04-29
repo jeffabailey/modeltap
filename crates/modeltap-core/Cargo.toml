@@ -19,5 +19,10 @@ serde = { workspace = true }
 # adapters (plugins) live outside the hexagon.
 async-trait = "0.1"
 
+# `inventory::collect!` slot for `PluginFactory`. Plugins (the adapters)
+# register via `inventory::submit!` against this same slot. The slot lives
+# here so plugin crates do not depend on each other (US-18 architecture-lint).
+inventory = "0.3"
+
 # Architecture rule R1: no plugin crate may appear here. Mechanically enforced
 # in step 01-02 by the architecture rule test (see devops/ci-pipeline.md §4).

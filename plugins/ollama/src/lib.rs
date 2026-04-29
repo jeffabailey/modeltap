@@ -23,7 +23,7 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use modeltap_core::{
     DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, Format, LinkError, LinkOutcome,
-    ModelMeta, Tool, ToolId,
+    ModelMeta, PluginFactory, Tool, ToolId,
 };
 
 pub const TOOL_NAME: ToolId = ToolId("ollama");
@@ -116,20 +116,10 @@ impl Tool for OllamaPlugin {
 }
 
 // Plugin registration (per ADR-001 §"Decision"). Plugins self-register into
-// a static linker section via `inventory::submit!`. The composition root
-// (`modeltap-app`) iterates this section to assemble `Vec<Box<dyn Tool>>`
-// without `modeltap-core` knowing about the plugin set.
-//
-// This is the ONE surface adapter authors touch when adding a 5th plugin:
-// they add an `inventory::submit!` invocation in their own crate.
-
-/// A factory function that constructs a boxed plugin instance. Stored in
-/// the inventory section; the app calls all factories at startup.
-pub struct PluginFactory {
-    pub make: fn() -> Box<dyn Tool>,
-}
-
-inventory::collect!(PluginFactory);
+// a static linker section via `inventory::submit!` against the `PluginFactory`
+// slot defined in `modeltap-core`. The composition root (`modeltap-app`)
+// iterates this section to assemble `Vec<Box<dyn Tool>>` without any plugin
+// crate depending on another plugin crate.
 
 inventory::submit! {
     PluginFactory {

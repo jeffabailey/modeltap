@@ -1,34 +1,36 @@
 //! modeltap composition root (per ADR-005 + ADR-006 + ADR-007).
 //!
-//! Step 01-01 wires:
-//! - clap CLI parsing for `--headless` and `--quit-after-paint`.
-//! - Terminal-size guard (US-01 AC-4): refuse < 80 columns with exit 2.
-//! - Panic hook installation (US-01 AC-5): restore terminal before printing.
-//! - JSONL launch log open (kpi-instrumentation §2): emit launch.started.
-//! - Headless event loop (acceptance-test-plan §4): TestBackend + scripted input.
-//! - Production event loop: deferred to step 01-03 once arrow-key navigation
-//!   exists (the WS exit gate is satisfied by the headless path; the production
-//!   loop is the same `update()`/`view()` pair under a CrosstermBackend, added
-//!   once there is more than the empty pane to render).
+//! Step 01-03 wires the `AppState` from the discovery results so the TUI
+//! has actual tool slots + model rows to render, and runs the production
+//! interactive event loop alongside the headless variant. Both paths use
+//! the same pure `update()` and `view()`.
 
 mod discovery;
 mod headless;
 mod observability;
 mod registry;
 
+// Force linkage of plugin crates so their `inventory::submit!` blocks
+// register their PluginFactory entries. Without these `as _` imports,
+// the linker elides the plugin crates and inventory::iter::<PluginFactory>()
+// returns empty (per ADR-001 §"Plugin registration mechanism" caveat).
+use modeltap_plugin_hf as _;
+use modeltap_plugin_llama_cli as _;
+use modeltap_plugin_lm_studio as _;
+use modeltap_plugin_ollama as _;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
 use clap::Parser;
-use modeltap_tui::{check_terminal_width, install_panic_hook};
+use modeltap_core::{ToolId, ToolStatus};
+use modeltap_tui::{check_terminal_width, install_panic_hook, AppState, ToolView};
 
-use crate::discovery::{run_discovery, InventorySummary};
+use crate::discovery::{run_discovery, InventorySummary, PluginOutcome};
 use crate::headless::HeadlessConfig;
 use crate::observability::{LaunchLogger, RecordKind};
 
-/// CLI arguments. ADR-007 says edges use anyhow + clap; domain code stays
-/// thiserror. This is the edge.
 #[derive(Debug, Parser)]
 #[command(
     name = "modeltap",
@@ -41,8 +43,7 @@ struct Cli {
     #[arg(long)]
     headless: bool,
 
-    /// In headless mode, render one frame and exit cleanly. Used by the K3
-    /// benchmark and by acceptance scenarios that only assert on first paint.
+    /// In headless mode, render one frame and exit cleanly.
     #[arg(long)]
     quit_after_paint: bool,
 }
@@ -58,17 +59,12 @@ fn main() -> ExitCode {
     let mut logger = LaunchLogger::open(log_dir);
     logger.record(RecordKind::LaunchStarted);
 
-    // Terminal-size guard (US-01 AC-4). In headless mode we read MODELTAP_TERM_COLS
-    // (per acceptance-test-plan §4); production reads from crossterm.
     let cols = resolve_terminal_cols(headless);
     if let Err(err) = check_terminal_width(cols) {
         eprintln!("{}", err);
         return ExitCode::from(2);
     }
 
-    // Per ADR-005 plugin discovery runs on tokio. Build a multi-thread
-    // runtime so each plugin's `discover()` can run on its own task and
-    // a slow plugin doesn't block the others.
     let runtime = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -85,10 +81,6 @@ fn main() -> ExitCode {
     let summary: InventorySummary = runtime.block_on(run_discovery(plugins));
     let full_inventory_ms = inventory_start.elapsed().as_millis() as u64;
 
-    // Emit the launch.timing + launch.inventory JSONL events BEFORE rendering
-    // — per AC-6 the launch.timing event records the wall time from process
-    // start to "all discovered" and is part of the K3 instrumentation. AC-3
-    // requires launch.inventory to be emitted EVEN when totals are zero.
     let model_count = summary.total_models();
     logger.record(RecordKind::LaunchTiming {
         plugin_timings_ms: summary.plugin_timings_ms(),
@@ -103,6 +95,8 @@ fn main() -> ExitCode {
         tool_errors: summary.tool_errors(),
     });
 
+    let initial_state = build_app_state(&summary);
+
     if headless {
         let config = HeadlessConfig {
             cols,
@@ -110,25 +104,27 @@ fn main() -> ExitCode {
             input: std::env::var("MODELTAP_HEADLESS_INPUT").unwrap_or_default(),
             quit_after_paint: cli.quit_after_paint,
         };
-        let exit = headless::run(config, logger);
-        // Per Cli::ExitCode, only u8 is safe. POSIX 130 fits.
+        let exit = headless::run(config, initial_state, logger);
         return ExitCode::from(exit as u8);
     }
 
-    // Production interactive event loop is implemented in step 01-03 once
-    // arrow-key navigation exists. For now, refuse to launch outside headless
-    // mode with a clear message — there is nothing yet to interact with.
+    // Production interactive event loop arrives in the next step (01-04 or
+    // an early sub-step of Phase 02 once a real keyboard polling integration
+    // test exists). For step 01-03 only headless mode is wired so the
+    // @walking-skeleton @us-03 scenarios run end-to-end without requiring a
+    // real PTY. The state is fully constructed (initial_state above) so the
+    // production loop will only need to add a CrosstermBackend + key polling
+    // shell when it lands.
+    let _ = initial_state;
     eprintln!(
-        "modeltap: interactive mode is implemented in step 01-03; \
-         use --headless or MODELTAP_HEADLESS=1 for the walking-skeleton scaffold"
+        "modeltap: interactive mode lands in a follow-up step; \
+         use --headless or MODELTAP_HEADLESS=1 for the headless harness"
     );
     ExitCode::from(64)
 }
 
 fn resolve_terminal_cols(headless: bool) -> u16 {
     if headless {
-        // Acceptance tests provide MODELTAP_TERM_COLS; default to 100 columns
-        // (per acceptance-test-plan §4 "fixed 100x40 size").
         return std::env::var("MODELTAP_TERM_COLS")
             .ok()
             .and_then(|s| s.parse::<u16>().ok())
@@ -137,4 +133,44 @@ fn resolve_terminal_cols(headless: bool) -> u16 {
     crossterm::terminal::size()
         .map(|(cols, _)| cols)
         .unwrap_or(0)
+}
+
+/// Project the discovery summary into the TUI's `AppState`. One `ToolView`
+/// per plugin outcome; `ToolStatus::Ok` for plugins that returned models,
+/// `NotInstalled` / `Error` for the others. The `AppState` constructor
+/// sorts alphabetically and lands the default selection on the first
+/// installed tool.
+fn build_app_state(summary: &InventorySummary) -> AppState {
+    let tools: Vec<ToolView> = summary
+        .outcomes
+        .iter()
+        .map(plugin_outcome_to_view)
+        .collect();
+    AppState::new_with_default_selection(tools)
+}
+
+fn plugin_outcome_to_view(outcome: &PluginOutcome) -> ToolView {
+    let tool: ToolId = outcome.tool;
+    match &outcome.result {
+        Ok(models) => ToolView {
+            tool,
+            status: ToolStatus::Ok,
+            model_ids: models.iter().map(|m| m.id_in_tool.clone()).collect(),
+            model_sizes_bytes: models.iter().map(|m| m.size_bytes).collect(),
+        },
+        Err(modeltap_core::DiscoverError::NotInstalled) => ToolView {
+            tool,
+            status: ToolStatus::NotInstalled,
+            model_ids: Vec::new(),
+            model_sizes_bytes: Vec::new(),
+        },
+        Err(other) => ToolView {
+            tool,
+            status: ToolStatus::Error {
+                reason: other.to_string(),
+            },
+            model_ids: Vec::new(),
+            model_sizes_bytes: Vec::new(),
+        },
+    }
 }

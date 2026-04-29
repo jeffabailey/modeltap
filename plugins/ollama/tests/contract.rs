@@ -16,8 +16,8 @@
 use std::fs;
 use std::path::Path;
 
-use modeltap_core::{DiscoverError, Tool, ToolId};
-use modeltap_plugin_ollama::{OllamaPlugin, PluginFactory, TOOL_NAME};
+use modeltap_core::{DiscoverError, PluginFactory, Tool, ToolId};
+use modeltap_plugin_ollama::{OllamaPlugin, TOOL_NAME};
 
 #[test]
 fn name_is_ollama_and_is_stable_across_calls() {

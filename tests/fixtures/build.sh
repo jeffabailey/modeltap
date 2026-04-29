@@ -125,15 +125,39 @@ build_devon_empty() {
   mkdir -p "$root"
 }
 
+build_devon_long_list() {
+  # 31 distinct Ollama manifest entries — enough to exercise right-pane
+  # scroll position indicator (US-03 "Down Arrow scrolls a long model list").
+  # Each manifest points at its own blob; sizes are tiny stand-ins (1 KB
+  # each) since this fixture is only about row count, not bytes.
+  local root="$1"
+  rm -rf "$root"
+  mkdir -p "$root/.ollama/models/manifests/registry.ollama.ai/library"
+  mkdir -p "$root/.ollama/models/blobs"
+
+  local i
+  for i in $(seq -f "%02g" 1 31); do
+    local repo="model${i}"
+    local tag="v1"
+    # Distinct 64-hex blob hashes (pad i to 60 chars after 4-hex prefix).
+    local blob="aaaa$(printf '%060d' "${i}")"
+    mkdir -p "$root/.ollama/models/manifests/registry.ollama.ai/library/${repo}"
+    sparse_file "$root/.ollama/models/blobs/sha256-${blob}" 1024
+    write_manifest "$root/.ollama/models/manifests/registry.ollama.ai/library/${repo}/${tag}" "$blob" 1024
+  done
+}
+
 case "$NAME" in
   devon-only-ollama)        build_devon_only_ollama "$TARGET" ;;
   devon-multi-tool)         build_devon_multi_tool "$TARGET" ;;
   devon-permission-denied)  build_devon_permission_denied "$TARGET" ;;
   devon-empty)              build_devon_empty "$TARGET" ;;
+  devon-long-list)          build_devon_long_list "$TARGET" ;;
   all)
     build_devon_only_ollama "tests/fixtures/.build/devon-only-ollama"
     build_devon_multi_tool "tests/fixtures/.build/devon-multi-tool"
     build_devon_empty "tests/fixtures/.build/devon-empty"
+    build_devon_long_list "tests/fixtures/.build/devon-long-list"
     ;;
   *)
     echo "unknown fixture: $NAME" >&2

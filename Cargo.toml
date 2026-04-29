@@ -5,6 +5,9 @@ members = [
     "crates/modeltap-tui",
     "crates/modeltap-app",
     "plugins/ollama",
+    "plugins/llama-cli",
+    "plugins/hf",
+    "plugins/lm-studio",
 ]
 
 [workspace.package]

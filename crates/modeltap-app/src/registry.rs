@@ -9,8 +9,7 @@
 //! the Ollama plugin's factory exists; subsequent steps add llama-cli, hf,
 //! lm-studio without changing this module's surface.
 
-use modeltap_core::Tool;
-use modeltap_plugin_ollama::PluginFactory;
+use modeltap_core::{PluginFactory, Tool};
 
 /// Construct one `Box<dyn Tool>` per registered plugin. The set of plugins is
 /// determined entirely by which plugin crates are linked into the binary —

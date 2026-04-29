@@ -13,9 +13,11 @@
 
 #![forbid(unsafe_code)]
 
+pub mod plugin_factory;
 pub mod tool;
 pub mod types;
 
+pub use plugin_factory::PluginFactory;
 pub use tool::Tool;
 pub use types::{
     ContentHash, DedupKey, DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel,

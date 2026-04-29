@@ -6,9 +6,7 @@
 //! `MODELTAP_HEADLESS_INPUT` instead of the real terminal.
 //!
 //! This contract gives the acceptance suite a deterministic, scriptable, fast
-//! test harness while preserving production code paths. The two departures
-//! from production are: TestBackend instead of Crossterm (rendering target),
-//! and scripted input instead of crossterm event polling (input source).
+//! test harness while preserving production code paths.
 
 use std::io::Write;
 
@@ -20,8 +18,6 @@ use crate::observability::{LaunchLogger, RecordKind};
 
 /// Configuration parsed from CLI args + env at startup.
 pub struct HeadlessConfig {
-    /// Width to give the TestBackend. Driven by `MODELTAP_TERM_COLS`; defaults
-    /// to 100 to match the acceptance-test-plan §4 "fixed 100x40 size" contract.
     pub cols: u16,
     pub rows: u16,
     /// Scripted input. Empty string means "no input — paint once and quit when
@@ -33,11 +29,7 @@ pub struct HeadlessConfig {
 }
 
 /// Run the headless event loop. Returns the process exit code.
-///
-/// Per acceptance-test-plan §4, on quit the binary emits a single JSON object
-/// to stdout describing the session. The captured frame text is also emitted
-/// to stdout so the test harness can grep for the bottom-bar text.
-pub fn run(config: HeadlessConfig, mut logger: LaunchLogger) -> i32 {
+pub fn run(config: HeadlessConfig, initial_state: AppState, mut logger: LaunchLogger) -> i32 {
     let mut terminal = match Terminal::new(TestBackend::new(config.cols, config.rows)) {
         Ok(t) => t,
         Err(e) => {
@@ -46,7 +38,7 @@ pub fn run(config: HeadlessConfig, mut logger: LaunchLogger) -> i32 {
         }
     };
 
-    let mut state = AppState::default();
+    let mut state = initial_state;
 
     // Initial paint — required by US-01 AC-1 (cold start to first paint).
     if let Err(e) = terminal.draw(|f| view(&state, f)) {
@@ -72,19 +64,13 @@ pub fn run(config: HeadlessConfig, mut logger: LaunchLogger) -> i32 {
         }
     }
 
-    // If the script ran out (or was empty) without setting should_quit, only
-    // exit when --quit-after-paint is set. Without that flag the production
-    // binary would loop on real keyboard input — but acceptance tests always
-    // either supply a script ending in q/^C OR pass --quit-after-paint.
     if !state.should_quit && !config.quit_after_paint {
         eprintln!("modeltap: headless mode invoked without input and without --quit-after-paint");
         return 1;
     }
 
-    // Print the captured frame to stdout for snapshot/grep assertions.
     print_frame(&terminal);
 
-    // Print the session-summary JSON (per acceptance-test-plan §4 §5).
     let summary = serde_json::json!({
         "schema": "modeltap.session_summary.v1",
         "frames_captured": 1 + scripted_count,
@@ -124,13 +110,19 @@ fn apply_effect(effect: &UpdateEffect, logger: &mut LaunchLogger) {
     }
 }
 
-/// Parse the simple scripted-input format. For step 01-01 we only need:
-///   - `q` → `Msg::Quit`
-///   - `^C` → `Msg::CtrlC`
+/// Parse the simple scripted-input format. Recognized tokens:
+///   - `q`           → `Msg::Quit`
+///   - `^C`          → `Msg::CtrlC`
+///   - `<right>`     → `Msg::SelectNextTool`
+///   - `<left>`      → `Msg::SelectPrevTool`
+///   - `<up>`        → `Msg::SelectPrevRow`
+///   - `<down>`      → `Msg::SelectNextRow`
+///   - `<tab>`       → `Msg::ToggleFocus`
 ///   - any other single character → `Msg::UnboundKey`
+///   - whitespace is skipped.
 ///
-/// The richer wait_for / type / key DSL from acceptance-test-plan §4 lands in
-/// step 01-03 when arrow-key navigation is added.
+/// The richer DSL (wait_for, type) lands in subsequent steps; for step 01-03
+/// only the tokens above are needed by the @us-03 acceptance scenarios.
 fn parse_script(raw: &str) -> Vec<Msg> {
     let mut out = Vec::new();
     let mut chars = raw.chars().peekable();
@@ -141,6 +133,30 @@ fn parse_script(raw: &str) -> Vec<Msg> {
                 Some(_) => out.push(Msg::UnboundKey),
                 None => {}
             },
+            '<' => {
+                let mut tag = String::new();
+                let mut closed = false;
+                for tc in chars.by_ref() {
+                    if tc == '>' {
+                        closed = true;
+                        break;
+                    }
+                    tag.push(tc);
+                }
+                if !closed {
+                    out.push(Msg::UnboundKey);
+                    continue;
+                }
+                let msg = match tag.as_str() {
+                    "right" => Msg::SelectNextTool,
+                    "left" => Msg::SelectPrevTool,
+                    "down" => Msg::SelectNextRow,
+                    "up" => Msg::SelectPrevRow,
+                    "tab" => Msg::ToggleFocus,
+                    _ => Msg::UnboundKey,
+                };
+                out.push(msg);
+            }
             'q' => out.push(Msg::Quit),
             _ if c.is_whitespace() => {}
             _ => out.push(Msg::UnboundKey),

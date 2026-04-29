@@ -1,16 +1,16 @@
-//! View function and terminal-size guard.
+//! Top-level view function and terminal-size guard.
 //!
 //! Per ADR-006 the view is pure: it reads `&AppState` and writes into a
-//! ratatui `Frame`. No I/O, no mutation.
+//! ratatui `Frame`. No I/O, no mutation. The actual pane rendering lives
+//! in the `render::*` submodules; this module only owns the layout splitting
+//! and the terminal-size guard.
 
-use modeltap_core::{MAIN_BOTTOM_BAR, MIN_TERMINAL_COLUMNS};
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use modeltap_core::MIN_TERMINAL_COLUMNS;
+use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::Frame;
 
-use crate::event_loop::AppState;
+use crate::app_state::AppState;
+use crate::render::{bottom_bar, left_pane, right_pane};
 
 /// Returned when the terminal is narrower than the minimum width on startup
 /// (US-01 AC-4). The composition root prints this to stderr and exits 2.
@@ -45,12 +45,8 @@ pub fn check_terminal_width(actual: u16) -> Result<(), TerminalSizeError> {
     Ok(())
 }
 
-/// Render the two-pane scaffold. Step 01-02 wires plugin discovery in the
-/// composition root and emits launch.timing/inventory JSONL events; the
-/// right-pane row rendering for the discovered models lands in step 01-03
-/// once `AppState` carries the inventory and arrow-key selection exists.
-/// The bottom bar is always present (US-08 AC-1) and matches the canonical
-/// `MAIN_BOTTOM_BAR` (US-01 AC-6).
+/// Top-level pure view function. Splits the screen into the two-pane main
+/// area + the one-row bottom bar; delegates each pane to its render module.
 pub fn view(state: &AppState, frame: &mut Frame<'_>) {
     let area = frame.area();
     let chunks = Layout::default()
@@ -58,37 +54,12 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
 
-    render_panes(frame, chunks[0]);
-    render_bottom_bar(frame, chunks[1]);
-
-    // Reference `state` so the signature is honored; future steps will branch
-    // on `state.should_quit` to render farewell screens.
-    let _ = state;
-}
-
-fn render_panes(frame: &mut Frame<'_>, area: Rect) {
-    let split = Layout::default()
+    let panes = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
-        .split(area);
+        .split(chunks[0]);
 
-    let left = Paragraph::new("Tools").block(Block::default().borders(Borders::ALL).title("Tools"));
-    // Models are discovered at startup (see modeltap-app/src/discovery.rs)
-    // but the inventory has not yet been threaded into AppState — that is
-    // step 01-03's work, where arrow-key selection determines which tool's
-    // models are shown. For 01-02 the right pane intentionally remains empty.
-    let right = Paragraph::new("").block(Block::default().borders(Borders::ALL).title("Models"));
-
-    frame.render_widget(left, split[0]);
-    frame.render_widget(right, split[1]);
-}
-
-fn render_bottom_bar(frame: &mut Frame<'_>, area: Rect) {
-    // Plain text — colors arrive in later steps. The exact text is asserted
-    // by the US-01 acceptance scenario "the bottom bar shows ...".
-    let line = Line::from(vec![Span::styled(
-        MAIN_BOTTOM_BAR,
-        Style::default().add_modifier(Modifier::DIM),
-    )]);
-    frame.render_widget(Paragraph::new(line), area);
+    left_pane::render(frame, panes[0], state);
+    right_pane::render(frame, panes[1], state);
+    bottom_bar::render(frame, chunks[1]);
 }
