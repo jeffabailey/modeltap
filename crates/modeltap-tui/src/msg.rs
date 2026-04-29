@@ -76,6 +76,22 @@ pub enum Msg {
     /// `current_screen = Screen::Main` and preserves the prior selection.
     CloseDetail,
 
+    // -----------------------------------------------------------------------
+    // US-08 help overlay + cross-step shortcut placeholders.
+    // -----------------------------------------------------------------------
+    /// User pressed `?`. Layer the help overlay on top of the current screen
+    /// (via `Screen::Help { previous }`); pressing `?` again or Esc restores
+    /// the previous screen with selection state intact.
+    ToggleHelp,
+    /// User pressed `u` (unify). Bound here so the bottom-bar INT-6 invariant
+    /// holds (every visible shortcut maps to a non-noop Msg). The orchestrator
+    /// wires the actual unify effect in 03-02; for now `update()` returns
+    /// state unchanged so the message is non-destructive.
+    Unify,
+    /// User pressed `d` (delete-from-one). Bound here so the bottom-bar INT-6
+    /// invariant holds. Wired to the delete-from-one effect in 03-06.
+    DeleteFromOne,
+
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,
 }

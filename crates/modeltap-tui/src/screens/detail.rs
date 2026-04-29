@@ -8,8 +8,9 @@
 //! - Per-tool registration list ("<tool>: <full path>")
 //! - Status header (one of UNIFIED / NOT UNIFIED / PARTIALLY UNIFIED /
 //!   SINGLE TOOL) + reclaim-estimate narrative
-//! - Bottom-bar shortcut line "[Esc] back  [u] unify  [d] delete-from-one
-//!   [?] help" (US-08 contract)
+//! - Bottom-bar shortcut line generated from `keymap::SHORTCUT_TABLE` via
+//!   `render::bottom_bar::render_bottom_bar` (US-08 contract — single
+//!   source of truth)
 //!
 //! For SINGLE TOOL models, [u] is dimmed with the annotation "single tool —
 //! unify not applicable". For UNIFIED models, the screen reads "UNIFIED — 1
@@ -32,8 +33,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
-/// Bottom-bar shortcut line for the detail screen (US-08 contract).
-pub const DETAIL_BOTTOM_BAR: &str = "[Esc] back  [u] unify  [d] delete-from-one  [?] help";
+use crate::app_state::AppState;
+use crate::render::bottom_bar::{render_bottom_bar, BarContext};
 
 /// Pure state for the detail screen. Constructed by `update()` from
 /// `Msg::OpenDetail(...)`; mutated by `Msg::SetHashProgress(N)` when a lazy
@@ -101,26 +102,33 @@ impl DetailScreenState {
 /// │ Status:    NOT UNIFIED — 3 separate copies (...) │
 /// │ Reclaim:   If unified: would reclaim 8.8 GB      │
 /// └──────────────────────────────────────────────────┘
-/// [Esc] back  [u] unify  [d] delete-from-one  [?] help
+/// (bottom bar generated from keymap::SHORTCUT_TABLE — US-08)
 /// ```
-pub fn render_detail(frame: &mut Frame<'_>, area: Rect, state: &DetailScreenState) {
+pub fn render_detail(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    detail: &DetailScreenState,
+    app: &AppState,
+) {
     // Vertical split: main detail panel (Min 1) | bottom bar (1 row).
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(1), Constraint::Length(1)])
         .split(area);
 
-    let title = format!(" Model: {} ", state.model.id);
+    let title = format!(" Model: {} ", detail.model.id);
     let block = Block::default().borders(Borders::ALL).title(title);
     let inner = block.inner(chunks[0]);
     frame.render_widget(block, chunks[0]);
 
-    let body_lines = build_body_lines(state);
+    let body_lines = build_body_lines(detail);
     let paragraph = Paragraph::new(body_lines).wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 
-    // Bottom bar — shortcuts.
-    let bar = build_bottom_bar(state);
+    // Bottom bar — generated from SHORTCUT_TABLE so the labels and dispatch
+    // can never drift (US-08 AC-5 / INT-6 invariant).
+    let ctx = BarContext::for_state(app);
+    let bar = render_bottom_bar(&ctx, crate::render::colors::no_color_active());
     frame.render_widget(Paragraph::new(bar), chunks[1]);
 }
 
@@ -168,21 +176,6 @@ fn build_body_lines(state: &DetailScreenState) -> Vec<Line<'static>> {
         )));
     }
     lines
-}
-
-/// Compose the bottom-bar shortcut line. The [u] shortcut is dimmed when
-/// unify is not applicable (SINGLE TOOL).
-fn build_bottom_bar(state: &DetailScreenState) -> Line<'static> {
-    let single_tool = matches!(state.status(), UnificationStatus::SingleTool);
-    let dim = Style::default().add_modifier(Modifier::DIM);
-    let active = Style::default().add_modifier(Modifier::DIM); // bottom-bar style
-    let u_style = if single_tool { dim } else { active };
-    Line::from(vec![
-        Span::styled("[Esc] back  ", active),
-        Span::styled("[u] unify  ", u_style),
-        Span::styled("[d] delete-from-one  ", active),
-        Span::styled("[?] help", active),
-    ])
 }
 
 // ---------------------------------------------------------------------------

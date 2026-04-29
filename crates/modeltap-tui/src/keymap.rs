@@ -3,69 +3,139 @@
 //!
 //! `SHORTCUT_TABLE` is consumed by:
 //! - `keymap::dispatch(KeyEvent) -> Msg` — the event handler.
-//! - `render::bottom_bar::render` (in subsequent steps) — the shortcut display.
+//! - `render::bottom_bar::render_bottom_bar` — the dynamic shortcut bar.
+//! - `screens::help_overlay::render_help_lines` — the layered help overlay.
 //!
 //! Keeping one `&'static [Shortcut]` array means the displayed key cannot
-//! drift from the dispatched key. The unit test
-//! `shortcut_table_drives_both_render_label_and_dispatch_msg` enforces this.
+//! drift from the dispatched key. The unit tests
+//! `shortcut_table_drives_both_render_label_and_dispatch_msg` (US-03) and
+//! `int_6_invariant_every_visible_bar_key_dispatches_to_non_noop` (US-08)
+//! enforce this in opposite directions.
+//!
+//! ## Schema (US-08)
+//!
+//! Each entry carries:
+//! - `key`: the `KeyEvent` `dispatch()` matches against.
+//! - `label`: the static text the bottom bar / help overlay displays.
+//! - `msg`: the `Msg` to produce on a match.
+//! - `sections`: which bottom-bar contexts this shortcut belongs to (Main,
+//!   Detail, Help, Dialog). The render fn filters SHORTCUT_TABLE by the
+//!   currently-active section.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::msg::Msg;
 
+/// Which bottom-bar context a shortcut belongs to. The dynamic bar render
+/// fn filters SHORTCUT_TABLE by the currently-active section so the bar
+/// text is derived purely from the table.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum BarSection {
+    /// Default two-pane discovery view (Screen::Main, no dialog).
+    Main,
+    /// Per-model detail screen (Screen::Detail).
+    Detail,
+    /// Help overlay (Screen::Help).
+    Help,
+    /// Modal dialog active (e.g., zap confirm).
+    Dialog,
+}
+
 /// One shortcut entry. The `label` is what the bottom bar displays
 /// (e.g. "[q] quit"); the `key` is what `dispatch()` matches against.
+/// `sections` controls which bar context this shortcut appears in.
 #[derive(Debug, Clone)]
 pub struct Shortcut {
     pub key: KeyEvent,
     pub label: &'static str,
     pub msg: Msg,
+    /// Bar contexts this shortcut belongs to. A shortcut with multiple
+    /// sections (e.g., `[?] help` is global) shows up in each.
+    pub sections: &'static [BarSection],
 }
 
-/// The single source of truth for navigation + quit shortcuts. Per US-08
-/// AC-5: "Shortcuts shown in the bar match the actual key handler dispatch
-/// table (single source of truth)." Step 01-03 covers the navigation +
-/// quit subset; later steps extend (z, u, ?, d, Esc, etc.).
+/// The single source of truth for shortcuts shown in the bottom bar AND
+/// dispatched by `keymap::dispatch`. Per US-08 AC-5: "Shortcuts shown in
+/// the bar match the actual key handler dispatch table (single source of
+/// truth)."
 pub const SHORTCUT_TABLE: &[Shortcut] = &[
+    // ----- Main view ------------------------------------------------------
     Shortcut {
         key: KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
-        label: "[<-] prev tool",
+        label: "[<-/->] tools",
         msg: Msg::SelectPrevTool,
+        sections: &[BarSection::Main],
     },
     Shortcut {
         key: KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
         label: "[->] next tool",
         msg: Msg::SelectNextTool,
+        // Right Arrow is implicit in the "[<-/->] tools" main label so we
+        // do not show it separately in the bar — it is dispatched only.
+        sections: &[],
     },
     Shortcut {
         key: KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
-        label: "[up] prev row",
+        label: "[up/down] models",
         msg: Msg::SelectPrevRow,
+        sections: &[BarSection::Main],
     },
     Shortcut {
         key: KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
         label: "[down] next row",
         msg: Msg::SelectNextRow,
+        // Down is implicit in "[up/down] models" — dispatch-only.
+        sections: &[],
     },
     Shortcut {
         key: KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
         label: "[tab] focus",
         msg: Msg::ToggleFocus,
+        sections: &[],
+    },
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Char('u'), KeyModifiers::NONE),
+        label: "[u] unify",
+        msg: Msg::Unify,
+        sections: &[BarSection::Main, BarSection::Detail],
     },
     Shortcut {
         key: KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE),
         label: "[z] zap tool",
         msg: Msg::ZapTool,
+        sections: &[BarSection::Main],
+    },
+    // ----- Detail view ----------------------------------------------------
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        label: "[Esc] back",
+        msg: Msg::CloseDetail,
+        sections: &[BarSection::Detail],
+    },
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
+        label: "[d] delete-from-one",
+        msg: Msg::DeleteFromOne,
+        sections: &[BarSection::Detail],
+    },
+    // ----- Global ---------------------------------------------------------
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),
+        label: "[?] help",
+        msg: Msg::ToggleHelp,
+        sections: &[BarSection::Main, BarSection::Detail, BarSection::Help],
     },
     Shortcut {
         key: KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
         label: "[q] quit",
         msg: Msg::Quit,
+        sections: &[BarSection::Main],
     },
     Shortcut {
         key: KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
         label: "[^C] interrupt",
         msg: Msg::CtrlC,
+        sections: &[],
     },
 ];
 

@@ -12,6 +12,7 @@ use ratatui::Frame;
 use crate::app_state::{AppState, Screen};
 use crate::render::{bottom_bar, left_pane, right_pane, summary_bar, zap_dialog};
 use crate::screens::detail::render_detail;
+use crate::screens::help_overlay;
 
 /// Returned when the terminal is narrower than the minimum width on startup
 /// (US-01 AC-4). The composition root prints this to stderr and exits 2.
@@ -52,12 +53,33 @@ pub fn check_terminal_width(actual: u16) -> Result<(), TerminalSizeError> {
 /// - `Screen::Detail(...)` — per-model detail screen (US-13). The detail
 ///   screen owns its own bottom bar; we do not render the main shortcut bar
 ///   while the detail screen is active.
+/// - `Screen::Help { previous }` — the layered help overlay (US-08). Renders
+///   the underlying screen first (so closing reveals the same state), then
+///   overlays the centered help modal on top.
 pub fn view(state: &AppState, frame: &mut Frame<'_>) {
     let area = frame.area();
 
     match &state.current_screen {
         Screen::Main => view_main(state, frame, area),
-        Screen::Detail(detail) => render_detail(frame, area, detail),
+        Screen::Detail(detail) => render_detail(frame, area, detail, state),
+        Screen::Help { previous } => {
+            // Render the underlying screen first so the help-close transition
+            // is visually instant (no flash of empty terminal).
+            let underlay = AppState {
+                current_screen: (**previous).clone(),
+                ..state.clone()
+            };
+            match &underlay.current_screen {
+                Screen::Main => view_main(&underlay, frame, area),
+                Screen::Detail(d) => render_detail(frame, area, d, &underlay),
+                Screen::Help { .. } => {
+                    // Pathological double-help; render an empty main so the
+                    // user can dismiss with `?`/Esc to escape the recursion.
+                    view_main(&underlay, frame, area);
+                }
+            }
+            help_overlay::render(frame, area);
+        }
     }
 }
 
@@ -80,7 +102,7 @@ fn view_main(state: &AppState, frame: &mut Frame<'_>, area: ratatui::layout::Rec
     left_pane::render(frame, panes[0], state);
     right_pane::render(frame, panes[1], state);
     summary_bar::render(frame, chunks[1], state);
-    bottom_bar::render(frame, chunks[2]);
+    bottom_bar::render(frame, chunks[2], state);
 
     // Modal dialogs render LAST so they overlay the panes (US-05). The
     // dialog reads `state.zap_dialog` (Option) — when None, this is a no-op.

@@ -107,7 +107,32 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             },
             UpdateEffect::default(),
         ),
+        Msg::ToggleHelp => (toggle_help(state), UpdateEffect::default()),
+        // Unify and DeleteFromOne are wired in subsequent steps (03-02, 03-06).
+        // Here they are bound to non-noop Msg variants so the INT-6
+        // invariant holds — every visible shortcut maps to a real Msg —
+        // while the state remains unchanged.
+        Msg::Unify => (state, UpdateEffect::default()),
+        Msg::DeleteFromOne => (state, UpdateEffect::default()),
         Msg::UnboundKey => (state, UpdateEffect::default()),
+    }
+}
+
+/// Toggle the layered help overlay (US-08). When `current_screen` is anything
+/// other than `Help`, wrap it in `Screen::Help { previous: <current> }`. When
+/// it is already `Help`, restore the wrapped previous screen. This lets `?`
+/// open AND close the overlay symmetrically, and Esc-from-help maps to the
+/// same `Msg::ToggleHelp` as a second `?`.
+fn toggle_help(state: AppState) -> AppState {
+    let next_screen = match state.current_screen {
+        Screen::Help { previous } => *previous,
+        other => Screen::Help {
+            previous: Box::new(other),
+        },
+    };
+    AppState {
+        current_screen: next_screen,
+        ..state
     }
 }
 

@@ -5,5 +5,6 @@
 //! screen's render fn.
 
 pub mod detail;
+pub mod help_overlay;
 
 pub use detail::{render_detail, DetailScreenState};

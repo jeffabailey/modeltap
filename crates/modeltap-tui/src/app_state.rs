@@ -15,15 +15,23 @@ use crate::screens::detail::DetailScreenState;
 ///
 /// - `Main` — the two-pane discovery view (left: tools, right: rows).
 /// - `Detail(state)` — the per-model detail screen (US-13).
+/// - `Help { previous }` — the layered help overlay (US-08). Pressing `?`
+///   from any screen wraps the current screen in `Help` so closing returns
+///   to the exact prior state (selection, scroll, dialog, detail). The
+///   `Box` is required because `Screen` is recursive through this variant.
 ///
 /// Per ADR-006, screen state is pure data inside `AppState`. Screen
-/// transitions are dispatched by `Msg::OpenDetail(...)` / `Msg::CloseDetail`.
+/// transitions are dispatched by `Msg::OpenDetail(...)` / `Msg::CloseDetail`
+/// / `Msg::ToggleHelp`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
     /// The default two-pane discovery view.
     Main,
     /// The per-model detail screen (US-13).
     Detail(DetailScreenState),
+    /// The layered help overlay (US-08). `previous` is the screen `?` was
+    /// pressed on; `Msg::ToggleHelp` (or Esc) restores it.
+    Help { previous: Box<Screen> },
 }
 
 /// Which pane currently has focus. Tab toggles between them.
