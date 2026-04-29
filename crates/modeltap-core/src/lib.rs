@@ -13,6 +13,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod domain;
 pub mod logic;
 pub mod plugin_factory;
 pub mod tool;

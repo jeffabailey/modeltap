@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::app_state::{AppState, FocusPane};
+use crate::render::last_action;
 
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let Some(tool) = state.current_tool() else {
@@ -74,16 +75,15 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         }
     }
 
-    // Last-action message footer (US-05 success/cancel/empty banner). Drawn
-    // on the bottom-LEFT row inside the inner area, so it doesn't collide
-    // with the scroll-position indicator on the right.
-    if let Some(message) = &state.last_action_message {
-        if inner_area.height >= 1 {
-            let y = inner_area.y + inner_area.height - 1;
-            let max_w = inner_area.width.saturating_sub(0) as usize;
-            let trimmed: String = message.chars().take(max_w).collect();
-            let area = Rect::new(inner_area.x, y, trimmed.len() as u16, 1);
-            frame.render_widget(Paragraph::new(trimmed), area);
+    // US-06 post-action banner: structured 2-line header + body, drawn at
+    // the TOP of the inner area so it appears above the model list (per
+    // the Step-5 mockup in journey-cleanup-and-unify-visual.md). Pure-
+    // structured rendering via `render::last_action`; the right pane only
+    // owns the layout slice.
+    if let Some(action) = &state.last_action {
+        if inner_area.height >= 2 {
+            let banner_area = Rect::new(inner_area.x, inner_area.y, inner_area.width, 2);
+            last_action::render(frame, banner_area, action);
         }
     }
 }

@@ -10,7 +10,7 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::Frame;
 
 use crate::app_state::AppState;
-use crate::render::{bottom_bar, left_pane, right_pane, zap_dialog};
+use crate::render::{bottom_bar, left_pane, right_pane, summary_bar, zap_dialog};
 
 /// Returned when the terminal is narrower than the minimum width on startup
 /// (US-01 AC-4). The composition root prints this to stderr and exits 2.
@@ -46,12 +46,17 @@ pub fn check_terminal_width(actual: u16) -> Result<(), TerminalSizeError> {
 }
 
 /// Top-level pure view function. Splits the screen into the two-pane main
-/// area + the one-row bottom bar; delegates each pane to its render module.
+/// area + a one-row summary bar (US-06) + the one-row shortcut bar.
 pub fn view(state: &AppState, frame: &mut Frame<'_>) {
     let area = frame.area();
+    // Vertical split: main panes (Min 1) | summary bar (1 row) | shortcut bar (1 row).
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
         .split(area);
 
     let panes = Layout::default()
@@ -61,7 +66,8 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
 
     left_pane::render(frame, panes[0], state);
     right_pane::render(frame, panes[1], state);
-    bottom_bar::render(frame, chunks[1]);
+    summary_bar::render(frame, chunks[1], state);
+    bottom_bar::render(frame, chunks[2]);
 
     // Modal dialogs render LAST so they overlay the panes (US-05). The
     // dialog reads `state.zap_dialog` (Option) — when None, this is a no-op.

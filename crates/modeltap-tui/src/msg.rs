@@ -5,6 +5,10 @@
 //! a `Msg` and returns the next `AppState` plus a description of any side
 //! effects (`UpdateEffect`).
 
+use modeltap_core::domain::last_action::LastAction;
+
+use crate::app_state::ToolView;
+
 /// All the messages that can drive `update()`. Step 01-03 covers keyboard
 /// navigation; later steps add discovery-progress, action-completion, and
 /// tick variants.
@@ -45,6 +49,19 @@ pub enum Msg {
     DialogConfirm,
     /// Esc pressed while a dialog is open. Always cancels per US-05 AC-3.
     DialogCancel,
+
+    // -----------------------------------------------------------------------
+    // US-06 post-action banner (in-memory only, per intake Q7).
+    // -----------------------------------------------------------------------
+    /// Composition root dispatches this after an action effect completes
+    /// (zap in WS scope; unify/delete in 03-02/03-06). `update()` writes the
+    /// payload into `AppState.last_action`.
+    SetLastAction(LastAction),
+    /// Composition root dispatches this after re-running discovery for a
+    /// single tool (per US-06.AC-4 / US-11.AC-1: incremental refresh stays
+    /// under 500 ms by NOT re-running every plugin's discover()). `update()`
+    /// replaces the matching `ToolView` slot in `AppState.tools`.
+    RefreshTool(ToolView),
 
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,

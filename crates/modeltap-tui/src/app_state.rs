@@ -4,6 +4,7 @@
 //! `Inventory`; updated by `update::update()`. The view function in
 //! `render::*` reads `&AppState` and writes ratatui widgets.
 
+use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{ToolId, ToolStatus};
 
 use crate::dialogs::zap_confirm::ZapConfirmState;
@@ -82,11 +83,14 @@ pub struct AppState {
     /// this field and overlays a centered modal when set.
     pub zap_dialog: Option<ZapConfirmState>,
 
-    /// Last user-visible action message for the right pane footer (e.g.,
-    /// "zap ollama: success — 4 models removed, 12.8 GB freed"). Set by
-    /// `update()` when an action effect completes; cleared on the next
-    /// non-action message.
-    pub last_action_message: Option<String>,
+    /// Structured last-action banner for the right pane (US-06). Set by
+    /// `Msg::SetLastAction(...)` after an action effect completes; cleared
+    /// on any navigation Msg (`SelectNextTool`, `SelectPrevTool`,
+    /// `SelectNextRow`, `SelectPrevRow`). The render layer in
+    /// `render::last_action` formats this into header + body lines.
+    ///
+    /// In-memory only (per intake Q7) — lost on restart. No persistent state.
+    pub last_action: Option<LastAction>,
 }
 
 impl Default for AppState {
@@ -101,7 +105,7 @@ impl Default for AppState {
             should_quit: false,
             exit_code: 0,
             zap_dialog: None,
-            last_action_message: None,
+            last_action: None,
         }
     }
 }
@@ -125,7 +129,7 @@ impl AppState {
             should_quit: false,
             exit_code: 0,
             zap_dialog: None,
-            last_action_message: None,
+            last_action: None,
         }
     }
 

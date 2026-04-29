@@ -11,6 +11,11 @@ mod headless;
 mod observability;
 mod registry;
 
+// `refresh` lives in the library half (src/lib.rs) so integration tests
+// can call `modeltap_app::refresh::refresh_tool` without re-compiling the
+// composition root. The bin imports it via the lib name.
+use modeltap_app::refresh;
+
 // Force linkage of plugin crates so their `inventory::submit!` blocks
 // register their PluginFactory entries. Without these `as _` imports,
 // the linker elides the plugin crates and inventory::iter::<PluginFactory>()

@@ -10,4 +10,5 @@ mod acceptance {
     pub mod us_02_discover_ollama;
     pub mod us_03_two_pane_navigation;
     pub mod us_05_zap_all;
+    pub mod us_06_post_action_message;
 }

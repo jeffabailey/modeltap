@@ -10,6 +10,10 @@ description = "Composition root and main() for modeltap. Wires plugins, runtime,
 [lints.rust]
 unsafe_code = "forbid"
 
+[lib]
+name = "modeltap_app"
+path = "src/lib.rs"
+
 [[bin]]
 name = "modeltap"
 path = "src/main.rs"
@@ -34,6 +38,7 @@ tokio = { workspace = true }
 
 # Edge errors (per ADR-007).
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 
 # Observability (per devops/kpi-instrumentation.md).
 tracing = { workspace = true }

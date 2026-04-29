@@ -48,10 +48,22 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             },
             UpdateEffect::default(),
         ),
-        Msg::SelectNextTool => (advance_tool(state, 1), UpdateEffect::default()),
-        Msg::SelectPrevTool => (advance_tool(state, -1), UpdateEffect::default()),
-        Msg::SelectNextRow => (advance_row(state, 1), UpdateEffect::default()),
-        Msg::SelectPrevRow => (advance_row(state, -1), UpdateEffect::default()),
+        Msg::SelectNextTool => (
+            advance_tool(clear_last_action(state), 1),
+            UpdateEffect::default(),
+        ),
+        Msg::SelectPrevTool => (
+            advance_tool(clear_last_action(state), -1),
+            UpdateEffect::default(),
+        ),
+        Msg::SelectNextRow => (
+            advance_row(clear_last_action(state), 1),
+            UpdateEffect::default(),
+        ),
+        Msg::SelectPrevRow => (
+            advance_row(clear_last_action(state), -1),
+            UpdateEffect::default(),
+        ),
         Msg::ToggleFocus => (
             AppState {
                 focus: match state.focus {
@@ -73,8 +85,34 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         ),
         Msg::DialogConfirm => decide_dialog(state, DialogKey::Enter),
         Msg::DialogCancel => decide_dialog(state, DialogKey::Esc),
+        Msg::SetLastAction(action) => (
+            AppState {
+                last_action: Some(action),
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        Msg::RefreshTool(view) => (replace_tool_slot(state, view), UpdateEffect::default()),
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
+}
+
+/// Clear `last_action` (US-06: any nav Msg dismisses the post-action banner).
+fn clear_last_action(state: AppState) -> AppState {
+    AppState {
+        last_action: None,
+        ..state
+    }
+}
+
+/// Replace the matching `ToolView` slot in `state.tools` with the freshly-
+/// discovered view. Tools are matched by `ToolId`; if no slot matches (e.g.
+/// a future plugin id we don't know yet) the state is returned unchanged.
+fn replace_tool_slot(mut state: AppState, view: crate::app_state::ToolView) -> AppState {
+    if let Some(slot) = state.tools.iter_mut().find(|t| t.tool == view.tool) {
+        *slot = view;
+    }
+    state
 }
 
 /// Move the tool selection forward or backward (cyclic). Resets the row

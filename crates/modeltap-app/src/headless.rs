@@ -10,6 +10,7 @@
 
 use std::io::Write;
 
+use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{Tool, ToolId};
 use modeltap_tui::{update, view, AppState, Msg, UpdateEffect};
 use ratatui::backend::TestBackend;
@@ -17,6 +18,7 @@ use ratatui::Terminal;
 
 use crate::actions::zap::{self, ZapOutcome, ZapResult};
 use crate::observability::{LaunchLogger, RecordKind};
+use crate::refresh;
 
 /// Configuration parsed from CLI args + env at startup.
 pub struct HeadlessConfig {
@@ -146,11 +148,53 @@ fn apply_effect(
     if let Some(tool_id) = effect.trigger_zap {
         if let Some(plugin) = find_plugin(plugins, tool_id) {
             let outcome: ZapOutcome = rt.block_on(zap::run(plugin, logger));
-            state.last_action_message = Some(format_zap_message(&outcome));
+            // Build the structured LastAction and dispatch it as a Msg so
+            // the Elm-style update is the only place that mutates AppState
+            // (per ADR-006).
+            let action = build_last_action(&outcome);
+            let (next, _) = update(std::mem::take(state), Msg::SetLastAction(action));
+            *state = next;
+
+            // Per US-06.AC-4 / US-11.AC-1: re-run discover() ONLY for the
+            // affected tool to keep the summary refresh under 500 ms (the
+            // alternative — re-running every plugin's discover() — scales
+            // O(N plugins) and would break the budget once HF/llama-cli
+            // populate). Failures here are logged but non-fatal: the
+            // existing slot stays in place so the UI doesn't go blank.
+            match rt.block_on(refresh::refresh_tool(plugin)) {
+                Ok(view) => {
+                    let (next, _) = update(std::mem::take(state), Msg::RefreshTool(view));
+                    *state = next;
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "modeltap.refresh",
+                        "refresh_tool failed for {}: {e}",
+                        tool_id.0
+                    );
+                }
+            }
         } else {
             // Pathological — UI selected a tool that's not in the plugin set.
             tracing::warn!(target: "modeltap.action.zap", "no plugin for {}", tool_id.0);
         }
+    }
+}
+
+/// Map a `ZapOutcome` to a structured `LastAction` for the right-pane banner.
+/// Bytes-retained is 0 in the WS slice — cross-tool sharing classifier lands
+/// in 03-01.
+fn build_last_action(outcome: &ZapOutcome) -> LastAction {
+    match outcome.outcome {
+        ZapResult::Success => LastAction::for_zap_success(outcome.tool, outcome.bytes_reclaimed, 0),
+        ZapResult::Partial => {
+            // WS slice never produces Partial from a real plugin; render
+            // it as Failed so the user is not misled into thinking a partial
+            // success is reflected. Once 03-03 lands, switch to the proper
+            // Partial constructor with target-error detail.
+            LastAction::for_zap_failed(outcome.tool)
+        }
+        ZapResult::Empty | ZapResult::Failed => LastAction::for_zap_failed(outcome.tool),
     }
 }
 
@@ -159,38 +203,6 @@ fn find_plugin(plugins: &[Box<dyn Tool>], tool_id: ToolId) -> Option<&dyn Tool> 
         .iter()
         .find(|p| p.name().0 == tool_id.0)
         .map(|b| b.as_ref())
-}
-
-fn format_zap_message(outcome: &ZapOutcome) -> String {
-    match outcome.outcome {
-        ZapResult::Success => format!(
-            "Last action: zap {} success — {} models removed, {} freed",
-            outcome.tool.0,
-            outcome.models_removed,
-            format_bytes(outcome.bytes_reclaimed)
-        ),
-        ZapResult::Partial => format!(
-            "Last action: zap {} partial — {} models removed",
-            outcome.tool.0, outcome.models_removed
-        ),
-        ZapResult::Empty => format!(
-            "Last action: zap {} empty — nothing to remove",
-            outcome.tool.0
-        ),
-        ZapResult::Failed => format!("Last action: zap {} failed", outcome.tool.0),
-    }
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
 }
 
 /// One scripted token. Parsed once up-front; resolved to a `Msg` per
