@@ -73,6 +73,19 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             frame.render_widget(Paragraph::new(label), indicator_area);
         }
     }
+
+    // Last-action message footer (US-05 success/cancel/empty banner). Drawn
+    // on the bottom-LEFT row inside the inner area, so it doesn't collide
+    // with the scroll-position indicator on the right.
+    if let Some(message) = &state.last_action_message {
+        if inner_area.height >= 1 {
+            let y = inner_area.y + inner_area.height - 1;
+            let max_w = inner_area.width.saturating_sub(0) as usize;
+            let trimmed: String = message.chars().take(max_w).collect();
+            let area = Rect::new(inner_area.x, y, trimmed.len() as u16, 1);
+            frame.render_widget(Paragraph::new(trimmed), area);
+        }
+    }
 }
 
 fn format_size(bytes: u64) -> String {

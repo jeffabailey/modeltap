@@ -15,6 +15,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod delete;
 pub mod discovery;
 pub mod manifest;
 
@@ -109,9 +110,16 @@ impl Tool for OllamaPlugin {
     }
 
     async fn delete_all(&self) -> Result<Vec<DeleteOutcome>, DeleteError> {
-        Err(DeleteError::NotYetImplemented(
-            "Tool::delete_all arrives in step 03-04".to_string(),
-        ))
+        let root = self.models_root.clone();
+        // The directory walk + unlink loop is sync; wrap in spawn_blocking so
+        // we don't stall the runtime thread (per ADR-005).
+        tokio::task::spawn_blocking(move || delete::delete_all_at(&root))
+            .await
+            .map_err(|join_err| {
+                DeleteError::Io(std::io::Error::other(format!(
+                    "ollama delete_all task panicked: {join_err}"
+                )))
+            })?
     }
 }
 

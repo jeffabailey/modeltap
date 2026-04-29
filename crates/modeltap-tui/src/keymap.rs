@@ -53,6 +53,11 @@ pub const SHORTCUT_TABLE: &[Shortcut] = &[
         msg: Msg::ToggleFocus,
     },
     Shortcut {
+        key: KeyEvent::new(KeyCode::Char('z'), KeyModifiers::NONE),
+        label: "[z] zap tool",
+        msg: Msg::ZapTool,
+    },
+    Shortcut {
         key: KeyEvent::new(KeyCode::Char('q'), KeyModifiers::NONE),
         label: "[q] quit",
         msg: Msg::Quit,
@@ -76,6 +81,25 @@ pub fn dispatch(key: KeyEvent) -> Msg {
         }
     }
     Msg::UnboundKey
+}
+
+/// Translate a `KeyEvent` into a dialog `Msg` while a typed-input dialog is
+/// open. Routes the keys US-05 cares about (printable chars → DialogTextInput,
+/// Backspace → DialogBackspace, Enter → DialogConfirm, Esc → DialogCancel).
+/// Anything else falls through to `dispatch()` so global shortcuts (Ctrl+C)
+/// still work.
+pub fn dispatch_in_dialog(key: KeyEvent) -> Msg {
+    // Global override: Ctrl+C must always interrupt, even with a dialog open.
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return Msg::CtrlC;
+    }
+    match key.code {
+        KeyCode::Esc => Msg::DialogCancel,
+        KeyCode::Enter => Msg::DialogConfirm,
+        KeyCode::Backspace => Msg::DialogBackspace,
+        KeyCode::Char(c) => Msg::DialogTextInput(c),
+        _ => Msg::UnboundKey,
+    }
 }
 
 /// Compare two `KeyEvent`s by code + modifiers (ignoring kind/state, which

@@ -6,6 +6,8 @@
 
 use modeltap_core::{ToolId, ToolStatus};
 
+use crate::dialogs::zap_confirm::ZapConfirmState;
+
 /// Which pane currently has focus. Tab toggles between them.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum FocusPane {
@@ -74,6 +76,17 @@ pub struct AppState {
 
     /// Exit code for `should_quit`. 0 = clean quit, 130 = SIGINT.
     pub exit_code: i32,
+
+    /// `Some(...)` when the zap-confirmation dialog is open (US-05). All
+    /// dialog state mutation flows through `update()`; the render layer reads
+    /// this field and overlays a centered modal when set.
+    pub zap_dialog: Option<ZapConfirmState>,
+
+    /// Last user-visible action message for the right pane footer (e.g.,
+    /// "zap ollama: success — 4 models removed, 12.8 GB freed"). Set by
+    /// `update()` when an action effect completes; cleared on the next
+    /// non-action message.
+    pub last_action_message: Option<String>,
 }
 
 impl Default for AppState {
@@ -87,6 +100,8 @@ impl Default for AppState {
             focus: FocusPane::Left,
             should_quit: false,
             exit_code: 0,
+            zap_dialog: None,
+            last_action_message: None,
         }
     }
 }
@@ -109,6 +124,8 @@ impl AppState {
             focus: FocusPane::Left,
             should_quit: false,
             exit_code: 0,
+            zap_dialog: None,
+            last_action_message: None,
         }
     }
 

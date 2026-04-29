@@ -2,9 +2,12 @@
 //!
 //! `update(state, msg) -> (state, effect)` is a pure function — no I/O, no
 //! mutation of inputs, no clocks. The composition root interprets the
-//! returned `UpdateEffect` (write JSONL events, exit, etc.).
+//! returned `UpdateEffect` (write JSONL events, exit, dispatch zap-all, etc.).
+
+use modeltap_core::ToolId;
 
 use crate::app_state::{AppState, FocusPane};
+use crate::dialogs::zap_confirm::{ZapConfirmState, ZapDecision};
 use crate::msg::Msg;
 
 /// Side-effects the composition root must perform after this update. The
@@ -15,6 +18,12 @@ pub struct UpdateEffect {
     /// event before exiting. True ONLY for `Msg::Quit` (NOT for Ctrl+C —
     /// per the master-acceptance KPI invariant).
     pub emit_launch_ended: bool,
+
+    /// When `Some(tool_id)`, the user has confirmed the zap action for that
+    /// tool (typed name matched). The composition root invokes
+    /// `actions::zap::run` to call `Tool::delete_all` and emit the
+    /// `action.zap_all` JSONL event.
+    pub trigger_zap: Option<ToolId>,
 }
 
 /// Pure transition. Takes ownership of `state` and returns the next state.
@@ -28,6 +37,7 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             },
             UpdateEffect {
                 emit_launch_ended: true,
+                trigger_zap: None,
             },
         ),
         Msg::CtrlC => (
@@ -36,9 +46,7 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
                 exit_code: 130,
                 ..state
             },
-            UpdateEffect {
-                emit_launch_ended: false,
-            },
+            UpdateEffect::default(),
         ),
         Msg::SelectNextTool => (advance_tool(state, 1), UpdateEffect::default()),
         Msg::SelectPrevTool => (advance_tool(state, -1), UpdateEffect::default()),
@@ -54,6 +62,17 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             },
             UpdateEffect::default(),
         ),
+        Msg::ZapTool => (open_zap_dialog(state), UpdateEffect::default()),
+        Msg::DialogTextInput(c) => (
+            mutate_dialog(state, |d| d.handle_char(c)),
+            UpdateEffect::default(),
+        ),
+        Msg::DialogBackspace => (
+            mutate_dialog(state, |d| d.handle_backspace()),
+            UpdateEffect::default(),
+        ),
+        Msg::DialogConfirm => decide_dialog(state, DialogKey::Enter),
+        Msg::DialogCancel => decide_dialog(state, DialogKey::Esc),
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
 }
@@ -110,4 +129,75 @@ fn compute_scroll_offset(selected: usize, current_offset: usize, visible: usize)
         return selected + 1 - visible;
     }
     current_offset
+}
+
+/// Open the zap-confirm dialog snapshot for the currently-selected tool. The
+/// classifier (unique-vs-shared) is computed conservatively from the local
+/// `AppState` view: every model is treated as unique because the WS slice
+/// has no cross-tool inventory yet (one-tool-installed scenario), which is
+/// safe per ADR-002 §"Conservative deletion" — any uncertainty defaults to
+/// "unique" (the more cautious estimate).
+fn open_zap_dialog(state: AppState) -> AppState {
+    let dialog = match state.current_tool() {
+        Some(tool) => {
+            let total = tool.total_bytes();
+            ZapConfirmState::for_tool(tool.tool, tool.model_ids.len(), total, total, 0)
+        }
+        // No tool selected (pathological — `tools` is empty). Open a benign
+        // empty-mode dialog so the user can dismiss with Esc.
+        None => ZapConfirmState::for_tool(ToolId(""), 0, 0, 0, 0),
+    };
+    AppState {
+        zap_dialog: Some(dialog),
+        ..state
+    }
+}
+
+/// Apply an in-place mutation to the open zap dialog (if any). When no
+/// dialog is open, the message is silently ignored (defense in depth — the
+/// keymap routes dialog keys only when a dialog is open, but a stray test
+/// `Msg::DialogTextInput` would otherwise produce a confusing panic).
+fn mutate_dialog<F>(mut state: AppState, f: F) -> AppState
+where
+    F: FnOnce(&mut ZapConfirmState),
+{
+    if let Some(dialog) = state.zap_dialog.as_mut() {
+        f(dialog);
+    }
+    state
+}
+
+/// Which key triggered the dialog decision. Determines whether `decide_on_enter`
+/// or `decide_on_esc` is called.
+enum DialogKey {
+    Enter,
+    Esc,
+}
+
+/// Resolve a dialog Confirm/Cancel decision. On Confirm with a non-empty
+/// tool, emit `trigger_zap` so the composition root invokes `delete_all`.
+/// In every case, close the dialog.
+fn decide_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffect) {
+    let Some(dialog) = &state.zap_dialog else {
+        return (state, UpdateEffect::default());
+    };
+    let decision = match key {
+        DialogKey::Enter => dialog.decide_on_enter(),
+        DialogKey::Esc => dialog.decide_on_esc(),
+    };
+    let trigger_zap = match decision {
+        ZapDecision::Confirm if !dialog.is_empty_tool() => Some(dialog.tool),
+        _ => None,
+    };
+    let next_state = AppState {
+        zap_dialog: None,
+        ..state
+    };
+    (
+        next_state,
+        UpdateEffect {
+            emit_launch_ended: false,
+            trigger_zap,
+        },
+    )
 }

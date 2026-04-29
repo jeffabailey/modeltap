@@ -14,6 +14,7 @@
 #![forbid(unsafe_code)]
 
 pub mod app_state;
+pub mod dialogs;
 pub mod keymap;
 pub mod layout;
 pub mod msg;

@@ -24,6 +24,28 @@ pub enum Msg {
     SelectPrevRow,
     /// Tab — toggle focus between left and right panes.
     ToggleFocus,
+
+    // -----------------------------------------------------------------------
+    // US-05 zap-all dialog. The dialog state machine lives in
+    // `dialogs::zap_confirm`; these variants are how the keymap drives it
+    // through `update()`.
+    // -----------------------------------------------------------------------
+    /// User pressed `z`. Open the zap-confirmation dialog for the
+    /// currently-selected tool. No payload — `update()` reads the selection
+    /// from `AppState`.
+    ZapTool,
+    /// One printable character pressed while a typed-input dialog is open.
+    /// Appended to the dialog's input buffer.
+    DialogTextInput(char),
+    /// Backspace pressed while a typed-input dialog is open. Removes the
+    /// last character from the dialog's input buffer (no-op when empty).
+    DialogBackspace,
+    /// Enter pressed while a dialog is open. The dialog's `decide_on_enter`
+    /// determines confirm-vs-cancel.
+    DialogConfirm,
+    /// Esc pressed while a dialog is open. Always cancels per US-05 AC-3.
+    DialogCancel,
+
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,
 }

@@ -48,6 +48,15 @@ pub enum RecordKind {
         format_locked_count: u64,
         tool_errors: Vec<String>,
     },
+    /// Result of a confirmed zap-all action (US-05). Per the privacy rule
+    /// (`kpi-instrumentation.md` §"Privacy"): NO model names, NO paths, NO
+    /// usernames — only tool name + aggregate counts.
+    ActionZapAll {
+        tool: String,
+        models_removed: u64,
+        bytes_reclaimed: u64,
+        outcome: &'static str,
+    },
 }
 
 pub struct LaunchLogger {
@@ -131,6 +140,19 @@ impl LaunchLogger {
                 env["dedupable_count"] = json!(dedupable_count);
                 env["format_locked_count"] = json!(format_locked_count);
                 env["tool_errors"] = json!(tool_errors);
+                env
+            }
+            RecordKind::ActionZapAll {
+                tool,
+                models_removed,
+                bytes_reclaimed,
+                outcome,
+            } => {
+                let mut env = self.base_envelope("action.zap_all");
+                env["tool"] = json!(tool);
+                env["models_removed"] = json!(models_removed);
+                env["bytes_reclaimed"] = json!(bytes_reclaimed);
+                env["outcome"] = json!(outcome);
                 env
             }
         };

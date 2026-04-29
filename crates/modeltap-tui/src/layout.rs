@@ -10,7 +10,7 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::Frame;
 
 use crate::app_state::AppState;
-use crate::render::{bottom_bar, left_pane, right_pane};
+use crate::render::{bottom_bar, left_pane, right_pane, zap_dialog};
 
 /// Returned when the terminal is narrower than the minimum width on startup
 /// (US-01 AC-4). The composition root prints this to stderr and exits 2.
@@ -62,4 +62,10 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
     left_pane::render(frame, panes[0], state);
     right_pane::render(frame, panes[1], state);
     bottom_bar::render(frame, chunks[1]);
+
+    // Modal dialogs render LAST so they overlay the panes (US-05). The
+    // dialog reads `state.zap_dialog` (Option) — when None, this is a no-op.
+    if let Some(dialog) = state.zap_dialog.as_ref() {
+        zap_dialog::render(frame, area, dialog);
+    }
 }

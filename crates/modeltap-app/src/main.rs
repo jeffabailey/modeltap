@@ -5,6 +5,7 @@
 //! interactive event loop alongside the headless variant. Both paths use
 //! the same pure `update()` and `view()`.
 
+mod actions;
 mod discovery;
 mod headless;
 mod observability;
@@ -76,9 +77,16 @@ fn main() -> ExitCode {
         }
     };
 
-    let plugins = registry::collect_plugins();
+    // Construct two independent plugin sets via the factory iterator: one is
+    // consumed by `run_discovery` (each handle moves into its tokio task),
+    // the other is retained for action dispatch (zap-all et al.) so we don't
+    // need to re-resurrect plugins after discovery returns. Plugin
+    // constructors are stateless w.r.t. each other, so two instances are
+    // semantically equivalent to one (per ADR-001).
+    let plugins_for_discovery = registry::collect_plugins();
+    let plugins_for_actions = registry::collect_plugins();
     let inventory_start = Instant::now();
-    let summary: InventorySummary = runtime.block_on(run_discovery(plugins));
+    let summary: InventorySummary = runtime.block_on(run_discovery(plugins_for_discovery));
     let full_inventory_ms = inventory_start.elapsed().as_millis() as u64;
 
     let model_count = summary.total_models();
@@ -104,7 +112,7 @@ fn main() -> ExitCode {
             input: std::env::var("MODELTAP_HEADLESS_INPUT").unwrap_or_default(),
             quit_after_paint: cli.quit_after_paint,
         };
-        let exit = headless::run(config, initial_state, logger);
+        let exit = headless::run(config, initial_state, logger, plugins_for_actions);
         return ExitCode::from(exit as u8);
     }
 

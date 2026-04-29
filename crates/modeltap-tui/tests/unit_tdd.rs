@@ -78,6 +78,7 @@ fn quit_message_marks_clean_exit_and_emits_launch_ended() {
         effect,
         UpdateEffect {
             emit_launch_ended: true,
+            ..UpdateEffect::default()
         },
         "Quit must emit launch.ended event"
     );
@@ -108,6 +109,7 @@ fn ctrl_c_message_marks_signal_exit_and_does_not_emit_launch_ended() {
         effect,
         UpdateEffect {
             emit_launch_ended: false,
+            ..UpdateEffect::default()
         },
         "CtrlC must NOT emit launch.ended (per master-acceptance KPI invariant)"
     );

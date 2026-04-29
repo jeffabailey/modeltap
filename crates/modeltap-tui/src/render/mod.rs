@@ -8,3 +8,4 @@
 pub mod bottom_bar;
 pub mod left_pane;
 pub mod right_pane;
+pub mod zap_dialog;
