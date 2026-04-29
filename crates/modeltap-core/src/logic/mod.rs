@@ -5,4 +5,5 @@
 //! so calling them directly in tests IS port-to-port testing per the
 //! `nw-tdd-methodology` convention).
 
+pub mod compatibility;
 pub mod dedup;

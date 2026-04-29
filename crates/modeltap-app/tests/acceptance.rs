@@ -13,6 +13,7 @@ mod acceptance {
     pub mod us_05_zap_all;
     pub mod us_06_post_action_message;
     pub mod us_07_discover_llama_cli;
+    pub mod us_09_compatibility_engine;
     pub mod us_12_discover_hf;
     pub mod us_15_discover_lm_studio;
 }

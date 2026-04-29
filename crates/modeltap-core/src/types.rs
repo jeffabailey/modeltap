@@ -26,7 +26,7 @@ use thiserror::Error;
 /// Used as the key for the left-pane selection and the Zap typed-confirmation
 /// string. Newtype around `&'static str` so plugin authors cannot accidentally
 /// construct one from runtime data.
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
 pub struct ToolId(pub &'static str);
 
 impl std::fmt::Display for ToolId {

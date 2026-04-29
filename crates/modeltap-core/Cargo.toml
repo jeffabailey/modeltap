@@ -26,3 +26,8 @@ inventory = "0.3"
 
 # Architecture rule R1: no plugin crate may appear here. Mechanically enforced
 # in step 01-02 by the architecture rule test (see devops/ci-pipeline.md §4).
+
+[dev-dependencies]
+# Property-based testing for the compatibility-indicator engine invariant
+# (US-09 @property scenario). Used by tests/compatibility_property.rs.
+proptest = "1"
