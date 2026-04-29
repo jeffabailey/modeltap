@@ -6,7 +6,7 @@
 
 use modeltap_core::ToolId;
 
-use crate::app_state::{AppState, FocusPane};
+use crate::app_state::{AppState, FocusPane, Screen};
 use crate::dialogs::zap_confirm::{ZapConfirmState, ZapDecision};
 use crate::msg::Msg;
 
@@ -93,6 +93,20 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             UpdateEffect::default(),
         ),
         Msg::RefreshTool(view) => (replace_tool_slot(state, view), UpdateEffect::default()),
+        Msg::OpenDetail(detail) => (
+            AppState {
+                current_screen: Screen::Detail(detail),
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        Msg::CloseDetail => (
+            AppState {
+                current_screen: Screen::Main,
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
 }

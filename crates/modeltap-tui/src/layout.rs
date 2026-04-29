@@ -9,8 +9,9 @@ use modeltap_core::MIN_TERMINAL_COLUMNS;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::Frame;
 
-use crate::app_state::AppState;
+use crate::app_state::{AppState, Screen};
 use crate::render::{bottom_bar, left_pane, right_pane, summary_bar, zap_dialog};
+use crate::screens::detail::render_detail;
 
 /// Returned when the terminal is narrower than the minimum width on startup
 /// (US-01 AC-4). The composition root prints this to stderr and exits 2.
@@ -45,10 +46,22 @@ pub fn check_terminal_width(actual: u16) -> Result<(), TerminalSizeError> {
     Ok(())
 }
 
-/// Top-level pure view function. Splits the screen into the two-pane main
-/// area + a one-row summary bar (US-06) + the one-row shortcut bar.
+/// Top-level pure view function. Dispatches on `state.current_screen`:
+///
+/// - `Screen::Main` — two-pane discovery view + summary bar + shortcut bar.
+/// - `Screen::Detail(...)` — per-model detail screen (US-13). The detail
+///   screen owns its own bottom bar; we do not render the main shortcut bar
+///   while the detail screen is active.
 pub fn view(state: &AppState, frame: &mut Frame<'_>) {
     let area = frame.area();
+
+    match &state.current_screen {
+        Screen::Main => view_main(state, frame, area),
+        Screen::Detail(detail) => render_detail(frame, area, detail),
+    }
+}
+
+fn view_main(state: &AppState, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     // Vertical split: main panes (Min 1) | summary bar (1 row) | shortcut bar (1 row).
     let chunks = Layout::default()
         .direction(Direction::Vertical)

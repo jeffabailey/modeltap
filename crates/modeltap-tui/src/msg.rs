@@ -8,6 +8,7 @@
 use modeltap_core::domain::last_action::LastAction;
 
 use crate::app_state::ToolView;
+use crate::screens::detail::DetailScreenState;
 
 /// All the messages that can drive `update()`. Step 01-03 covers keyboard
 /// navigation; later steps add discovery-progress, action-completion, and
@@ -62,6 +63,18 @@ pub enum Msg {
     /// under 500 ms by NOT re-running every plugin's discover()). `update()`
     /// replaces the matching `ToolView` slot in `AppState.tools`.
     RefreshTool(ToolView),
+
+    // -----------------------------------------------------------------------
+    // US-13 per-model detail screen.
+    // -----------------------------------------------------------------------
+    /// User pressed Enter on a model row in the main view. The composition
+    /// root has assembled the `DetailScreenState` (with cross-tool registrations
+    /// and an optional already-cached SHA-256). `update()` writes
+    /// `current_screen = Screen::Detail(...)`.
+    OpenDetail(DetailScreenState),
+    /// User pressed Esc while on the detail screen. `update()` writes
+    /// `current_screen = Screen::Main` and preserves the prior selection.
+    CloseDetail,
 
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,

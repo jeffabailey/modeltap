@@ -20,9 +20,10 @@ pub mod layout;
 pub mod msg;
 pub mod panic_hook;
 pub mod render;
+pub mod screens;
 pub mod update;
 
-pub use app_state::{AppState, FocusPane, ToolView};
+pub use app_state::{AppState, FocusPane, Screen, ToolView};
 pub use layout::{check_terminal_width, view, TerminalSizeError};
 pub use msg::Msg;
 pub use panic_hook::install_panic_hook;

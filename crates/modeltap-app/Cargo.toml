@@ -55,6 +55,9 @@ clap = { workspace = true }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
 
+# SHA-256 streaming (per ADR-002, US-13).
+sha2 = { workspace = true }
+
 [dev-dependencies]
 assert_cmd = { workspace = true }
 predicates = { workspace = true }

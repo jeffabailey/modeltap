@@ -11,3 +11,4 @@
 #![forbid(unsafe_code)]
 
 pub mod refresh;
+pub mod sha256_cache;

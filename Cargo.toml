@@ -43,6 +43,9 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 # CLI parsing
 clap = { version = "4", features = ["derive", "env"] }
 
+# SHA-256 streaming (per ADR-002)
+sha2 = "0.10"
+
 # Test deps
 assert_cmd = "2"
 predicates = "3"

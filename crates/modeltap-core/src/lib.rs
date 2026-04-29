@@ -16,6 +16,7 @@
 pub mod domain;
 pub mod logic;
 pub mod plugin_factory;
+pub mod ports;
 pub mod tool;
 pub mod types;
 

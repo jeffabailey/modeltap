@@ -8,6 +8,23 @@ use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{ToolId, ToolStatus};
 
 use crate::dialogs::zap_confirm::ZapConfirmState;
+use crate::screens::detail::DetailScreenState;
+
+/// Top-level screen the TUI is currently displaying. The `view()` function in
+/// `layout.rs` dispatches on this enum to the appropriate render path:
+///
+/// - `Main` — the two-pane discovery view (left: tools, right: rows).
+/// - `Detail(state)` — the per-model detail screen (US-13).
+///
+/// Per ADR-006, screen state is pure data inside `AppState`. Screen
+/// transitions are dispatched by `Msg::OpenDetail(...)` / `Msg::CloseDetail`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Screen {
+    /// The default two-pane discovery view.
+    Main,
+    /// The per-model detail screen (US-13).
+    Detail(DetailScreenState),
+}
 
 /// Which pane currently has focus. Tab toggles between them.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -91,6 +108,11 @@ pub struct AppState {
     ///
     /// In-memory only (per intake Q7) — lost on restart. No persistent state.
     pub last_action: Option<LastAction>,
+
+    /// Top-level screen currently displayed. Default `Screen::Main`. Set to
+    /// `Screen::Detail(...)` by `Msg::OpenDetail` and reset to `Screen::Main`
+    /// by `Msg::CloseDetail` (US-13).
+    pub current_screen: Screen,
 }
 
 impl Default for AppState {
@@ -106,6 +128,7 @@ impl Default for AppState {
             exit_code: 0,
             zap_dialog: None,
             last_action: None,
+            current_screen: Screen::Main,
         }
     }
 }
@@ -130,6 +153,7 @@ impl AppState {
             exit_code: 0,
             zap_dialog: None,
             last_action: None,
+            current_screen: Screen::Main,
         }
     }
 
