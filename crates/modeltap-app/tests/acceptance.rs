@@ -7,4 +7,5 @@
 
 mod acceptance {
     pub mod us_01_launch_quit;
+    pub mod us_02_discover_ollama;
 }

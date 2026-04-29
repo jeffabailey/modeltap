@@ -4,8 +4,8 @@ members = [
     "crates/modeltap-core",
     "crates/modeltap-tui",
     "crates/modeltap-app",
+    "plugins/ollama",
 ]
-# plugins/* will be declared once 01-02 introduces the first concrete plugin crate.
 
 [workspace.package]
 version = "0.1.0"

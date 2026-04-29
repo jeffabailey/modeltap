@@ -18,11 +18,36 @@ use ulid::Ulid;
 
 const SCHEMA: &str = "modeltap.launch.v1";
 
-/// What an event records. Step 01-01 needs only Started/Ended; later steps
-/// add launch.timing, launch.inventory, action.* per kpi-instrumentation.md.
+/// What an event records. Step 01-01 needs only Started/Ended; step 01-02
+/// adds launch.timing + launch.inventory per kpi-instrumentation.md §3.
+///
+/// All variants share the `Launch` prefix because every event in this enum
+/// is a `launch.*` JSONL event per the v1 schema. The shared prefix is part
+/// of the schema vocabulary, not a code smell.
+#[allow(clippy::enum_variant_names)]
 pub enum RecordKind {
     LaunchStarted,
     LaunchEnded,
+    /// Per-plugin discovery timings. The K3 KPI is computed from this event's
+    /// `process_start_to_first_paint_ms` field; for now we emit a minimal
+    /// shape with `plugin_timings_ms`. Other K3 fields land when the
+    /// production loop is built in 01-03.
+    LaunchTiming {
+        plugin_timings_ms: Vec<(String, u64)>,
+        full_inventory_ms: u64,
+        model_count: u64,
+    },
+    /// Cross-tool inventory summary. Per the acceptance test plan + AC-3 the
+    /// event is emitted EVEN when totals are zero and EVEN when one or more
+    /// plugins errored. Schema is intentionally a superset of the v1 spec
+    /// (see kpi-instrumentation.md §3) — extra fields are forward-compatible.
+    LaunchInventory {
+        total_models: u64,
+        total_disk_usage_bytes: u64,
+        dedupable_count: u64,
+        format_locked_count: u64,
+        tool_errors: Vec<String>,
+    },
 }
 
 pub struct LaunchLogger {
@@ -75,18 +100,40 @@ impl LaunchLogger {
         let Some(path) = self.log_path.clone() else {
             return;
         };
-        let event = match kind {
-            RecordKind::LaunchStarted => "launch.started",
-            RecordKind::LaunchEnded => "launch.ended",
+        let payload = match kind {
+            RecordKind::LaunchStarted => self.base_envelope("launch.started"),
+            RecordKind::LaunchEnded => self.base_envelope("launch.ended"),
+            RecordKind::LaunchTiming {
+                plugin_timings_ms,
+                full_inventory_ms,
+                model_count,
+            } => {
+                let mut env = self.base_envelope("launch.timing");
+                let timings_obj: serde_json::Map<String, serde_json::Value> = plugin_timings_ms
+                    .into_iter()
+                    .map(|(k, v)| (k, serde_json::Value::from(v)))
+                    .collect();
+                env["plugin_timings_ms"] = serde_json::Value::Object(timings_obj);
+                env["full_inventory_ms"] = json!(full_inventory_ms);
+                env["model_count"] = json!(model_count);
+                env
+            }
+            RecordKind::LaunchInventory {
+                total_models,
+                total_disk_usage_bytes,
+                dedupable_count,
+                format_locked_count,
+                tool_errors,
+            } => {
+                let mut env = self.base_envelope("launch.inventory");
+                env["total_models"] = json!(total_models);
+                env["total_disk_usage_bytes"] = json!(total_disk_usage_bytes);
+                env["dedupable_count"] = json!(dedupable_count);
+                env["format_locked_count"] = json!(format_locked_count);
+                env["tool_errors"] = json!(tool_errors);
+                env
+            }
         };
-        let payload = json!({
-            "schema": SCHEMA,
-            "ts": current_timestamp(),
-            "session_id": self.session_id,
-            "event": event,
-            "modeltap_version": env!("CARGO_PKG_VERSION"),
-            "platform": platform_triplet(),
-        });
         let mut serialized = payload.to_string();
         serialized.push('\n');
         let result = OpenOptions::new()
@@ -97,6 +144,17 @@ impl LaunchLogger {
         if result.is_err() && !self.warned_unwritable {
             self.warn_and_disable(&path);
         }
+    }
+
+    fn base_envelope(&self, event: &str) -> serde_json::Value {
+        json!({
+            "schema": SCHEMA,
+            "ts": current_timestamp(),
+            "session_id": self.session_id,
+            "event": event,
+            "modeltap_version": env!("CARGO_PKG_VERSION"),
+            "platform": platform_triplet(),
+        })
     }
 
     pub fn path(&self) -> Option<&Path> {

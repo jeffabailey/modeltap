@@ -18,6 +18,14 @@ path = "src/main.rs"
 modeltap-core = { path = "../modeltap-core" }
 modeltap-tui = { path = "../modeltap-tui" }
 
+# Plugin crates are linked into the binary at the composition root so their
+# `inventory::submit!` blocks are pulled in. Per ADR-001, modeltap-app is the
+# ONLY place that knows the concrete plugin set.
+modeltap-plugin-ollama = { path = "../../plugins/ollama" }
+
+# Plugin discovery via `inventory::iter`.
+inventory = "0.3"
+
 # Async runtime (per ADR-005).
 tokio = { workspace = true }
 

@@ -11,15 +11,19 @@
 //!   loop is the same `update()`/`view()` pair under a CrosstermBackend, added
 //!   once there is more than the empty pane to render).
 
+mod discovery;
 mod headless;
 mod observability;
+mod registry;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::Instant;
 
 use clap::Parser;
 use modeltap_tui::{check_terminal_width, install_panic_hook};
 
+use crate::discovery::{run_discovery, InventorySummary};
 use crate::headless::HeadlessConfig;
 use crate::observability::{LaunchLogger, RecordKind};
 
@@ -61,6 +65,43 @@ fn main() -> ExitCode {
         eprintln!("{}", err);
         return ExitCode::from(2);
     }
+
+    // Per ADR-005 plugin discovery runs on tokio. Build a multi-thread
+    // runtime so each plugin's `discover()` can run on its own task and
+    // a slow plugin doesn't block the others.
+    let runtime = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("modeltap: failed to construct tokio runtime: {e}");
+            return ExitCode::from(1);
+        }
+    };
+
+    let plugins = registry::collect_plugins();
+    let inventory_start = Instant::now();
+    let summary: InventorySummary = runtime.block_on(run_discovery(plugins));
+    let full_inventory_ms = inventory_start.elapsed().as_millis() as u64;
+
+    // Emit the launch.timing + launch.inventory JSONL events BEFORE rendering
+    // — per AC-6 the launch.timing event records the wall time from process
+    // start to "all discovered" and is part of the K3 instrumentation. AC-3
+    // requires launch.inventory to be emitted EVEN when totals are zero.
+    let model_count = summary.total_models();
+    logger.record(RecordKind::LaunchTiming {
+        plugin_timings_ms: summary.plugin_timings_ms(),
+        full_inventory_ms,
+        model_count,
+    });
+    logger.record(RecordKind::LaunchInventory {
+        total_models: model_count,
+        total_disk_usage_bytes: summary.total_disk_usage_bytes(),
+        dedupable_count: summary.dedupable_count(),
+        format_locked_count: summary.format_locked_count(),
+        tool_errors: summary.tool_errors(),
+    });
 
     if headless {
         let config = HeadlessConfig {

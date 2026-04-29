@@ -1,0 +1,41 @@
+[package]
+name = "modeltap-plugin-ollama"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ollama plugin for modeltap (per ADR-001)."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+modeltap-core = { path = "../../crates/modeltap-core" }
+
+# ADR-001: object-safe async trait for `Tool`.
+async-trait = "0.1"
+
+# ADR-005: tokio runtime; this plugin uses tokio::fs and spawn_blocking for
+# the manifest walk to keep the K3 < 1 s budget.
+tokio = { workspace = true }
+
+# Manifest parsing.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Errors.
+thiserror = { workspace = true }
+
+# Filesystem walk.
+walkdir = "2"
+
+# Plugin registration (per ADR-001).
+inventory = "0.3"
+
+# Diagnostic logging (per AC-4 — plugin warnings go to diagnostics.log).
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

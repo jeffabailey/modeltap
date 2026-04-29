@@ -45,10 +45,12 @@ pub fn check_terminal_width(actual: u16) -> Result<(), TerminalSizeError> {
     Ok(())
 }
 
-/// Render the two-pane scaffold. Step 01-01 only needs the empty layout —
-/// step 01-02 fills the right pane with discovered models. The bottom bar
-/// is always present (US-08 AC-1) and matches the canonical `MAIN_BOTTOM_BAR`
-/// (US-01 AC-6).
+/// Render the two-pane scaffold. Step 01-02 wires plugin discovery in the
+/// composition root and emits launch.timing/inventory JSONL events; the
+/// right-pane row rendering for the discovered models lands in step 01-03
+/// once `AppState` carries the inventory and arrow-key selection exists.
+/// The bottom bar is always present (US-08 AC-1) and matches the canonical
+/// `MAIN_BOTTOM_BAR` (US-01 AC-6).
 pub fn view(state: &AppState, frame: &mut Frame<'_>) {
     let area = frame.area();
     let chunks = Layout::default()
@@ -71,8 +73,11 @@ fn render_panes(frame: &mut Frame<'_>, area: Rect) {
         .split(area);
 
     let left = Paragraph::new("Tools").block(Block::default().borders(Borders::ALL).title("Tools"));
-    let right = Paragraph::new("discovering...")
-        .block(Block::default().borders(Borders::ALL).title("Models"));
+    // Models are discovered at startup (see modeltap-app/src/discovery.rs)
+    // but the inventory has not yet been threaded into AppState — that is
+    // step 01-03's work, where arrow-key selection determines which tool's
+    // models are shown. For 01-02 the right pane intentionally remains empty.
+    let right = Paragraph::new("").block(Block::default().borders(Borders::ALL).title("Models"));
 
     frame.render_widget(left, split[0]);
     frame.render_widget(right, split[1]);

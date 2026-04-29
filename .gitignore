@@ -29,3 +29,6 @@ Desktop.ini
 # insta pending snapshots
 **/*.snap.new
 **/.pending-snap
+
+# Generated fixture trees (rebuilt from tests/fixtures/build.sh)
+tests/fixtures/.build/
