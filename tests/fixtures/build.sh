@@ -221,6 +221,67 @@ build_devon_llama_cli_extra() {
   write_gguf "$root/data/models/extra.gguf" "llama" 2
 }
 
+build_devon_hf_cache() {
+  # Standalone Hugging Face cache fixture for US-12 acceptance + plugin
+  # contract tests. Mirrors the HF hub layout:
+  #
+  #   <root>/hub/
+  #     models--meta-llama--Llama-3-8B/
+  #       blobs/<sha256>                            ← real sparse files
+  #       snapshots/<rev-sha>/
+  #         model.safetensors  → ../../blobs/<sha-A>   (relative symlink)
+  #         config.json        → ../../blobs/<sha-B>
+  #       refs/main                                 ← text holding <rev-sha>
+  #     models--mistralai--Mistral-7B-v0.3/
+  #       blobs/<sha256>
+  #       snapshots/<rev-sha>/model.gguf → ../../blobs/<sha-C>
+  #     models--corrupt-org--corrupt-repo/
+  #       blobs/  (empty — broken symlink targets a missing blob)
+  #       snapshots/<rev-sha>/model.bin → ../../blobs/<sha-MISSING>
+  #
+  # AC-4 (format inference) is exercised via the .safetensors + .gguf + .bin
+  # mix. AC-5 (broken symlink) is exercised by the corrupt-org entry.
+  local root="$1"
+  rm -rf "$root"
+  local hub="$root/hub"
+
+  # Model 1: meta-llama/Llama-3-8B with a .safetensors snapshot (healthy).
+  local m1="$hub/models--meta-llama--Llama-3-8B"
+  local rev1="abc123def4567890abc123def4567890abc12345"
+  local blob1a="aaaa1111111111111111111111111111111111111111111111111111111111aa"
+  local blob1b="bbbb2222222222222222222222222222222222222222222222222222222222bb"
+  mkdir -p "$m1/blobs"
+  mkdir -p "$m1/snapshots/$rev1"
+  mkdir -p "$m1/refs"
+  sparse_file "$m1/blobs/$blob1a" 16000000000   # 16 GB sparse "model" blob
+  sparse_file "$m1/blobs/$blob1b" 4096          # 4 KB config blob
+  ( cd "$m1/snapshots/$rev1" && ln -sf "../../blobs/$blob1a" "model.safetensors" )
+  ( cd "$m1/snapshots/$rev1" && ln -sf "../../blobs/$blob1b" "config.json" )
+  printf '%s' "$rev1" > "$m1/refs/main"
+
+  # Model 2: mistralai/Mistral-7B-v0.3 with a .gguf snapshot (healthy).
+  local m2="$hub/models--mistralai--Mistral-7B-v0.3"
+  local rev2="987654321098765432109876543210987654abcd"
+  local blob2="cccc3333333333333333333333333333333333333333333333333333333333cc"
+  mkdir -p "$m2/blobs"
+  mkdir -p "$m2/snapshots/$rev2"
+  mkdir -p "$m2/refs"
+  sparse_file "$m2/blobs/$blob2" 4400000000     # 4.4 GB
+  ( cd "$m2/snapshots/$rev2" && ln -sf "../../blobs/$blob2" "model.gguf" )
+  printf '%s' "$rev2" > "$m2/refs/main"
+
+  # Model 3: corrupt-org/corrupt-repo with a BROKEN snapshot symlink.
+  local m3="$hub/models--corrupt-org--corrupt-repo"
+  local rev3="deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+  local blob3_missing="9999999999999999999999999999999999999999999999999999999999999999"
+  mkdir -p "$m3/blobs"
+  mkdir -p "$m3/snapshots/$rev3"
+  mkdir -p "$m3/refs"
+  # Snapshot points at a blob that does NOT exist.
+  ( cd "$m3/snapshots/$rev3" && ln -sf "../../blobs/$blob3_missing" "model.bin" )
+  printf '%s' "$rev3" > "$m3/refs/main"
+}
+
 build_devon_long_list() {
   # 31 distinct Ollama manifest entries — enough to exercise right-pane
   # scroll position indicator (US-03 "Down Arrow scrolls a long model list").
@@ -251,6 +312,7 @@ case "$NAME" in
   devon-long-list)          build_devon_long_list "$TARGET" ;;
   devon-llama-cli)          build_devon_llama_cli "$TARGET" ;;
   devon-llama-cli-extra)    build_devon_llama_cli_extra "$TARGET" ;;
+  devon-hf-cache)           build_devon_hf_cache "$TARGET" ;;
   all)
     build_devon_only_ollama "tests/fixtures/.build/devon-only-ollama"
     build_devon_multi_tool "tests/fixtures/.build/devon-multi-tool"
@@ -258,6 +320,7 @@ case "$NAME" in
     build_devon_long_list "tests/fixtures/.build/devon-long-list"
     build_devon_llama_cli "tests/fixtures/.build/devon-llama-cli"
     build_devon_llama_cli_extra "tests/fixtures/.build/devon-llama-cli-extra"
+    build_devon_hf_cache "tests/fixtures/.build/devon-hf-cache"
     ;;
   *)
     echo "unknown fixture: $NAME" >&2

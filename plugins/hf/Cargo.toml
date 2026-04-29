@@ -5,12 +5,32 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Hugging Face plugin stub for modeltap (per ADR-001). Filled in step 02-03."
+description = "Hugging Face cache plugin for modeltap (per ADR-001). Walks ~/.cache/huggingface/hub/ snapshot symlinks."
 
 [lints.rust]
 unsafe_code = "forbid"
 
 [dependencies]
 modeltap-core = { path = "../../crates/modeltap-core" }
+
+# ADR-001: object-safe async trait for `Tool`.
 async-trait = "0.1"
+
+# ADR-005: tokio runtime; plugin uses spawn_blocking for the directory walk.
+tokio = { workspace = true }
+
+# Errors (per ADR-007).
+thiserror = { workspace = true }
+
+# Filesystem walk (recursive).
+walkdir = "2"
+
+# Plugin registration (per ADR-001).
 inventory = "0.3"
+
+# Diagnostic logging.
+tracing = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
