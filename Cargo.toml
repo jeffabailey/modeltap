@@ -1,0 +1,47 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/modeltap-core",
+    "crates/modeltap-tui",
+    "crates/modeltap-app",
+]
+# plugins/* will be declared once 01-02 introduces the first concrete plugin crate.
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/jeffabailey/modeltap"
+
+[workspace.dependencies]
+# Core (per ADR-007: thiserror in domain)
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
+
+# TUI (per ADR-006)
+ratatui = "0.28"
+crossterm = "0.28"
+
+# Async (per ADR-005)
+tokio = { version = "1", features = ["rt-multi-thread", "fs", "macros", "sync", "time", "signal"] }
+
+# Edges (per ADR-007)
+anyhow = "1"
+
+# Observability (per devops/kpi-instrumentation.md)
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+tracing-appender = "0.2"
+serde_json = "1"
+ulid = "1"
+time = { version = "0.3", features = ["formatting", "macros"] }
+
+# CLI parsing
+clap = { version = "4", features = ["derive", "env"] }
+
+# Test deps
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+insta = { version = "1", features = ["yaml"] }

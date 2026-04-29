@@ -1,0 +1,46 @@
+[package]
+name = "modeltap-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Composition root and main() for modeltap. Wires plugins, runtime, TUI, and observability."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[[bin]]
+name = "modeltap"
+path = "src/main.rs"
+
+[dependencies]
+modeltap-core = { path = "../modeltap-core" }
+modeltap-tui = { path = "../modeltap-tui" }
+
+# Async runtime (per ADR-005).
+tokio = { workspace = true }
+
+# Edge errors (per ADR-007).
+anyhow = { workspace = true }
+
+# Observability (per devops/kpi-instrumentation.md).
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+serde_json = { workspace = true }
+ulid = { workspace = true }
+time = { workspace = true }
+
+# CLI parsing (per implementation_scope: clap for --headless arg).
+clap = { workspace = true }
+
+# Ratatui for the TestBackend used by headless mode and the production loop.
+ratatui = { workspace = true }
+crossterm = { workspace = true }
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }
+insta = { workspace = true }

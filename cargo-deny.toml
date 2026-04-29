@@ -1,0 +1,34 @@
+# cargo-deny configuration for modeltap.
+# Per docs/feature/modeltap-tui/devops/release-strategy.md §5 + ci-pipeline.md §8.
+#
+# License policy: only OSS-permissive (and weak-copyleft MPL-2.0) licenses are
+# allowed. GPL/AGPL family is denied implicitly by being absent from `allow`.
+
+[advisories]
+yanked = "deny"
+ignore = []
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+]
+confidence-threshold = 0.9
+
+[bans]
+multiple-versions = "warn"
+deny = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

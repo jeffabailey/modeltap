@@ -1,0 +1,16 @@
+[package]
+name = "modeltap-tui"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Ratatui render + Elm-style update loop for modeltap-tui (per ADR-006)."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+modeltap-core = { path = "../modeltap-core" }
+ratatui = { workspace = true }
+crossterm = { workspace = true }
