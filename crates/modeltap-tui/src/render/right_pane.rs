@@ -2,14 +2,16 @@
 //! "Models in <tool> (<count>, <total> GB)" and a scroll-position indicator
 //! "<selected+1>/<total>" rendered in the bottom-right corner.
 
+use modeltap_core::domain::{classify_by_presence, other_tools_by_presence, ToolPresence};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
-use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::app_state::{AppState, FocusPane};
+use crate::render::colors::no_color_active;
 use crate::render::last_action;
+use crate::render::row::render_row_basic;
 
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let Some(tool) = state.current_tool() else {
@@ -25,6 +27,18 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         format_size(tool.total_bytes()),
     );
 
+    // Build the cross-tool presence-view once per render (US-04.AC-4).
+    // Cheap to construct: clones each tool's id-string list.
+    let inventory: Vec<ToolPresence> = state
+        .tools
+        .iter()
+        .map(|t| ToolPresence {
+            tool: t.tool,
+            model_ids: t.model_ids.clone(),
+        })
+        .collect();
+    let no_color = no_color_active();
+
     // Visible window for rows.
     let visible = state.visible_rows.max(1);
     let total_rows = tool.model_ids.len();
@@ -37,15 +51,20 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .map(|i| {
                 let id = &tool.model_ids[i];
                 let size = tool.model_sizes_bytes.get(i).copied().unwrap_or(0);
-                let line = format!("{}   {}", id, format_size(size));
-                let mut style = Style::default();
+                let indicator = classify_by_presence(id, &inventory);
+                let also_in = other_tools_by_presence(id, tool.tool, &inventory);
+                let mut line = render_row_basic(id, size, indicator, &also_in, no_color);
                 if i == state.selected_row {
-                    style = style.add_modifier(Modifier::REVERSED);
+                    let mut style = Style::default().add_modifier(Modifier::REVERSED);
                     if state.focus == FocusPane::Right {
                         style = style.add_modifier(Modifier::BOLD);
                     }
+                    // Apply the selection style on top of any per-span style
+                    // (e.g., the colored indicator glyph) so the highlight is
+                    // visible without losing the indicator's color cue.
+                    line = line.patch_style(style);
                 }
-                ListItem::new(Line::styled(line, style))
+                ListItem::new(line)
             })
             .collect::<Vec<_>>()
     };
