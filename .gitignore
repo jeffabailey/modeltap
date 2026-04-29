@@ -1,0 +1,31 @@
+# Rust build artifacts
+/target/
+**/target/
+**/*.rs.bk
+
+# Cargo lock for binary crates is normally committed, but we will add later when first crate exists.
+# Cargo.lock
+
+# IDE / editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# OS junk
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Environment
+.env
+.env.local
+
+# nWave runtime caches
+.nwave/des/des-task-active*
+.nwave/des/logs/
+
+# insta pending snapshots
+**/*.snap.new
+**/.pending-snap

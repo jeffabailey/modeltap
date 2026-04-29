@@ -1,0 +1,327 @@
+journey:
+  name: "Cleanup and Unify Local AI Models"
+  goal: "See every locally-downloaded model across all supported tools, deduplicate across tools by linking, and reclaim disk space by zapping per-tool model sets."
+  persona: "Devon Park — local-AI power user on macOS/Linux, runs 2+ inference tools, terminal-comfortable, keyboard-first."
+
+  emotional_arc:
+    start: "Mildly frustrated and suspicious — disk is full, models scattered, no single view."
+    middle: "Focused and in-control — two-pane layout makes the inventory legible at a glance."
+    end: "Satisfied and in-control — bytes reclaimed and models unified are shown numerically."
+
+steps:
+  - id: 1
+    name: "Launch TUI"
+    command: "modeltap"
+
+    tui_mockup: |
+      +- modeltap ---------------------------------------------------------------+
+      | Tools                | Models in Ollama (12, 47.3 GB)                    |
+      | > Ollama        12   |                                                   |
+      |   llama-cli     6    |   * llama3:8b-instruct-q4_K_M       4.7 GB        |
+      |   Hugging Face  31   |   * mistral:7b-instruct-q4_K_M      4.4 GB        |
+      |   LM Studio     9    |   ...                                             |
+      |  Total: 58 models    |                                                   |
+      |  Disk: 138.4 GB      |                                                   |
+      |  Dedup-able: 22 GB   |                                                   |
+      +--------------------------------------------------------------------------+
+      | [<-/->] tools  [up/down] models  [u] unify  [z] zap tool  [?] help [q]   |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "tool_count"
+        source: "core::Inventory.tools.len()"
+        displayed_as: "${tool_count}"
+        consumers: ["left pane header", "summary bar"]
+      - name: "tool.model_count"
+        source: "plugin.list_models() per tool"
+        displayed_as: "${tool.model_count}"
+        consumers: ["left pane row count", "right pane header"]
+      - name: "tool.disk_usage"
+        source: "sum(model.size) over plugin.list_models()"
+        displayed_as: "${tool.disk_usage}"
+        consumers: ["right pane header", "summary bar Total"]
+      - name: "total.dedupable"
+        source: "core::Inventory.compute_dedupable_bytes()"
+        displayed_as: "${total.dedupable}"
+        consumers: ["summary bar"]
+
+    emotional_state:
+      entry: "Curious — what do I actually have?"
+      exit: "Oriented — I see the map."
+
+    integration_checkpoint: |
+      Sum of per-tool disk_usage on the left equals total.disk_usage in summary bar.
+      First paint occurs in <1 second on a typical local install.
+
+    gherkin: |
+      Scenario: Devon launches modeltap and sees an inventory within one second
+        Given Devon has Ollama with 12 models, llama-cli with 6, Hugging Face with 31, and LM Studio with 9 installed
+        And the inventory has not been computed yet
+        When Devon runs "modeltap"
+        Then within 1 second the TUI shows four tools in the left pane with their model counts
+        And the summary bar shows total models, total disk usage, and dedup-able bytes
+        And the bottom bar lists keyboard shortcuts including [u], [z], [?], [q]
+
+  - id: 2
+    name: "Browse tools and models"
+    command: "Arrow keys to switch tool / move within models list"
+
+    tui_mockup: |
+      +- modeltap ---------------------------------------------------------------+
+      | Tools                | Models in Hugging Face (31, 78.2 GB)              |
+      |   Ollama        12   |   o meta-llama/Llama-3-8B-Instruct  16.0 GB       |
+      |   llama-cli     6    |   * mistralai/Mistral-7B-v0.3        4.4 GB       |
+      | > Hugging Face  31   |     [GGUF: q4_K_M] — also in: Ollama, LM Studio   |
+      |   LM Studio     9    |   ! TheBloke/something-AWQ           8.1 GB       |
+      |                      |     [AWQ — only Hugging Face accepts this]        |
+      +--------------------------------------------------------------------------+
+      | [<-/->] tools  [up/down] models  [u] unify  [z] zap tool  [?] help [q]   |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "model.id"
+        source: "plugin.list_models()[i].id"
+        displayed_as: "${model.id}"
+        consumers: ["right pane row", "model detail screen"]
+      - name: "model.format"
+        source: "plugin.list_models()[i].format"
+        displayed_as: "${model.format}"
+        consumers: ["right pane row metadata"]
+      - name: "model.compatible_tools"
+        source: "core::compute_compatibility(model.format, plugins.accepted_formats)"
+        displayed_as: "${model.compatible_tools[]}"
+        consumers: ["right pane row indicator (o/*/!)", "model detail"]
+
+    emotional_state:
+      entry: "Scanning"
+      exit: "Understands the inventory"
+
+    integration_checkpoint: |
+      A `*` indicator implies model.compatible_tools.len() >= 2 AND another tool's inventory contains this dedup_key.
+      A `!` indicator implies model.compatible_tools.len() == 1.
+      A `o` indicator implies model.compatible_tools.len() >= 2 BUT no other tool currently has the file.
+
+    gherkin: |
+      Scenario: Devon sees compatibility indicators on each model
+        Given Devon has Mistral-7B-v0.3 GGUF in Hugging Face cache, Ollama, and LM Studio
+        And Devon has TheBloke/something-AWQ in Hugging Face cache only
+        When Devon selects "Hugging Face" in the left pane
+        Then the Mistral-7B-v0.3 row is marked with `*` and lists Ollama, LM Studio as also-registered
+        And the AWQ model row is marked with `!` and shows "only Hugging Face accepts this"
+
+  - id: 3
+    name: "Inspect a model's duplicates"
+    command: "Enter on a model row"
+
+    tui_mockup: |
+      +- Model detail: mistralai/Mistral-7B-v0.3 (q4_K_M, GGUF) -----------------+
+      | Size on disk:    4.4 GB                                                  |
+      | Dedup key:       sha256:8f3e...c102                                      |
+      | Registered with:                                                         |
+      |   - Ollama        /Users/devon/.ollama/models/blobs/sha256-8f3e...       |
+      |   - llama-cli     /Users/devon/llms/mistral-7b-q4.gguf                   |
+      |   - Hugging Face  ~/.cache/huggingface/hub/.../mistral-7b-q4.gguf        |
+      | Status: NOT UNIFIED — 3 separate copies exist (13.2 GB total).           |
+      | If unified: would reclaim 8.8 GB.                                        |
+      +--------------------------------------------------------------------------+
+      | [Esc] back   [u] unify   [d] delete-from-one   [?] help                  |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "model.dedup_key"
+        source: "core::compute_dedup_key(model) — strategy is OPEN QUESTION (content hash vs HF id+quant)"
+        displayed_as: "${model.dedup_key}"
+        consumers: ["detail screen", "unify dialog", "duplicate matching"]
+      - name: "model.disk_paths"
+        source: "plugin.list_models()[i].on_disk_path per registered tool"
+        displayed_as: "${model.disk_paths[]}"
+        consumers: ["detail screen", "unify dialog target list"]
+      - name: "model.reclaimable_bytes"
+        source: "core::compute_reclaimable(model) = (copies-1) * size"
+        displayed_as: "${model.reclaimable_bytes}"
+        consumers: ["detail screen", "unify dialog"]
+
+    emotional_state:
+      entry: "Is this really a duplicate?"
+      exit: "Yes — and I see how much I can reclaim."
+
+    integration_checkpoint: |
+      All entries grouped under one dedup_key MUST have identical file size. If sizes differ,
+      treat as a dedup-key collision and refuse to offer unify until DESIGN closes the strategy.
+
+    gherkin: |
+      Scenario: Devon inspects a model and sees its duplicate copies
+        Given Mistral-7B-v0.3 q4_K_M is registered with Ollama, llama-cli, and Hugging Face as 3 distinct copies of 4.4 GB each
+        When Devon selects the Mistral row and presses Enter
+        Then the detail screen shows all 3 paths
+        And the status reads "NOT UNIFIED — 3 separate copies exist (13.2 GB total)"
+        And reclaim estimate reads "8.8 GB"
+
+  - id: 4a
+    name: "Unify (u)"
+    command: "Press u from model detail or list"
+
+    tui_mockup: |
+      +- Unify: mistralai/Mistral-7B-v0.3 ----------------------------------------+
+      | Canonical:    /Users/devon/.modeltap/store/sha256-8f3e...c102             |
+      | Hardlinks to be created:                                                  |
+      |   Ollama       /Users/devon/.ollama/models/blobs/sha256-8f3e...           |
+      |   llama-cli    /Users/devon/llms/mistral-7b-q4.gguf                       |
+      |   Hugging Face ~/.cache/huggingface/hub/.../mistral-7b-q4.gguf            |
+      | Disk reclaim: 8.8 GB                                                      |
+      | Running tools detected: ollama (PID 4421)                                 |
+      | [Enter] proceed   [n] dry-run only   [Esc] cancel                         |
+      +---------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "canonical_path"
+        source: "config::store_root + '/' + model.dedup_key (default ~/.modeltap/store)"
+        displayed_as: "${canonical_path}"
+        consumers: ["unify dialog", "hardlink resolution", "next-launch inventory"]
+      - name: "hardlink_targets"
+        source: "plugin.link_path_for(model) per registered tool"
+        displayed_as: "${hardlink_targets[]}"
+        consumers: ["unify dialog", "post-action verification"]
+      - name: "running_tools"
+        source: "core::detect_running_tools() — uses lsof or platform equivalent"
+        displayed_as: "${running_tools[]}"
+        consumers: ["unify dialog warning", "zap dialog warning"]
+
+    emotional_state:
+      entry: "Deliberate — about to make a change"
+      exit: "Reassured — I saw the plan before it ran"
+
+    integration_checkpoint: |
+      Dry-run produces the same plan as proceed, but performs no filesystem mutation.
+      After proceed, every entry in hardlink_targets MUST stat to the same inode as canonical_path.
+
+    gherkin: |
+      Scenario: Devon unifies a model with a dry-run preview
+        Given Mistral-7B-v0.3 q4_K_M has 3 separate copies registered with 3 tools
+        When Devon presses "u" on the detail screen and then presses "n" for dry-run
+        Then the dialog shows the canonical store path, the 3 hardlink targets, and "Disk reclaim: 8.8 GB"
+        And no filesystem changes are made
+
+      Scenario: Devon proceeds with unify
+        Given Devon is viewing the unify dialog with 3 hardlink targets
+        When Devon presses Enter
+        Then the canonical file exists at ~/.modeltap/store/sha256-8f3e...
+        And each tool's path is a hardlink to the canonical (same inode)
+        And modeltap reports "Reclaimed 8.8 GB"
+
+      Scenario: Devon is warned that a tool is currently running
+        Given the Ollama process is currently running with the model file open
+        When Devon opens the unify dialog
+        Then the dialog displays "Running tools detected: ollama (PID ...)"
+        And Devon can still proceed or cancel
+
+  - id: 4b
+    name: "Zap (z)"
+    command: "Press z while a tool is selected in left pane"
+
+    tui_mockup: |
+      +- Zap all models for: llama-cli ------------------------------------------+
+      | THIS WILL DELETE 6 MODELS (21.4 GB) FROM llama-cli.                      |
+      | 4 are also registered with another tool (those tools keep their copies). |
+      | 2 are unique to llama-cli and will be permanently removed.               |
+      | Type the tool name to confirm:  [           ]                            |
+      | [Esc] cancel                                                             |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "tool.name"
+        source: "plugin.name()"
+        displayed_as: "${tool.name}"
+        consumers: ["zap dialog header", "zap confirmation prompt", "post-action message"]
+      - name: "tool.unique_models"
+        source: "core::filter_unique_to(tool, inventory)"
+        displayed_as: "${tool.unique_models[]}"
+        consumers: ["zap dialog warning"]
+
+    emotional_state:
+      entry: "I want to clean this up"
+      exit: "Confirmed — and I know what was kept versus deleted"
+
+    integration_checkpoint: |
+      User must type tool.name exactly. Any mismatch cancels with no side effects.
+      After zap, plugin.list_models() for that tool returns []; tool itself remains in the left pane.
+
+    gherkin: |
+      Scenario: Devon zaps llama-cli and types the name correctly
+        Given Devon has selected "llama-cli" with 6 models (4 also in other tools, 2 unique) in the left pane
+        When Devon presses "z"
+        And types "llama-cli" in the confirmation field
+        And presses Enter
+        Then all 6 model registrations are removed from llama-cli
+        And the 2 unique models are deleted from disk
+        And the 4 shared models remain available in their other tools
+        And the summary bar reflects the new total disk usage
+
+      Scenario: Devon types the wrong name and zap is cancelled
+        Given Devon has opened the zap dialog for "llama-cli"
+        When Devon types "llamacli" (no hyphen)
+        And presses Enter
+        Then no models are deleted
+        And the dialog closes returning to the main view
+
+  - id: 5
+    name: "Verify outcome"
+    command: "Returns to main view automatically"
+
+    tui_mockup: |
+      +- modeltap ---------------------------------------------------------------+
+      | Tools                | Last action: zap llama-cli (success)              |
+      |   Ollama        12   |                                                   |
+      | > llama-cli     0    |   No models registered with llama-cli.            |
+      |   Hugging Face  31   |   Reclaimed: 14.6 GB                              |
+      |   LM Studio     9    |   (6.8 GB retained — also linked from other tools)|
+      |  Total: 52 models    |                                                   |
+      |  Disk: 117.0 GB      |                                                   |
+      |  Dedup-able: 22 GB   |                                                   |
+      +--------------------------------------------------------------------------+
+      | [<-/->] tools  [up/down] models  [u] unify  [z] zap tool  [?] help [q]   |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "last_action.bytes_reclaimed"
+        source: "core::Action::Zap result OR core::Action::Unify result"
+        displayed_as: "${last_action.bytes_reclaimed}"
+        consumers: ["right pane summary", "summary bar delta"]
+
+    emotional_state:
+      entry: "Did it work?"
+      exit: "Yes — I see the bytes reclaimed."
+
+    integration_checkpoint: |
+      new total.disk_usage == old total.disk_usage - last_action.bytes_reclaimed (within rounding).
+
+    gherkin: |
+      Scenario: Devon sees confirmation that disk space was reclaimed
+        Given Devon's pre-action total disk usage was 138.4 GB
+        And Devon successfully zapped llama-cli reclaiming 14.6 GB
+        When the action completes
+        Then the right pane shows "Reclaimed: 14.6 GB"
+        And the summary bar shows total disk usage 123.8 GB (or close, within rounding)
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "tool.disk_usage"
+      must_match_across: [1, 2, 5]
+      failure_message: "Per-tool disk usage shown in left pane differs from sum of model sizes shown in right pane — indicates inventory build bug."
+    - artifact: "model.dedup_key"
+      must_match_across: [2, 3, 4a]
+      failure_message: "Dedup key used to mark a model as `*` differs from key used to group its copies in detail view — would silently corrupt unify."
+    - artifact: "canonical_path"
+      must_match_across: [4a, 5]
+      failure_message: "Canonical store path used during unify must equal path resolved on next inventory rebuild — otherwise unified models appear unlinked."
+    - artifact: "tool.name"
+      must_match_across: [1, 2, 4b, 5]
+      failure_message: "Tool name shown in left pane must equal name typed for zap confirmation and name shown in post-action summary."
+
+  open_questions_blocking_design:
+    - "Q1 (canonical store): default store_root path — confirm ~/.modeltap/store/ on both macOS and Linux?"
+    - "Q2 (per-tool linking): exact mechanism per tool (Ollama blob layout, llama-cli loose file, HF cache, LM Studio) — DESIGN must produce a per-plugin linking spec."
+    - "Q3 (only-one-tool): formalize the format-compatibility table — confirmed in journey as format-based (AWQ, Ollama-blob, etc.) NOT layout-based."
+    - "Q5 (concurrency): journey shows soft-warning behavior; DESIGN to confirm whether unify with running tool is allowed or blocked."
+    - "Q6 (dedup key): journey assumes content-hash (sha256). DESIGN must confirm or substitute."
+    - "Q7 (state persistence): journey assumes ~/.modeltap/ holds the canonical store; an index/registry file (UMR-style) is OPEN."

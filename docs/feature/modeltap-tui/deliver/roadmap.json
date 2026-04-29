@@ -1,0 +1,936 @@
+{
+  "roadmap": {
+    "project_id": "modeltap-tui",
+    "created_at": "2026-04-29T02:18:43Z",
+    "total_steps": 21,
+    "phases": 4
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking Skeleton — boot, discover Ollama, browse, zap, see reclaim",
+      "description": "Thinnest end-to-end vertical slice that proves the architecture: TUI launches with two-pane ratatui layout, Ollama plugin discovers real on-disk models via the Tool trait, user navigates panes, zaps the whole tool with typed-name confirmation, and sees a post-action reclaim message. Walking-skeleton exit gate = the 22 scenarios tagged @walking-skeleton in master-acceptance.feature go green. Closes the riskiest assumption (we can correctly read a tool's on-disk layout AND mutate it safely) before any other plugin or unify work begins.",
+      "release_target": "Release 0",
+      "exit_gate": "All scenarios tagged @walking-skeleton in docs/feature/modeltap-tui/distill/features/master-acceptance.feature pass on macOS and Linux CI runners.",
+      "estimated_total_hours": 28,
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "US-01: TUI launches and quits cleanly (workspace + ratatui foundation)",
+          "description": "Foundation step. Stand up the cargo workspace (crates/modeltap-core, crates/modeltap-tui, crates/modeltap-app), bring in ratatui+crossterm+tokio per ADR-005/006, wire the GitHub Actions CI workflow from devops/ci-pipeline.md (macOS-latest + ubuntu-latest matrix, cargo fmt/clippy/test/deny), add cargo-deny.toml for OSS-license enforcement, and ship the smallest binary that paints the empty two-pane layout, restores the terminal on q/Ctrl+C, and refuses to start when the terminal is narrower than 80 columns. Implements panic hook that restores terminal state before printing per ADR-006. Right-pane data is intentionally a 'discovering...' placeholder; real Ollama data lands in 01-02. Tests use ratatui::backend::TestBackend + insta for snapshot frames; headless-mode flag is added so acceptance tests can drive the binary without a real PTY.",
+          "criteria": [
+            "Cold start to first paint completes in under 1 second on a 2020-or-later workstation (US-01.AC-1)",
+            "Pressing q exits with code 0 and restores terminal cursor and color state (US-01.AC-2)",
+            "Pressing Ctrl+C exits with code 130 and restores terminal state (US-01.AC-3)",
+            "Terminal narrower than 80 columns is detected and refused with usage error 'Terminal too narrow: need at least 80 columns, found N' on stderr and exit code 2 (US-01.AC-4)",
+            "No escape-sequence garbage left on screen after exit in any tested terminal emulator (US-01.AC-5)",
+            "Bottom bar shows '[<-/->] tools  [up/down] models  [u] unify  [z] zap tool  [?] help  [q] quit' on first paint",
+            "If ~/.modeltap/ logging directory is unwritable, modeltap renders the TUI and warns to stderr but does not crash. Logs (launch.log, diagnostics.log) are operational only — their absence does not affect discovery, mutations, or correctness (per intake Q7 + ADR-003 stateless guarantee)"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_01_launch_quit.rs",
+          "scenario_name": [
+            "Devon launches modeltap and sees the two-pane layout",
+            "Devon quits with q",
+            "Devon quits with Ctrl+C",
+            "Terminal too narrow refuses to start",
+            "Modeltap log directory is unwritable"
+          ],
+          "deps": [],
+          "time_estimate_hours": 8,
+          "implementation_scope": [
+            "Cargo.toml (workspace root)",
+            "cargo-deny.toml",
+            ".github/workflows/ci.yml",
+            "crates/modeltap-core/Cargo.toml",
+            "crates/modeltap-core/src/lib.rs",
+            "crates/modeltap-tui/Cargo.toml",
+            "crates/modeltap-tui/src/lib.rs",
+            "crates/modeltap-tui/src/layout.rs",
+            "crates/modeltap-tui/src/event_loop.rs",
+            "crates/modeltap-tui/src/panic_hook.rs",
+            "crates/modeltap-app/Cargo.toml",
+            "crates/modeltap-app/src/main.rs",
+            "crates/modeltap-app/src/headless.rs",
+            "crates/modeltap-app/tests/acceptance/us_01_launch_quit.rs",
+            "crates/modeltap-app/tests/snapshots/"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-01 @walking-skeleton scenarios pass on macOS-latest and ubuntu-latest CI",
+            "cargo fmt + cargo clippy --workspace -- -D warnings clean",
+            "cargo deny check passes (license + advisory)",
+            "ratatui TestBackend snapshot frames committed",
+            "JSONL launch.started event emitted to ~/.modeltap/launch.log per kpi-instrumentation.md",
+            "ADR references in code: ADR-005 (tokio), ADR-006 (Elm-style update loop)"
+          ],
+          "adr_references": ["ADR-005", "ADR-006", "ADR-007"]
+        },
+        {
+          "id": "01-02",
+          "name": "US-02: Discover real Ollama models (Tool trait + plugin registration)",
+          "description": "Defines the Tool trait in modeltap-core (the public plugin port frozen by ADR-001 — name, accepted_formats, discover, link, delete_one, delete_all) and ships the first concrete implementation: the Ollama plugin. Walks ~/.ollama/models/manifests/ recursively, resolves blob references in ~/.ollama/models/blobs/sha256-*, and produces DiscoveredModel entries with id, size, format, on-disk path, and a lazy SHA256 (None at this stage). Self-registers via the inventory crate per ADR-001 — modeltap-app/src/registry.rs collects all submitted plugin instances at startup. Replaces the 'discovering...' placeholder from 01-01 with real rows. Missing ~/.ollama/ is reported as '(not installed)'; unreadable directory is reported as '(error)' with a structured event in diagnostics.log; one bad plugin must NOT crash the TUI (panic isolation via tokio::task::spawn + JoinError).",
+          "criteria": [
+            "All Ollama models in standard locations are discovered with correct id, size, and on-disk path (US-02.AC-1)",
+            "Total disk usage equals sum of UNIQUE blob sizes — manifests sharing a blob count it once (US-02.AC-2)",
+            "Missing ~/.ollama/ directory is reported as '(not installed)', not as an error (US-02.AC-3)",
+            "Unreadable Ollama directory is reported as '(error)' with structured ERROR event in diagnostics.log; other tools render normally (US-02.AC-4)",
+            "Discovery completes within 2 seconds for fixtures of <=200 models (US-02.AC-5)",
+            "Tool trait surface in modeltap-core matches ADR-001 exactly: name, accepted_formats, discover, link, delete_one, delete_all (no other public methods)",
+            "Plugin self-registers via inventory::submit! — modeltap-core source files contain no concrete plugin import"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_02_discover_ollama.rs",
+          "scenario_name": [
+            "Devon sees all 12 Ollama models with sizes",
+            "Devon has only Ollama installed",
+            "Unreadable Ollama directory does not crash modeltap",
+            "Ollama deduplicates blob references in size accounting",
+            "Ollama discovery completes within 2 seconds for 200 models"
+          ],
+          "deps": ["01-01"],
+          "time_estimate_hours": 10,
+          "implementation_scope": [
+            "crates/modeltap-core/src/domain/tool.rs",
+            "crates/modeltap-core/src/domain/types.rs",
+            "crates/modeltap-core/src/domain/format.rs",
+            "crates/modeltap-core/src/errors.rs",
+            "crates/modeltap-core/src/ports.rs",
+            "plugins/ollama/Cargo.toml",
+            "plugins/ollama/src/lib.rs",
+            "plugins/ollama/src/discover.rs",
+            "plugins/ollama/src/manifest.rs",
+            "plugins/ollama/tests/fixtures/devon-multi-tool/",
+            "plugins/ollama/tests/fixtures/devon-only-ollama/",
+            "plugins/ollama/tests/fixtures/devon-permission-denied/",
+            "crates/modeltap-app/src/registry.rs",
+            "crates/modeltap-app/src/discovery.rs",
+            "crates/modeltap-app/tests/acceptance/us_02_discover_ollama.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-02 scenarios green on macOS + Linux CI",
+            "Plugin contract test in plugins/ollama/tests/contract.rs passes (parametric test asserts trait invariants)",
+            "Tool trait API documented with rustdoc — every method has a doc comment",
+            "JSONL launch.timing event emits plugin_timings_ms.ollama per kpi-instrumentation.md",
+            "Panic in plugin discover() surfaces as '(error)' row plus diagnostics.log entry — verified by infrastructure-failure scenario",
+            "No new methods added to the Tool trait beyond the ADR-001 frozen surface"
+          ],
+          "adr_references": ["ADR-001", "ADR-002", "ADR-003", "ADR-007", "ADR-009"]
+        },
+        {
+          "id": "01-03",
+          "name": "US-03: Two-pane layout selection state and keyboard navigation",
+          "description": "Wires the App state (Elm-style per ADR-006) so left/right arrow keys switch between tools and up/down arrows scroll within the right pane's model list. Default selection is the alphabetically first installed tool. Tab cycles focus between left and right panes for accessibility. Long lists scroll with a position indicator (e.g., '29/31') in the bottom-right. Unbound keys are silently ignored — the bottom bar briefly highlights as a non-destructive visual reminder. The right-pane header refreshes to 'Models in <tool> (<count>, <total> GB)' when selection changes.",
+          "criteria": [
+            "Left pane lists tools with model count and disk usage; selected tool is visibly highlighted (US-03.AC-1)",
+            "Right pane shows models for the currently-selected tool with id and size (US-03.AC-2)",
+            "Left/Right arrows switch tools; Up/Down arrows scroll the right pane (US-03.AC-3)",
+            "Tab cycles focus between left-pane and right-pane (US-03.AC-4)",
+            "Bottom bar occupies exactly one row at all times (US-03.AC-5)",
+            "Unbound keys produce no destructive action and no error (US-03.AC-6)",
+            "Long lists show a position indicator (e.g., '29/31') in the bottom-right of the right pane",
+            "Default selection is the alphabetically first INSTALLED tool"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_03_two_pane_navigation.rs",
+          "scenario_name": [
+            "Default selection is the alphabetically first installed tool",
+            "Right Arrow switches to the next tool",
+            "Down Arrow scrolls a long model list",
+            "Unbound key is silently ignored"
+          ],
+          "deps": ["01-01", "01-02"],
+          "time_estimate_hours": 4,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/app_state.rs",
+            "crates/modeltap-tui/src/msg.rs",
+            "crates/modeltap-tui/src/update.rs",
+            "crates/modeltap-tui/src/render/left_pane.rs",
+            "crates/modeltap-tui/src/render/right_pane.rs",
+            "crates/modeltap-tui/src/keymap.rs",
+            "crates/modeltap-app/tests/acceptance/us_03_two_pane_navigation.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-03 @walking-skeleton scenarios pass",
+            "Snapshot frames updated for default-selection, tool-switch, and scrolled views",
+            "Single SHORTCUT_TABLE const drives both bottom-bar render and key dispatch (no drift)",
+            "Property test: any unbound key never mutates inventory state"
+          ],
+          "adr_references": ["ADR-006"]
+        },
+        {
+          "id": "01-04",
+          "name": "US-05: Zap-all with typed-name confirmation modal",
+          "description": "Adds the first destructive action to the walking skeleton: pressing 'z' on a selected tool opens a modal showing model count, total bytes, unique-vs-shared breakdown (computed conservatively per ADR-002 — uncertain dedup keys treat as unique), and requires the user to type the tool name exactly (case-sensitive). Esc cancels at any point. On confirm, calls Tool::delete_all on the selected plugin (ADR-009 separates this from delete_one). For the WS slice, 'shared' detection uses the in-process inventory only (compatibility engine arrives in 02-05); for now the unique-vs-shared count is conservative — all models are treated as unique unless an exact same-path duplicate exists across plugins. Empty tools surface a benign 'Nothing to zap' message. Emits JSONL action.zap_all event.",
+          "criteria": [
+            "Pressing z opens the confirmation dialog showing model count, total bytes, unique count, shared count (US-05.AC-1)",
+            "User must type the EXACT tool name (case-sensitive) — anything else cancels (US-05.AC-2)",
+            "Esc cancels at any point with no destructive action (US-05.AC-3)",
+            "After successful zap, all unique model files are deleted; shared registrations are removed but other tools' copies remain (US-05.AC-4)",
+            "Empty tool shows 'Nothing to zap' with only [Esc] close (no destructive path possible)",
+            "JSONL action.zap_all event emitted with tool, models_removed, bytes_reclaimed, outcome",
+            "Tool::delete_all is invoked (NOT a loop of delete_one) per ADR-009"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_05_zap_all.rs",
+          "scenario_name": [
+            "Devon zaps llama-cli successfully",
+            "Wrong typed name cancels zap",
+            "Zap on empty tool shows benign message",
+            "Esc cancels zap at any point",
+            "Successful zap emits action.zap_all event"
+          ],
+          "deps": ["01-02", "01-03"],
+          "time_estimate_hours": 4,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/dialogs/zap_confirm.rs",
+            "crates/modeltap-tui/src/dialogs/mod.rs",
+            "crates/modeltap-app/src/actions/zap.rs",
+            "crates/modeltap-core/src/logic/dedup.rs",
+            "plugins/ollama/src/delete.rs",
+            "crates/modeltap-app/src/telemetry.rs",
+            "crates/modeltap-app/tests/acceptance/us_05_zap_all.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-05 @walking-skeleton scenarios pass with @real-io @destructive tags exercising the temp-dir fixture",
+            "Property test: typed input != exact tool name implies zero file mutations",
+            "JSONL action.zap_all event schema validated against kpi-instrumentation.md",
+            "No partial-state corruption — failure mid-loop does NOT leave dangling manifest entries (verified by injected fault test)",
+            "ADR-002 conservative-deletion rule cited in code comment near the unique/shared classifier"
+          ],
+          "adr_references": ["ADR-002", "ADR-007", "ADR-009"]
+        },
+        {
+          "id": "01-05",
+          "name": "US-06: Post-action message with reclaim/retain breakdown",
+          "description": "After any mutating action (zap in WS scope; unify added in 03-02; delete-from-one in 03-06), the right pane displays 'Last action: <verb> <target> (<status>)' header and 'Reclaimed: <N> GB (<M> GB retained — also linked from other tools)' body. The summary bar refreshes total disk usage within 500ms via incremental rediscovery of the affected tool. Last-action message clears when the user navigates to a different tool. Partial-success path is wired in but only exercised by 03-02/03-03 scenarios (cross-fs); for WS, only success and full-failure outcomes are reachable.",
+          "criteria": [
+            "After every zap, the right pane shows 'Last action: <verb> <target> (<status>)' header (US-06.AC-1)",
+            "Successful actions show bytes reclaimed AND bytes retained (US-06.AC-2)",
+            "Partial successes show how many targets succeeded and which failed and why (US-06.AC-3)",
+            "Summary bar refreshes total disk usage within 500ms of action completion (US-06.AC-4 / US-11.AC-1)",
+            "Last-action message clears when user navigates (presses arrow key)",
+            "Integration AC INT-5 holds: new total.disk_usage == old total.disk_usage - last_action.bytes_reclaimed (within rounding)"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_06_post_action_message.rs",
+          "scenario_name": [
+            "Successful zap shows reclaimed and retained bytes",
+            "Successful unify shows hardlink count",
+            "Partial unify shows partial-success message",
+            "Last-action message clears when Devon navigates"
+          ],
+          "deps": ["01-04"],
+          "time_estimate_hours": 2,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/render/last_action.rs",
+            "crates/modeltap-tui/src/render/summary_bar.rs",
+            "crates/modeltap-app/src/refresh.rs",
+            "crates/modeltap-core/src/domain/last_action.rs",
+            "crates/modeltap-app/tests/acceptance/us_06_post_action_message.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-06 @walking-skeleton scenarios pass (zap success, navigation-clears; partial-success scenarios will be enabled once 03-03 ships cross-fs)",
+            "INT-5 invariant property test passes (new total = old total - reclaimed within 1 KB rounding)",
+            "Summary bar refresh measured at <500ms p99 in the K3 bench fixture",
+            "WALKING-SKELETON EXIT GATE — all 22 @walking-skeleton scenarios green on both CI runners"
+          ],
+          "adr_references": ["ADR-006"]
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Make duplication visible — full inventory across 4 tools, indicators, detail screen",
+      "description": "Builds out the other three plugins (llama-cli, Hugging Face, LM Studio) so the cross-tool view is real, then adds the row metadata format, the compatibility indicator engine (the o/*/!/? badges), the model detail screen, and the format-locked red ! signal. After Phase 02, Devon can answer 'how much could I reclaim?' without unifying anything — a valuable diagnostic on its own. Also includes the LM Studio path-convention verification spike (per DESIGN ADR-004 / OQ-2) folded into 02-04 as discovery-only scope.",
+      "release_target": "Release 1",
+      "exit_gate": "All scenarios tagged @release-1 in master-acceptance.feature pass.",
+      "estimated_total_hours": 38,
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "US-04: Row metadata format (indicator + size + 'also in:' annotation)",
+          "description": "Defines the canonical row format used by every tool's right-pane list: '<indicator> <model id>  <size>  also in: <other tools>' where indicator is one of {o, *, !, ?}. In this step the indicator is a STATIC placeholder driven only by simple presence-counting (model present in 2+ tools => '*', else 'o', '?' if format unparseable); the real format-aware engine arrives in 02-05. Color rules per US-04.AC-3: o/* neutral, ! red, ? yellow — paired with the symbol per WCAG so NO_COLOR-compliant. 'also in: ...' annotation is rendered only for *-marked rows.",
+          "criteria": [
+            "Every right-pane row displays one of {o, *, !, ?} as its first character (US-04.AC-1)",
+            "*-marked rows display 'also in: <comma-separated other tools>' (US-04.AC-2)",
+            "Indicator color: o neutral, * neutral, ! red, ? yellow — paired with symbol, never color-only (US-04.AC-3)",
+            "Indicator is computed from model.compatible_tools per the dedup-key strategy (US-04.AC-4)",
+            "NO_COLOR=1 preserves the indicator symbol and drops only ANSI color codes",
+            "Unknown format renders as '?' with '[format: ?]' in the format field"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_04_row_metadata.rs",
+          "scenario_name": [
+            "Multi-tool model shows the * indicator and other tools",
+            "Single-tool format-compatible model shows o",
+            "Unknown format shows ? indicator",
+            "NO_COLOR environment variable still preserves the indicator symbol"
+          ],
+          "deps": ["01-05"],
+          "time_estimate_hours": 4,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/render/row.rs",
+            "crates/modeltap-tui/src/render/indicator.rs",
+            "crates/modeltap-tui/src/render/colors.rs",
+            "crates/modeltap-core/src/domain/indicator.rs",
+            "crates/modeltap-app/tests/acceptance/us_04_row_metadata.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-04 @release-1 scenarios pass",
+            "NO_COLOR scenario verified by capturing the rendered frame and asserting no ANSI escape sequences",
+            "Property test: every row begins with exactly one of {o, *, !, ?} — no other characters possible",
+            "Snapshot frames committed for each indicator state"
+          ],
+          "adr_references": []
+        },
+        {
+          "id": "02-02",
+          "name": "US-07: llama-cli plugin — discover loose .gguf files with header parsing",
+          "description": "Second concrete Tool implementation. Scans default search paths (~/llms/, ~/models/) recursively for .gguf files and parses just enough of the GGUF header (magic + version + KV metadata for architecture and quantization) to populate Format. Honors per-plugin config under [plugins.llama-cli] search_paths in ~/.modeltap/config.toml (TOML via serde). Corrupt/truncated GGUF files are listed with [format: corrupt] rather than silently skipped, and do NOT crash discovery. accepted_formats() returns &[Format::Gguf]. Same path defaults on macOS and Linux per US-20 contract.",
+          "criteria": [
+            "Default search paths ~/llms/ and ~/models/ are scanned recursively (US-07.AC-1)",
+            "Additional paths from ~/.modeltap/config.toml [plugins.llama-cli] search_paths are honored (US-07.AC-2)",
+            "Each .gguf file is parsed for header metadata (architecture, quantization label e.g. q4_K_M) (US-07.AC-3)",
+            "Corrupt or unreadable files are listed with [format: corrupt] rather than silently skipped (US-07.AC-4)",
+            "Cross-platform: same default paths on macOS and Linux (US-07.AC-5)",
+            "Plugin contract test (the parametric T: Tool one) passes for the new llama-cli implementation"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_07_discover_llama_cli.rs",
+          "scenario_name": [
+            "Default search paths are scanned",
+            "Configured additional search path is honored",
+            "Corrupt GGUF flagged but does not crash discovery",
+            "GGUF header parsing extracts quantization label"
+          ],
+          "deps": ["01-02"],
+          "time_estimate_hours": 6,
+          "implementation_scope": [
+            "plugins/llama-cli/Cargo.toml",
+            "plugins/llama-cli/src/lib.rs",
+            "plugins/llama-cli/src/discover.rs",
+            "plugins/llama-cli/src/gguf_header.rs",
+            "plugins/llama-cli/src/config.rs",
+            "plugins/llama-cli/tests/contract.rs",
+            "plugins/llama-cli/tests/fixtures/devon-multi-tool/llms/",
+            "plugins/llama-cli/tests/fixtures/devon-empty/data/models/",
+            "crates/modeltap-app/src/config.rs",
+            "crates/modeltap-app/src/registry.rs",
+            "crates/modeltap-app/tests/acceptance/us_07_discover_llama_cli.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-07 scenarios green on macOS + Linux",
+            "Plugin contract test (parametric T: Tool) passes",
+            "GGUF header parser is fuzzed at least lightly — truncated bytes never panic, only return ParseError",
+            "Config TOML schema documented in CONTRIBUTING.md (or its v1 placeholder)"
+          ],
+          "adr_references": ["ADR-001", "ADR-007"]
+        },
+        {
+          "id": "02-03",
+          "name": "US-12: Hugging Face plugin — walk hub/ snapshot symlink farm",
+          "description": "Third concrete Tool implementation, and the most complex discovery — HF cache uses a symlink farm: ~/.cache/huggingface/hub/models--<org>--<repo>/snapshots/<rev>/<file> -> ../../blobs/<sha256>. Walks every models--*/snapshots/<rev>/ directory, resolves snapshot symlinks to their blob targets, and produces Model entries with id = '<org>/<repo>' (path-style canonical), format inferred from filename suffix (.gguf, .safetensors, .bin, .awq). Honors HF_HOME env var override. Broken snapshot symlinks are reported with [broken: missing blob] and excluded from disk-usage totals — never silent. accepted_formats() returns the union of formats HF can host (gguf, safetensors, bin, awq, ...). This step also performs the HF linking spike documented in ADR-004 OQ-1 — verifying that replacing the snapshot symlink target (or replacing the blob in place via hardlink) is feasible — and records the conclusion in a CR (code review) note for use by 03-02.",
+          "criteria": [
+            "HF_HOME env var (or default ~/.cache/huggingface/) is read (US-12.AC-1)",
+            "All models--<org>--<repo> directories are enumerated; snapshot symlinks resolved to blob targets (US-12.AC-2)",
+            "Model id = '<org>/<repo>' path-style canonical form (US-12.AC-3)",
+            "Format inferred from filename suffix; one of {gguf, safetensors, bin, awq, unknown} (US-12.AC-4)",
+            "Broken snapshot symlinks are reported with [broken: missing blob] and excluded from disk totals (US-12.AC-5)",
+            "Plugin contract test passes for HF plugin",
+            "HF link-strategy spike conclusion recorded in plugins/hf/LINKING.md for handoff to 03-02"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_12_discover_hf.rs",
+          "scenario_name": [
+            "Default HF cache is discovered",
+            "HF_HOME override is honored",
+            "Broken symlinks are flagged",
+            "Hugging Face model id is org/repo path-style"
+          ],
+          "deps": ["01-02"],
+          "time_estimate_hours": 7,
+          "implementation_scope": [
+            "plugins/hf/Cargo.toml",
+            "plugins/hf/src/lib.rs",
+            "plugins/hf/src/discover.rs",
+            "plugins/hf/src/cache_walk.rs",
+            "plugins/hf/src/symlink_resolve.rs",
+            "plugins/hf/LINKING.md",
+            "plugins/hf/tests/contract.rs",
+            "plugins/hf/tests/fixtures/devon-multi-tool/.cache/huggingface/hub/",
+            "crates/modeltap-app/tests/acceptance/us_12_discover_hf.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-12 scenarios green on macOS + Linux",
+            "Plugin contract test passes",
+            "HF linking spike result recorded as plugins/hf/LINKING.md (closes OQ-1) — at minimum: a documented sequence of fs operations that 03-02's link() will execute",
+            "Broken-symlink scenario verified with @infrastructure-failure tag"
+          ],
+          "adr_references": ["ADR-004"]
+        },
+        {
+          "id": "02-04",
+          "name": "US-15: LM Studio plugin — default + older path conventions (with verification spike)",
+          "description": "Fourth and final v1 plugin. Checks both default paths (~/.cache/lm-studio/models/ AND ~/.lmstudio/models/ — the older convention used by some versions) and an optional config override. accepted_formats() returns the formats LM Studio accepts (gguf primarily; ADR-004 spike to confirm whether MLX is in scope — current intake says no, MLX is non-goal v1). Discovery-only scope; linking land in 03-02. Per DESIGN ADR-004, this step also performs the < 1-day LM Studio path-convention verification spike (OQ-2) — checking which versions use which path on actual installs, recording results in plugins/lm-studio/PATHS.md. 'Not installed' (neither path exists) is distinguished from 'error' (path exists but unreadable).",
+          "criteria": [
+            "Default paths ~/.cache/lm-studio/models/ and ~/.lmstudio/models/ are both checked (US-15.AC-1)",
+            "Configured override via ~/.modeltap/config.toml is honored (US-15.AC-2)",
+            "Each file is parsed for format from filename suffix (US-15.AC-3)",
+            "'Not installed' (neither path exists) is distinguished from 'error' (path exists, unreadable) (US-15.AC-4)",
+            "Plugin contract test passes",
+            "LM Studio path-convention spike conclusion recorded in plugins/lm-studio/PATHS.md (closes OQ-2)"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_15_discover_lm_studio.rs",
+          "scenario_name": [
+            "LM Studio cache is discovered",
+            "Older LM Studio path is honored",
+            "LM Studio not installed shows benign message"
+          ],
+          "deps": ["01-02"],
+          "time_estimate_hours": 5,
+          "implementation_scope": [
+            "plugins/lm-studio/Cargo.toml",
+            "plugins/lm-studio/src/lib.rs",
+            "plugins/lm-studio/src/discover.rs",
+            "plugins/lm-studio/src/paths.rs",
+            "plugins/lm-studio/PATHS.md",
+            "plugins/lm-studio/tests/contract.rs",
+            "plugins/lm-studio/tests/fixtures/devon-multi-tool/.cache/lm-studio/models/",
+            "plugins/lm-studio/tests/fixtures/devon-multi-tool-older/.lmstudio/models/",
+            "crates/modeltap-app/tests/acceptance/us_15_discover_lm_studio.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-15 scenarios green on macOS + Linux",
+            "Plugin contract test passes",
+            "LM Studio paths spike result recorded in PATHS.md (closes OQ-2; informs 03-02 link strategy)",
+            "All four v1 plugins now exist as separate crates — sufficient evidence for US-18 contract"
+          ],
+          "adr_references": ["ADR-004"]
+        },
+        {
+          "id": "02-05",
+          "name": "US-09: Compatibility indicator engine (pure fn over plugin accepted_formats)",
+          "description": "Replaces the static placeholder indicator from 02-01 with a real, format-aware computation. Pure function in modeltap-core::logic::compatibility: compute_indicator(model, &registered_plugins) -> Indicator. Star (*) when the model is currently in 2+ tools matched by SHA256 dedup key (per ADR-002, with conservative fallback to HF repo+quant when SHA256 not yet computed). Open (o) when the model is in only 1 tool but at least one OTHER registered plugin's accepted_formats() accepts the model's format. Bang (!) when the model is in only 1 tool and no other plugin accepts its format. Question (?) when format is unknown OR a plugin's accepted_formats() is empty. Recomputed after every zap/unify (US-09.AC-4). Now needs all four plugins from 02-02..02-04 to ship a meaningful matrix.",
+          "criteria": [
+            "Indicator computation runs per model during inventory build (US-09.AC-1)",
+            "Computation uses each plugin's declared accepted_formats() list (US-09.AC-2)",
+            "The set of indicators is exactly {o, *, !, ?} — no other characters possible (US-09.AC-3)",
+            "Indicator is recomputed after any zap or unify (US-09.AC-4)",
+            "* is assigned when the model is registered with 2+ tools matched by SHA256 (or HF id+quant fallback)",
+            "o is assigned when single-tool but at least one other plugin accepts the format",
+            "! is assigned when single-tool and no other plugin accepts the format",
+            "Empty accepted_formats() from a plugin produces ? not !",
+            "Function is pure — no I/O, no global state — testable as inputs->outputs"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_09_compatibility_engine.rs",
+          "scenario_name": [
+            "Multi-tool model gets *",
+            "Format-compatible single-tool model gets o",
+            "Format-locked model gets !",
+            "For any inventory, every row indicator is one of {o, *, !, ?}"
+          ],
+          "deps": ["02-01", "02-02", "02-03", "02-04"],
+          "time_estimate_hours": 4,
+          "implementation_scope": [
+            "crates/modeltap-core/src/logic/compatibility.rs",
+            "crates/modeltap-core/src/logic/dedup.rs",
+            "crates/modeltap-core/tests/compatibility_property.rs",
+            "crates/modeltap-app/src/inventory_build.rs",
+            "crates/modeltap-app/tests/acceptance/us_09_compatibility_engine.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-09 @release-1 scenarios pass including the @property scenario",
+            "proptest invariant: for ANY randomly-generated inventory, every row indicator is in {o, *, !, ?}",
+            "Pure function unit tests in modeltap-core/tests/compatibility_property.rs",
+            "Recompute-after-action verified by integration test driving zap then asserting indicators changed appropriately",
+            "ADR-002 conservative-when-uncertain rule cited in code"
+          ],
+          "adr_references": ["ADR-002"]
+        },
+        {
+          "id": "02-06",
+          "name": "US-13: Model detail screen (per-model deep-dive)",
+          "description": "Pressing Enter on a model row opens a detail screen showing: model id, format, size, dedup key (SHA256 — computed lazily on screen open per ADR-002, with progress for >50GB files), per-tool registration list with full paths, status (one of UNIFIED / NOT UNIFIED / PARTIALLY UNIFIED / SINGLE TOOL — determined by inode equality across registered paths), and reclaim estimate. This is the 'aha — 8.8 GB!' moment per the story map. Esc returns to main view with the previously-selected row still highlighted. Bottom bar swaps to '[Esc] back  [u] unify  [d] delete-from-one  [?] help' per US-08 contract. The [d] shortcut wires through to a stub that 03-06 fills in; for this step [d] just opens an empty 'TODO 03-06' modal so navigation works.",
+          "criteria": [
+            "Detail screen shows id, format, size, dedup key, and per-tool paths (US-13.AC-1)",
+            "Status is one of UNIFIED, NOT UNIFIED, PARTIALLY UNIFIED, SINGLE TOOL (US-13.AC-2)",
+            "Reclaim estimate computed correctly per status (US-13.AC-3)",
+            "Esc returns to main view with previously-selected row still highlighted (US-13.AC-4)",
+            "Bottom bar shows '[Esc] back  [u] unify  [d] delete-from-one  [?] help' on detail screen",
+            "SHA256 is computed lazily on detail-open (not on launch) per ADR-002",
+            "Single-tool model dims [u] shortcut and shows 'single tool — unify not applicable'",
+            "Already-unified model (all paths same inode) shows 'UNIFIED — 1 inode, N hardlinks'"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_13_detail_screen.rs",
+          "scenario_name": [
+            "Detail screen shows duplicate paths and reclaim estimate",
+            "Single-tool model detail dims [u]",
+            "Already-unified model detail shows hardlink count",
+            "Esc returns from detail to main view"
+          ],
+          "deps": ["02-05"],
+          "time_estimate_hours": 6,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/screens/detail.rs",
+            "crates/modeltap-tui/src/screens/mod.rs",
+            "crates/modeltap-core/src/logic/unification_status.rs",
+            "crates/modeltap-core/src/ports.rs",
+            "crates/modeltap-app/src/sha256_cache.rs",
+            "crates/modeltap-app/tests/acceptance/us_13_detail_screen.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-13 @release-1 scenarios pass",
+            "Snapshot frames committed for all four status variants",
+            "SHA256 cache is in-process only (no disk persistence) per ADR-003",
+            "Lazy-hash progress UX exercised in unit test for >50GB simulated file"
+          ],
+          "adr_references": ["ADR-002", "ADR-003"]
+        },
+        {
+          "id": "02-07",
+          "name": "US-16: Format-locked red ! indicator with WCAG-compliant rendering",
+          "description": "Hooks the compatibility engine output (02-05) into the row renderer (02-01) so that ! indicators render in red foreground (WCAG contrast >= 4.5:1 on default terminal background; falls back to symbol-only when NO_COLOR=1). Detail screen for !-marked models dims the [u] shortcut and shows 'single tool — unify not applicable'. Plugins returning empty accepted_formats() produce ? not !, plus a developer-mode warning logged to diagnostics.log. Largely a polish + integration step; renderer logic was scaffolded in 02-01 and the engine in 02-05.",
+          "criteria": [
+            "! indicator rendered in red foreground (paired with the symbol — never color-only) (US-16.AC-1)",
+            "[u] shortcut is dimmed/disabled on !-marked models in detail screen (US-16.AC-2)",
+            "Empty/missing capability metadata produces ? not ! (US-16.AC-3)",
+            "WCAG contrast: red on default terminal background >= 4.5:1 for normal text (US-16.AC-4)",
+            "NO_COLOR=1: ! still renders as the symbol; only color is dropped",
+            "Diagnostics.log contains warning when a plugin returns empty accepted_formats()"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_16_format_locked_indicator.rs",
+          "scenario_name": [
+            "AWQ model gets red !",
+            "Format-locked model in detail screen",
+            "Missing capability metadata produces ? not !"
+          ],
+          "deps": ["02-05", "02-06"],
+          "time_estimate_hours": 3,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/render/colors.rs",
+            "crates/modeltap-tui/src/screens/detail.rs",
+            "crates/modeltap-core/src/logic/compatibility.rs",
+            "crates/modeltap-app/tests/acceptance/us_16_format_locked_indicator.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-16 @release-1 scenarios pass",
+            "Captured frame asserts foreground color is Red at the AWQ row indicator cell position",
+            "NO_COLOR scenario asserts no ANSI color codes appear in the captured frame",
+            "RELEASE 1 EXIT GATE — all @release-1 scenarios green on both CI runners",
+            "K2 baseline metric established: % of models marked * or o for fixture devon-multi-tool"
+          ],
+          "adr_references": []
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Reclaim disk space safely — unify, dry-run, single-model delete, cross-fs, running-tool detect",
+      "description": "Phase 03 delivers the value proposition: cross-tool unification via hardlinks, with safety guardrails (dry-run, cross-fs fallback, running-tool detect-and-prompt-then-retry per intake Q5). Includes single-model delete (US-05b) per the F4 intake update and ADR-009. Largest phase by hours; 03-02 (US-10 unify) is the single largest step in the roadmap because per-tool linking semantics (Ollama blob layout, llama-cli loose .gguf, HF symlink farm, LM Studio config) are all distinct and each plugin's link() method must be correct.",
+      "release_target": "Release 2",
+      "exit_gate": "All scenarios tagged @release-2 in master-acceptance.feature pass; K1 (median GB reclaimed per session) measurable in JSONL log.",
+      "estimated_total_hours": 47,
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "US-08: Bottom bar polish — dim-when-unavailable, ? help overlay, single source of truth",
+          "description": "Hardens the bottom bar: a single SHORTCUT_TABLE constant in modeltap-tui drives BOTH render and the key-handler dispatch (no drift — INT-6 invariant). Shortcuts unavailable in the current context are visibly dimmed but not removed. Detail screens and dialogs replace the main bar with their own shortcut list (already partially wired in 02-06 / 01-04 — this step makes it systematic). Pressing ? opens a comprehensive help overlay grouping all shortcuts by context (main / detail / dialogs); ? or Esc closes. Polish step but deliberately scheduled here so unify (03-02) inherits a clean shortcut UX.",
+          "criteria": [
+            "Bottom bar occupies exactly one row (US-08.AC-1)",
+            "Shortcuts unavailable in current context are visibly dimmed but not removed (US-08.AC-2)",
+            "Detail screens and dialogs replace the main bar with their own shortcut list (US-08.AC-3)",
+            "? opens a comprehensive help overlay; ? or Esc closes (US-08.AC-4)",
+            "Shortcuts shown in the bar match the actual key handler dispatch table (single source of truth — INT-6) (US-08.AC-5)"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_08_bottom_bar.rs",
+          "scenario_name": [
+            "Unavailable shortcuts are dimmed",
+            "Detail screen shortcuts replace the main bar",
+            "Help overlay shows all shortcuts"
+          ],
+          "deps": ["02-06"],
+          "time_estimate_hours": 3,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/keymap.rs",
+            "crates/modeltap-tui/src/render/bottom_bar.rs",
+            "crates/modeltap-tui/src/screens/help_overlay.rs",
+            "crates/modeltap-app/tests/acceptance/us_08_bottom_bar.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-08 scenarios pass",
+            "Property test (INT-6 invariant): every shortcut shown in the bar resolves to a non-noop handler",
+            "No duplicated shortcut definitions anywhere in the codebase (architecture-lint check)"
+          ],
+          "adr_references": ["ADR-006"]
+        },
+        {
+          "id": "03-02",
+          "name": "US-10: Unify via hardlinks (per-tool link() implementations)",
+          "description": "The keystone step of the entire project. Implements Tool::link() for all four plugins: (1) Ollama — replace ~/.ollama/models/blobs/sha256-<hash> with a hardlink to the chosen canonical (only if Ollama's blob hash equals the file's SHA256 of content bytes — verified by OQ-3 spike at the start of this step); (2) llama-cli — replace the loose .gguf file at its path with a hardlink to canonical; (3) HF — replace the snapshot symlink target (the blob in .cache/huggingface/hub/blobs/) with a hardlink to canonical, per the ADR-004 spike result captured in 02-03; (4) LM Studio — replace the model file in place with a hardlink to canonical, per the ADR-004 spike result from 02-04. The composition root selects the canonical based on the rule: largest existing copy wins (or the content-addressed Ollama blob if available — typically these are the same). NO ~/.modeltap/store/ is created (intake Q1, ADR-003). The unify dialog shows the chosen canonical, the hardlink targets, and the disk reclaim BEFORE Enter. Already-unified models (all paths same inode) show a benign info message. Sequence per ADR-008: (a) verify same-fs (or fall back per 03-03), (b) create canonical hardlink at sibling path, (c) atomic rename over the existing path, (d) update tool manifest. Steps 1-3 roll back on step 4 failure. Emits JSONL action.unify event.",
+          "criteria": [
+            "Unify dialog shows canonical path, hardlink target list, and disk reclaim before any action (US-10.AC-1)",
+            "After Enter, every target stats to the same inode as canonical — verified by INT-3 invariant (US-10.AC-2)",
+            "Each plugin's link() method handles its tool-specific registration (Ollama blob, llama-cli loose, HF symlink, LM Studio file) (US-10.AC-3)",
+            "If any target fails (cross-fs, permissions), partial-success path runs and per-target error is shown (US-10.AC-4)",
+            "Already-unified models are detected and the dialog is informational only (US-10.AC-5)",
+            "The chosen canonical is an EXISTING tool-owned copy — no file is created under ~/.modeltap/store/ (Q1, ADR-003)",
+            "After unify, each tool's existing CLI (e.g., ollama list) still recognizes the model — manifest updates preserved",
+            "JSONL action.unify event emitted with bytes_reclaimed, outcome, tools_unified",
+            "Single-tool model: [u] shortcut is dimmed and shows 'single tool — unify not applicable'"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_10_unify_hardlinks.rs",
+          "scenario_name": [
+            "Unify creates hardlinks and reclaims disk",
+            "Already-unified model shows benign message",
+            "Each tool's registration remains valid after unify",
+            "Successful unify emits action.unify event",
+            "Unify is refused for a single-tool model"
+          ],
+          "deps": ["02-05", "02-06", "03-01"],
+          "time_estimate_hours": 14,
+          "implementation_scope": [
+            "crates/modeltap-core/src/logic/plan.rs",
+            "crates/modeltap-core/src/logic/canonical_selector.rs",
+            "crates/modeltap-app/src/actions/unify.rs",
+            "crates/modeltap-tui/src/dialogs/unify_confirm.rs",
+            "plugins/ollama/src/link.rs",
+            "plugins/ollama/OLLAMA_BLOB_VERIFICATION.md",
+            "plugins/llama-cli/src/link.rs",
+            "plugins/hf/src/link.rs",
+            "plugins/lm-studio/src/link.rs",
+            "crates/modeltap-core/src/ports/fs_probe.rs",
+            "crates/modeltap-app/tests/acceptance/us_10_unify_hardlinks.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-10 @release-2 scenarios pass on macOS APFS and Linux ext4 CI runners",
+            "INT-3 invariant property test passes: after unify, every hardlink_targets[i] stats to same inode as canonical_path",
+            "Per-tool link() methods covered by their plugin contract test fixtures",
+            "OQ-3 verification (Ollama blob hash == content SHA256) recorded in plugins/ollama/OLLAMA_BLOB_VERIFICATION.md",
+            "Rollback test: simulate manifest-update failure mid-sequence, verify hardlinks are reverted",
+            "Action.unify JSONL event schema validated against kpi-instrumentation.md"
+          ],
+          "adr_references": ["ADR-002", "ADR-003", "ADR-004", "ADR-008"]
+        },
+        {
+          "id": "03-03",
+          "name": "US-19: Cross-filesystem fallback (refuse-default with per-target choice)",
+          "description": "Hooks the EXDEV (cross-filesystem hardlink) error from 03-02 into a per-target choice dialog. Filesystem check uses stat device IDs via the FsProbe port (defined in modeltap-core/src/ports.rs in 03-02). When all targets are same-fs as canonical, unify proceeds normally (no prompt). When 1+ target is on a different filesystem, dialog reads 'N of M targets on different filesystem' and offers '[s] skip cross-fs / [c] copy / [x] cancel'. Skip leaves the cross-fs target untouched. Copy duplicates bytes (no reclaim for that target) and reports 'Copied: N cross-fs target(s) (no reclaim)' in the post-action summary. All targets cross-fs: dialog reads 'all targets on different filesystems — unify cannot proceed' and refuses. Default policy = refuse-and-ask per ADR-008 / OQ-4 (no silent copy that wastes disk).",
+          "criteria": [
+            "Filesystem check (stat device IDs) runs per-target before linking (US-19.AC-1)",
+            "Cross-fs targets surface in dry-run AND real-run with explicit options (US-19.AC-2)",
+            "Skip option leaves the cross-fs target untouched at its original path (US-19.AC-3)",
+            "Copy option duplicates bytes; reported as 'Copied: N cross-fs target (no reclaim)' (US-19.AC-4)",
+            "No partial-state corruption on error (US-19.AC-5)",
+            "All-cross-fs case is refused with explicit message",
+            "Default behavior (just pressing Enter at the cross-fs prompt) is REFUSE — never silent copy"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_19_cross_fs_fallback.rs",
+          "scenario_name": [
+            "All-same-filesystem unify proceeds normally",
+            "Skip option leaves cross-fs target untouched",
+            "Copy option duplicates bytes to cross-fs target",
+            "All-cross-fs unify is refused",
+            "Unify with one cross-fs target offers per-target choice"
+          ],
+          "deps": ["03-02"],
+          "time_estimate_hours": 6,
+          "implementation_scope": [
+            "crates/modeltap-core/src/ports/fs_probe.rs",
+            "crates/modeltap-core/src/logic/plan.rs",
+            "crates/modeltap-tui/src/dialogs/cross_fs_choice.rs",
+            "crates/modeltap-app/src/actions/unify.rs",
+            "crates/modeltap-app/tests/fixtures/devon-cross-fs/",
+            "crates/modeltap-app/tests/acceptance/us_19_cross_fs_fallback.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-19 @release-2 @cross-fs scenarios pass",
+            "EXDEV error from std::fs::hard_link is caught and routed to fallback dialog (verified by injected fault test)",
+            "No-partial-state-corruption invariant: after any failure path, the disk is in either pre-unify or post-unify state for each target — never half-linked half-copied",
+            "ADR-008 cited in code near the cross-fs decision branch"
+          ],
+          "adr_references": ["ADR-008"]
+        },
+        {
+          "id": "03-04",
+          "name": "US-11: Updated totals after action (sub-500ms incremental refresh)",
+          "description": "Promotes the post-action refresh from 01-05 into a robust incremental rediscovery: after any zap/unify/delete-from-one, only the affected tool(s) re-run discover() rather than a full all-plugins rediscovery. Summary bar refreshes within 500ms; falls back to '(refresh failed)' indicator with [r] retry shortcut on error. INT-5 invariant (new total = old total - bytes_reclaimed within rounding) is property-tested. Includes the unify-keeps-model-count-steady semantics (model count unchanged because the model is still registered everywhere — only disk usage drops).",
+          "criteria": [
+            "After any zap/unify/delete-from-one, summary bar refreshes within 500ms (US-11.AC-1)",
+            "Refresh failures degrade gracefully with '(refresh failed)' indicator and [r] retry shortcut (US-11.AC-2)",
+            "New total = old total - bytes_reclaimed within rounding (US-11.AC-3 / INT-5)",
+            "Unify keeps model count steady (model still registered everywhere; only disk usage decreases)",
+            "Incremental rediscovery — only the affected tool re-runs discover(), not all four"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_11_updated_totals.rs",
+          "scenario_name": [
+            "Totals update after zap within 500ms",
+            "Totals update after unify (disk down, model count steady)",
+            "Refresh failure shows degraded indicator"
+          ],
+          "deps": ["03-02"],
+          "time_estimate_hours": 3,
+          "implementation_scope": [
+            "crates/modeltap-app/src/refresh.rs",
+            "crates/modeltap-app/src/inventory_build.rs",
+            "crates/modeltap-tui/src/render/summary_bar.rs",
+            "crates/modeltap-app/tests/acceptance/us_11_updated_totals.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-11 scenarios pass",
+            "INT-5 invariant property test passes",
+            "Refresh-failure scenario uses @infrastructure-failure tag and exercises directory-removed path",
+            "Latency measured at p99 < 500ms in CI for fixture devon-multi-tool"
+          ],
+          "adr_references": []
+        },
+        {
+          "id": "03-05",
+          "name": "US-14: Dry-run preview before unify (n shortcut, no-mutation guarantee)",
+          "description": "Adds the [n] dry-run shortcut to the unify dialog. Dry-run uses the SAME code path as Enter to build the Plan value (per ADR-006 — same value type, different commit step) but does NOT execute the plan. Output is clearly labeled '(dry-run) Would create canonical at <path>' / 'Would create hardlinks at <paths>' / 'Reclaim: <N> GB'. After dry-run, user can press Enter to proceed with the same plan or Esc to cancel. Cross-fs warnings surface during dry-run too — 'WARNING: target X on different filesystem — would fall back to copy'. Emits JSONL action.unify_dry_run event distinct from action.unify (allows K1 / K5 instrumentation to distinguish).",
+          "criteria": [
+            "n produces the same plan as Enter would, with no filesystem mutation (US-14.AC-1)",
+            "Dry-run output is clearly labeled '(dry-run)' to distinguish from real action (US-14.AC-2)",
+            "Cross-filesystem and permission issues are surfaced during dry-run (US-14.AC-3)",
+            "Dry-run uses the SAME Plan-building code path as real run (verified by snapshot equality of Plan value)",
+            "JSONL action.unify_dry_run event emitted; action.unify event is NOT emitted for dry-run path"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_14_dry_run.rs",
+          "scenario_name": [
+            "Dry-run shows the plan without touching disk",
+            "Dry-run reveals cross-filesystem issue",
+            "Dry-run emits action.unify_dry_run event"
+          ],
+          "deps": ["03-02", "03-03"],
+          "time_estimate_hours": 3,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/dialogs/unify_confirm.rs",
+            "crates/modeltap-app/src/actions/unify.rs",
+            "crates/modeltap-core/src/logic/plan.rs",
+            "crates/modeltap-app/tests/acceptance/us_14_dry_run.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-14 @release-2 scenarios pass",
+            "No-mutation property test: for ANY dry-run input, no inode in the fixture tree changes (verified by snapshotting all (path, inode, size) tuples before and after)",
+            "Dry-run / real-run Plan-equality property test (same input -> same Plan value)",
+            "Action.unify_dry_run JSONL event schema validated"
+          ],
+          "adr_references": ["ADR-006"]
+        },
+        {
+          "id": "03-06",
+          "name": "US-05b: Single-model delete via Tool::delete_one (per ADR-009)",
+          "description": "Implements the [d] shortcut on the model detail screen, dispatching to Tool::delete_one (a first-class trait method per ADR-009 — NOT a special case of zap). Confirmation rule splits on shared-vs-unique: if the model is shared with other tools (compatibility engine reports >1 compatible tool currently registered), use single-key [y/n] confirmation (low friction — content is preserved elsewhere); if the model is UNIQUE to this tool (the only copy), require typed-id confirmation matching the safety bar of US-05. Esc cancels at any point. After deletion, only the targeted tool's registration/file is removed; other tools' copies (if any) remain unaffected and still openable. If the targeted tool is running and holds the file open, surface 'close <tool> and retry' per intake Q5 (this branch fully wired by 03-07; for this step the running-tool check is a stub returning 'no running tools' — 03-07 plugs it in). Emits JSONL action.zap_one event with was_shared bool.",
+          "criteria": [
+            "[d] shortcut on detail screen opens the single-model delete dialog (US-05b.AC-1)",
+            "Shared model uses [y/n] confirmation; unique model requires typed-id confirmation (US-05b.AC-2)",
+            "After deletion, only the targeted tool's registration/file is removed (US-05b.AC-3)",
+            "Other tools' copies (if any) remain unaffected and still openable (US-05b.AC-4)",
+            "If the targeted tool is running, surface 'close tool and retry' per intake Q5 (wired by 03-07)",
+            "Reclaim total = size of the deleted file (only one inode removed)",
+            "Bottom bar shows '[d] delete-from-one' only on the detail screen",
+            "Tool::delete_one is invoked (NOT delete_all) per ADR-009",
+            "JSONL action.zap_one event emitted with tool, bytes_reclaimed, was_shared, outcome"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_05b_delete_one.rs",
+          "scenario_name": [
+            "Shared single-model delete uses [y/n] confirmation",
+            "Unique single-model delete requires typed model id",
+            "Unique single-model delete cancels on wrong typed id",
+            "Esc cancels single-model delete at any point",
+            "Successful single-model delete emits action.zap_one event"
+          ],
+          "deps": ["02-06", "03-02"],
+          "time_estimate_hours": 6,
+          "implementation_scope": [
+            "crates/modeltap-tui/src/dialogs/delete_one_confirm.rs",
+            "crates/modeltap-app/src/actions/delete_one.rs",
+            "plugins/ollama/src/delete.rs",
+            "plugins/llama-cli/src/delete.rs",
+            "plugins/hf/src/delete.rs",
+            "plugins/lm-studio/src/delete.rs",
+            "crates/modeltap-app/tests/acceptance/us_05b_delete_one.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-05b @release-2 @destructive scenarios pass",
+            "Tool::delete_one is invoked (NOT delete_all loop) per ADR-009 — verified by trait-call assertion in test",
+            "Shared-vs-unique classification uses ADR-002 conservative rule (uncertain dedup => unique => stronger confirmation)",
+            "JSONL action.zap_one event schema validated; was_shared field present",
+            "Other-tool-unaffected invariant verified by post-delete check: every non-targeted tool's discover() returns the model unchanged"
+          ],
+          "adr_references": ["ADR-002", "ADR-009"]
+        },
+        {
+          "id": "03-07",
+          "name": "US-17: Detect-and-prompt-then-retry for running tools (per intake Q5)",
+          "description": "Implements the FsProbe::detect_running_tools() port using lsof on macOS/Linux (cfg!(unix) gated). Before any unify or single-model delete (zap-all already proceeds without this gate per intake Q5 wording), modeltap checks whether any registered plugin's tool process holds in-scope files open. If yes, dialog reads '<tool> is running and has this file open. Close <tool> and retry.' offering [r] retry / [Esc] cancel. NO partial mutation occurs while the dialog is open — this is detect-and-prompt-then-retry per Q5 (NOT soft-warning, which was the pre-Q5 stance). On [r] after the user closes the tool, the action proceeds normally. If lsof is unavailable (stripped container), the dialog says 'Running-tool detection unavailable on this system' and Devon can proceed at his own risk. Detection completes within 500ms.",
+          "criteria": [
+            "Before unify or delete-one, detect_running_tools runs and results gate the action (US-17.AC-1)",
+            "If a running tool is detected, modeltap REFUSES the action and prompts close-and-retry per intake Q5 (NOT soft-warning) (US-17.AC-2)",
+            "If lsof is unavailable, message says so explicitly and user can proceed at own risk (US-17.AC-3)",
+            "Detection completes within 500ms and does not delay the dialog noticeably (US-17.AC-4)",
+            "After [r] retry following a successful close, the action proceeds normally",
+            "No filesystem mutation occurs while the running-tool dialog is open"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_17_running_tool_detect.rs",
+          "scenario_name": [
+            "Running tool surfaces close-and-retry prompt",
+            "After user closes the tool, retry succeeds",
+            "No running tools, no warning",
+            "lsof unavailable surfaces explicit message"
+          ],
+          "deps": ["03-02", "03-06"],
+          "time_estimate_hours": 5,
+          "implementation_scope": [
+            "crates/modeltap-core/src/ports/fs_probe.rs",
+            "crates/modeltap-app/src/lsof_adapter.rs",
+            "crates/modeltap-tui/src/dialogs/running_tool_prompt.rs",
+            "crates/modeltap-app/src/actions/unify.rs",
+            "crates/modeltap-app/src/actions/delete_one.rs",
+            "crates/modeltap-app/tests/acceptance/us_17_running_tool_detect.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-17 @release-2 scenarios pass on both macOS and Linux CI",
+            "FsProbe port uses fake-lsof script for tests (avoids needing real running processes in CI)",
+            "No-mutation-while-prompted invariant verified by checksum of fixture tree before and after the prompt is shown but not retried",
+            "Detection latency measured at p99 < 500ms in CI",
+            "Q5 intake answer cited in code comment near the gate",
+            "RELEASE 2 EXIT GATE — all @release-2 scenarios green; K1 instrumentation captured in JSONL"
+          ],
+          "adr_references": ["ADR-007"]
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Built to grow — plugin trait certification + cross-platform CI matrix",
+      "description": "Phase 04 codifies architectural promises that have been honored throughout phases 01-03 but not yet TESTED: (a) the Tool trait is stable and documented for outside contributors, panic-isolated, and enforced by an architecture-lint test (US-18); (b) the build runs on macOS + Linux CI matrix with platform-abstracted paths and Windows refusing with a clear message (US-20). Mostly testing + CI work — feature code already exists from 01-02 onwards.",
+      "release_target": "Release 3",
+      "exit_gate": "All scenarios tagged @release-3 in master-acceptance.feature pass; CONTRIBUTING.md ships with a worked plugin example; CI architecture-lint job is green.",
+      "estimated_total_hours": 11,
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "US-18: Plugin trait certification (CONTRIBUTING.md, panic isolation, architecture lint)",
+          "description": "Certifies the Tool trait already shipped in 01-02. Three deliverables: (1) CONTRIBUTING.md with a worked example walking Riley Chen through implementing an Atomic Chat plugin (the 5th tool) — must include the inventory::submit! registration line and explain how the trait surface is frozen at SemVer-major boundaries. (2) Plugin panic isolation hardening: every plugin call wrapped in tokio::task::spawn + JoinError; a panicking plugin shows '(error)' in left pane and writes panic_message to diagnostics.log without crashing the TUI (already partly wired in 01-02; this step adds the explicit @plugin-trait test). (3) Architecture rule R1 enforcement per ci-pipeline.md §4: tests/architecture.rs parses cargo metadata --format-version 1 JSON and asserts (a) modeltap-core has no path-deps on plugins, (b) plugins do not depend on each other, (c) modeltap-tui does not import any concrete plugin. The test runs in CI as a gating job. Includes a 5th-plugin fixture (riley-fifth-plugin) that exists ONLY as a test fixture proving the contract.",
+          "criteria": [
+            "Tool trait defined in modeltap-core with name, accepted_formats, discover, link, delete_one, delete_all (US-18.AC-1; trait already exists from 01-02 — this step certifies)",
+            "At least 4 plugins (Ollama, llama-cli, HF, LM Studio) exist as separate crates (US-18.AC-2; satisfied by 01-02..02-04)",
+            "Adding a 5th plugin requires zero changes to crates/modeltap-core/src/ files (US-18.AC-3)",
+            "Plugin panics are caught at the plugin boundary; one bad plugin does not crash the TUI (US-18.AC-4)",
+            "Trait is documented in CONTRIBUTING.md with a worked example (US-18.AC-5)",
+            "Architecture-lint test asserts: modeltap-core has no plugin deps; plugins have no inter-plugin deps; modeltap-tui has no concrete plugin deps",
+            "JSONL launch.inventory event lists all registered plugins"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_18_plugin_trait.rs",
+          "scenario_name": [
+            "A new plugin appears in the left pane on launch",
+            "A plugin panic does not crash modeltap",
+            "Architecture rule — modeltap-core has no plugin dependency",
+            "launch.inventory event lists all registered plugins"
+          ],
+          "deps": ["02-04", "03-07"],
+          "time_estimate_hours": 6,
+          "implementation_scope": [
+            "CONTRIBUTING.md",
+            "tests/architecture.rs",
+            "crates/modeltap-app/src/plugin_isolation.rs",
+            "plugins/atomic-chat-fixture/Cargo.toml",
+            "plugins/atomic-chat-fixture/src/lib.rs",
+            "crates/modeltap-app/tests/acceptance/us_18_plugin_trait.rs",
+            ".github/workflows/ci.yml"
+          ],
+          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-18 @release-3 @plugin-trait scenarios pass",
+            "tests/architecture.rs runs as a CI job and gates merge",
+            "CONTRIBUTING.md walks Riley through adding 'Atomic Chat' end-to-end including inventory::submit! registration",
+            "Plugin panic isolation verified by injected-panic test — TUI continues, diagnostics.log captures panic_message",
+            "5th-plugin fixture proves zero changes to crates/modeltap-core/src/ (asserted by git diff in CI)",
+            "Tool trait surface unchanged from 01-02 — this step modifies NO trait methods",
+            "JSONL launch.inventory event schema validated"
+          ],
+          "adr_references": ["ADR-001"]
+        },
+        {
+          "id": "04-02",
+          "name": "US-20: Cross-platform CI matrix and WSL/Windows handling",
+          "description": "Final step. Largely a CI + test step — no new feature code. CI matrix already runs on macOS-latest + ubuntu-latest from 01-01; this step ADDS: (a) MODELTAP_FORCE_PLATFORM env var for testing per-OS code paths in a single CI job; (b) per-OS path defaults gated by cfg! macros (already exist in plugins from 02-02..02-04 — this step audits for completeness); (c) README documenting supported platforms (macOS aarch64/x86_64, Linux x86_64/aarch64, Windows via WSL only); (d) native Windows binary refuses to run with 'Windows is supported only via WSL — see https://learn.microsoft.com/windows/wsl/install' on stderr and exit code 64; (e) Scenario Outline test exercises macos-aarch64 / linux-x86_64 / linux-aarch64 platform variants. K3 benchmark from k3-benchmark-spec.md runs on Linux only per ci-pipeline.md.",
+          "criteria": [
+            "Each plugin has per-OS path defaults gated by cfg! (US-20.AC-1)",
+            "CI runs on macOS-latest AND ubuntu-latest runners; both must pass to merge (US-20.AC-2)",
+            "README states supported platforms explicitly: macOS, Linux, WSL (US-20.AC-3)",
+            "Native Windows binary refuses with 'Windows is supported only via WSL' on stderr, exit code 64 (US-20.AC-4)",
+            "No path is hardcoded to '/' or Unix-only assumptions outside the platform abstraction (US-20.AC-5)",
+            "MODELTAP_FORCE_PLATFORM env var enables testing per-OS code paths in CI",
+            "WSL is treated identically to native Linux — same paths, same code paths"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_20_cross_platform.rs",
+          "scenario_name": [
+            "Discovery uses per-OS default paths",
+            "WSL is treated as Linux",
+            "Native Windows binary refuses to run with clear message"
+          ],
+          "deps": ["04-01"],
+          "time_estimate_hours": 5,
+          "implementation_scope": [
+            "README.md",
+            "crates/modeltap-app/src/platform.rs",
+            "crates/modeltap-app/src/main.rs",
+            ".github/workflows/ci.yml",
+            "crates/modeltap-app/tests/acceptance/us_20_cross_platform.rs"
+          ],
+          "tdd_phases": ["PREPARE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "dod": [
+            "All US-20 @release-3 @cross-platform scenarios pass",
+            "CI matrix shows green on macOS-latest AND ubuntu-latest for the same commit before merge",
+            "K3 benchmark runs on ubuntu-latest only (per ci-pipeline.md cost decision)",
+            "README documents supported platforms; non-WSL Windows users see actionable error",
+            "Architecture-lint asserts no hardcoded '/' or Unix-only path strings outside crates/modeltap-app/src/platform.rs",
+            "RELEASE 3 EXIT GATE — all @release-3 scenarios green; v1 ready for finalize gate per CLAUDE.md mutation testing strategy"
+          ],
+          "adr_references": []
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/modeltap-core/src/",
+      "crates/modeltap-tui/src/",
+      "crates/modeltap-app/src/",
+      "plugins/ollama/src/",
+      "plugins/llama-cli/src/",
+      "plugins/hf/src/",
+      "plugins/lm-studio/src/"
+    ],
+    "test_directories": [
+      "crates/modeltap-app/tests/acceptance/",
+      "crates/modeltap-core/tests/",
+      "plugins/ollama/tests/",
+      "plugins/llama-cli/tests/",
+      "plugins/hf/tests/",
+      "plugins/lm-studio/tests/",
+      "tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "Cargo.lock"
+    ]
+  },
+  "validation": {
+    "status": "pending",
+    "reviewer": "TODO",
+    "approved_at": "TODO"
+  }
+}
