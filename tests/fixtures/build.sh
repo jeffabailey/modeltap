@@ -282,6 +282,33 @@ build_devon_hf_cache() {
   printf '%s' "$rev3" > "$m3/refs/main"
 }
 
+build_devon_lm_studio() {
+  # Standalone LM Studio fixture for US-15 acceptance + plugin contract tests.
+  # New (default) convention: <root>/.cache/lm-studio/models/<org>/<repo>/<file>.gguf
+  # Lays out 3 models so the "LM Studio cache is discovered" scenario has signal.
+  local root="$1"
+  rm -rf "$root"
+  local models_root="$root/.cache/lm-studio/models"
+  # Two healthy GGUFs and one with a different quant — three rows total. Org/
+  # repo subdirs mirror the LM Studio HF-style layout.
+  mkdir -p "$models_root/microsoft/phi-3-mini"
+  mkdir -p "$models_root/lmstudio-community/Llama-3.2-3B-Instruct-GGUF"
+  mkdir -p "$models_root/TheBloke/Mistral-7B-Instruct-v0.2-GGUF"
+  write_gguf "$models_root/microsoft/phi-3-mini/phi-3-mini-q4.gguf"             "phi3"    15
+  write_gguf "$models_root/lmstudio-community/Llama-3.2-3B-Instruct-GGUF/Llama-3.2-3B-Instruct-Q4_K_M.gguf" "llama" 15
+  write_gguf "$models_root/TheBloke/Mistral-7B-Instruct-v0.2-GGUF/mistral-7b-instruct-v0.2.Q4_0.gguf" "mistral" 2
+}
+
+build_devon_lm_studio_older() {
+  # Older-path-only fixture: ONLY ~/.lmstudio/models/, no ~/.cache/lm-studio/.
+  # Tests that the plugin checks the legacy location too.
+  local root="$1"
+  rm -rf "$root"
+  local models_root="$root/.lmstudio/models"
+  mkdir -p "$models_root/QuantFactory/Hermes-2-Pro-GGUF"
+  write_gguf "$models_root/QuantFactory/Hermes-2-Pro-GGUF/hermes-2-pro-q4_K_M.gguf" "llama" 15
+}
+
 build_devon_long_list() {
   # 31 distinct Ollama manifest entries — enough to exercise right-pane
   # scroll position indicator (US-03 "Down Arrow scrolls a long model list").
@@ -313,6 +340,8 @@ case "$NAME" in
   devon-llama-cli)          build_devon_llama_cli "$TARGET" ;;
   devon-llama-cli-extra)    build_devon_llama_cli_extra "$TARGET" ;;
   devon-hf-cache)           build_devon_hf_cache "$TARGET" ;;
+  devon-lm-studio)          build_devon_lm_studio "$TARGET" ;;
+  devon-lm-studio-older)    build_devon_lm_studio_older "$TARGET" ;;
   all)
     build_devon_only_ollama "tests/fixtures/.build/devon-only-ollama"
     build_devon_multi_tool "tests/fixtures/.build/devon-multi-tool"
@@ -321,6 +350,8 @@ case "$NAME" in
     build_devon_llama_cli "tests/fixtures/.build/devon-llama-cli"
     build_devon_llama_cli_extra "tests/fixtures/.build/devon-llama-cli-extra"
     build_devon_hf_cache "tests/fixtures/.build/devon-hf-cache"
+    build_devon_lm_studio "tests/fixtures/.build/devon-lm-studio"
+    build_devon_lm_studio_older "tests/fixtures/.build/devon-lm-studio-older"
     ;;
   *)
     echo "unknown fixture: $NAME" >&2

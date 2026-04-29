@@ -14,4 +14,5 @@ mod acceptance {
     pub mod us_06_post_action_message;
     pub mod us_07_discover_llama_cli;
     pub mod us_12_discover_hf;
+    pub mod us_15_discover_lm_studio;
 }

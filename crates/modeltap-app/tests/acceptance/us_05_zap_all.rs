@@ -62,6 +62,7 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
         // Pin the other plugins at non-existent paths so this test isolates
         // from the developer's real Ollama / llama-cli / HF / lm-studio installs.
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf-cache");
     if let Some(dir) = ollama_dir {

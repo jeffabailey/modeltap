@@ -689,6 +689,13 @@ dependencies = [
  "async-trait",
  "inventory",
  "modeltap-core",
+ "serde",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "toml",
+ "tracing",
+ "walkdir",
 ]
 
 [[package]]
