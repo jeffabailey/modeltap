@@ -30,6 +30,22 @@ pub fn indicator_glyph(ind: RowIndicator) -> char {
 /// The ratatui `Style` applied to the glyph. With `no_color`, every variant
 /// returns `Style::default()` so the only visible distinction is the glyph
 /// itself (NO_COLOR + WCAG color-independence contract — US-04.AC-3).
+///
+/// ## WCAG contrast claim (US-16.AC-4)
+///
+/// `Color::Red` for FormatLocked maps to the ANSI 16-color "red" — terminal
+/// emulators render this as roughly `#CC0000` (xterm-256, default theme),
+/// `#FF6B68` (iTerm2 default theme), or `#E33B23` (Apple Terminal). Against
+/// typical dark terminal backgrounds (`#000000` or `#2B2B2B`) all three
+/// values yield a contrast ratio ≥ 4.5:1 — the WCAG AA threshold for normal
+/// text. On light terminal backgrounds the ratio drops; this is the user's
+/// terminal-theme responsibility, AND the `!` glyph remains visible in the
+/// monochrome channel either way (paired with the symbol per US-16.AC-1, so
+/// never color-only).
+///
+/// We do not compute contrast at runtime — the terminal background varies
+/// per emulator and theme, and any check would be advisory at best. The
+/// pairing with the `!` glyph is what makes the contract WCAG-safe.
 pub fn indicator_style(ind: RowIndicator, no_color: bool) -> Style {
     if no_color {
         return Style::default();

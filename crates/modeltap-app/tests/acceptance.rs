@@ -17,4 +17,5 @@ mod acceptance {
     pub mod us_12_discover_hf;
     pub mod us_13_detail_screen;
     pub mod us_15_discover_lm_studio;
+    pub mod us_16_format_locked_indicator;
 }

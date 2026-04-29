@@ -11,6 +11,8 @@ mod headless;
 mod observability;
 mod registry;
 
+use modeltap_app::inventory_build;
+
 // `refresh` lives in the library half (src/lib.rs) so integration tests
 // can call `modeltap_app::refresh::refresh_tool` without re-compiling the
 // composition root. The bin imports it via the lib name.
@@ -90,6 +92,18 @@ fn main() -> ExitCode {
     // semantically equivalent to one (per ADR-001).
     let plugins_for_discovery = registry::collect_plugins();
     let plugins_for_actions = registry::collect_plugins();
+
+    // Pre-discovery contract check: every plugin's `accepted_formats()` MUST
+    // be non-empty (per US-16.AC-3). The compatibility engine's defensive
+    // branch will already render any offender's models as `?` (Unknown), but
+    // the warning is what makes the bug visible to plugin authors. Surfaced
+    // via `tracing::warn!` to the diagnostics log target.
+    let plugin_capabilities = registry::collect_plugins()
+        .iter()
+        .map(|p| (p.name(), p.accepted_formats().to_vec()))
+        .collect::<modeltap_core::logic::compatibility::PluginCapabilityMap>();
+    let _empty_offenders = inventory_build::warn_on_empty_capabilities(&plugin_capabilities);
+
     let inventory_start = Instant::now();
     let summary: InventorySummary = runtime.block_on(run_discovery(plugins_for_discovery));
     let full_inventory_ms = inventory_start.elapsed().as_millis() as u64;
