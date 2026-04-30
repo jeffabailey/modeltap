@@ -32,3 +32,12 @@ Desktop.ini
 
 # Generated fixture trees (rebuilt from tests/fixtures/build.sh)
 tests/fixtures/.build/
+
+# cargo-mutants output
+mutants.out/
+mutants.out.old/
+
+# Coverage artifacts
+*.profraw
+*.profdata
+/coverage/
