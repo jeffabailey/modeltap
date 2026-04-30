@@ -10,5 +10,6 @@
 //! (US-04) dialogs to this module.
 
 pub mod cross_fs_choice;
+pub mod delete_one_confirm;
 pub mod unify_confirm;
 pub mod zap_confirm;

@@ -11,6 +11,7 @@ use modeltap_core::{ToolId, ToolStatus};
 
 use crate::dialogs::cross_fs_choice::CrossFsChoiceDialog;
 pub use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsDecision, CrossFsMode};
+use crate::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use crate::dialogs::unify_confirm::UnifyDialogState;
 use crate::dialogs::zap_confirm::ZapConfirmState;
 use crate::screens::detail::DetailScreenState;
@@ -125,6 +126,15 @@ pub struct AppState {
     /// INSTEAD of the regular unify dialog when the plan has 1+ cross-fs target.
     pub cross_fs_dialog: Option<CrossFsChoiceDialog>,
 
+    /// `Some(...)` when the US-05b single-model delete dialog is open
+    /// (ADR-009; step 03-06). Opened by `Msg::OpenDeleteOneDialog(state)`
+    /// (orchestrator constructs it after `[d]` is pressed on the detail
+    /// screen). Closed by `Msg::DeleteOneConfirmShared` /
+    /// `Msg::DeleteOneCancelShared` / `Msg::DialogConfirm` (Unique typed-id
+    /// path) / `Msg::DialogCancel`. Mutually exclusive with the other
+    /// dialog slots.
+    pub delete_one_dialog: Option<DeleteOneConfirmState>,
+
     /// Structured last-action banner for the right pane (US-06). Set by
     /// `Msg::SetLastAction(...)` after an action effect completes; cleared
     /// on any navigation Msg (`SelectNextTool`, `SelectPrevTool`,
@@ -161,6 +171,7 @@ impl Default for AppState {
             zap_dialog: None,
             unify_dialog: None,
             cross_fs_dialog: None,
+            delete_one_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
             refresh_failed_tools: BTreeSet::new(),
@@ -189,6 +200,7 @@ impl AppState {
             zap_dialog: None,
             unify_dialog: None,
             cross_fs_dialog: None,
+            delete_one_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
             refresh_failed_tools: BTreeSet::new(),

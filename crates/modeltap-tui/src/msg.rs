@@ -10,6 +10,7 @@ use modeltap_core::logic::plan::UnifyPlan;
 use modeltap_core::ToolId;
 
 use crate::app_state::ToolView;
+use crate::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use crate::screens::detail::DetailScreenState;
 
 /// All the messages that can drive `update()`. Step 01-03 covers keyboard
@@ -150,8 +151,41 @@ pub enum Msg {
     CrossFsCancel,
 
     /// User pressed `d` (delete-from-one). Bound here so the bottom-bar INT-6
-    /// invariant holds. Wired to the delete-from-one effect in 03-06.
+    /// invariant holds. On the detail screen, the headless harness /
+    /// production loop intercepts this and dispatches `OpenDeleteOneDialog`
+    /// with the orchestrator-built dialog state (shared-vs-unique
+    /// classification per ADR-002).
     DeleteFromOne,
+
+    // -----------------------------------------------------------------------
+    // US-05b single-model delete dialog (step 03-06; ADR-009).
+    //
+    // The dialog state machine lives in `dialogs::delete_one_confirm`. On
+    // the detail screen, pressing `[d]` dispatches `Msg::DeleteFromOne`
+    // (kept for INT-6 invariant) which the orchestrator lifts into
+    // `Msg::OpenDeleteOneDialog(state)` with `was_shared` already
+    // classified. Confirmation flows through the same Dialog* messages as
+    // the zap dialog: Shared mode interprets [y]/[n] via decide_on_y /
+    // decide_on_n, Unique mode interprets typed input + Enter via
+    // decide_on_enter.
+    // -----------------------------------------------------------------------
+    /// Composition root dispatches this when `[d]` is pressed on the detail
+    /// screen and the orchestrator has built the dialog (shared-vs-unique
+    /// classification, model id, size). `update()` writes
+    /// `delete_one_dialog = Some(state)`.
+    OpenDeleteOneDialog(DeleteOneConfirmState),
+    /// User pressed `[y]` while the delete-one dialog is open in Shared
+    /// mode — proceed with delete_one (low-friction path; content preserved
+    /// elsewhere).
+    DeleteOneConfirmShared,
+    /// User pressed `[n]` while the delete-one dialog is open in Shared
+    /// mode — close dialog with no destructive side-effect.
+    DeleteOneCancelShared,
+    /// Composition root dispatches this when `actions::delete_one::run`
+    /// returns. Carries the outcome so the right pane / detail screen can
+    /// surface it as a `LastAction` banner (banner construction lives in
+    /// the composition root for symmetry with zap/unify).
+    DeleteOneCompleted,
 
     // -----------------------------------------------------------------------
     // US-14 dry-run preview before unify (step 03-05).

@@ -9,6 +9,7 @@ use modeltap_core::ToolId;
 
 use crate::app_state::{AppState, FocusPane, Screen};
 use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsChoiceDialog};
+use crate::dialogs::delete_one_confirm::{DeleteOneConfirmState, DeleteOneDecision};
 use crate::dialogs::unify_confirm::{UnifyDecision, UnifyDialogState};
 use crate::dialogs::zap_confirm::{ZapConfirmState, ZapDecision};
 use crate::msg::Msg;
@@ -50,6 +51,27 @@ pub struct UpdateEffect {
     /// unchanged in `state.unify_dialog.plan` per the ADR-006 same-value-type
     /// principle.
     pub trigger_dry_run: Option<UnifyPlan>,
+
+    /// US-05b (step 03-06): when `Some((tool, model_id, was_shared))`, the
+    /// user has confirmed the single-model delete (typed-id matched in
+    /// Unique mode, or pressed `y` in Shared mode). The composition root
+    /// invokes `actions::delete_one::run` to call `Tool::delete_one` (NOT
+    /// `delete_all` per ADR-009) and emit the `action.zap_one` JSONL event
+    /// with `was_shared` recorded.
+    pub trigger_delete_one: Option<DeleteOneTrigger>,
+}
+
+/// Payload for `UpdateEffect::trigger_delete_one`. Carries the data the
+/// composition root needs to look up the plugin + ModelMeta for the
+/// `Tool::delete_one(model)` call. Per ADR-009 + the dialog's
+/// shared-vs-unique split, `was_shared` is preserved through to the JSONL
+/// event so observability can distinguish the two destructive paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeleteOneTrigger {
+    pub tool: ToolId,
+    pub model_id: String,
+    pub was_shared: bool,
+    pub size_bytes: u64,
 }
 
 /// Pure transition. Takes ownership of `state` and returns the next state.
@@ -101,14 +123,8 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             UpdateEffect::default(),
         ),
         Msg::ZapTool => (open_zap_dialog(state), UpdateEffect::default()),
-        Msg::DialogTextInput(c) => (
-            mutate_dialog(state, |d| d.handle_char(c)),
-            UpdateEffect::default(),
-        ),
-        Msg::DialogBackspace => (
-            mutate_dialog(state, |d| d.handle_backspace()),
-            UpdateEffect::default(),
-        ),
+        Msg::DialogTextInput(c) => (mutate_dialogs_text_input(state, c), UpdateEffect::default()),
+        Msg::DialogBackspace => (mutate_dialogs_backspace(state), UpdateEffect::default()),
         Msg::DialogConfirm => decide_dialog(state, DialogKey::Enter),
         Msg::DialogCancel => decide_dialog(state, DialogKey::Esc),
         Msg::OpenUnifyDialog(plan) => (
@@ -175,6 +191,25 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // while the state remains unchanged.
         Msg::Unify => (state, UpdateEffect::default()),
         Msg::DeleteFromOne => (state, UpdateEffect::default()),
+        // ----- US-05b single-model delete dialog (step 03-06; ADR-009) ------
+        Msg::OpenDeleteOneDialog(dialog) => (
+            AppState {
+                delete_one_dialog: Some(dialog),
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        Msg::DeleteOneConfirmShared => decide_delete_one_shared(state, DeleteOneSharedKey::Yes),
+        Msg::DeleteOneCancelShared => decide_delete_one_shared(state, DeleteOneSharedKey::No),
+        // The composition root surfaces the outcome via Msg::SetLastAction;
+        // here we just close the dialog if it is still open.
+        Msg::DeleteOneCompleted => (
+            AppState {
+                delete_one_dialog: None,
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
         // ----- US-14 dry-run preview (step 03-05) -----------------------
         Msg::UnifyDryRun => decide_dry_run(state),
         Msg::UnifyDryRunCompleted(lines) => apply_dry_run_lines(state, lines),
@@ -294,16 +329,35 @@ fn open_zap_dialog(state: AppState) -> AppState {
     }
 }
 
-/// Apply an in-place mutation to the open zap dialog (if any). When no
+/// Route a printable-character keystroke to whichever typed-input dialog is
+/// open. The zap dialog and the delete-one dialog (Unique mode only) both
+/// accumulate typed input; in Shared mode the delete-one dialog ignores typed
+/// input (Shared mode resolves on `[y]` / `[n]` directly via
+/// `Msg::DeleteOneConfirmShared` / `Msg::DeleteOneCancelShared`). When no
 /// dialog is open, the message is silently ignored (defense in depth — the
 /// keymap routes dialog keys only when a dialog is open, but a stray test
 /// `Msg::DialogTextInput` would otherwise produce a confusing panic).
-fn mutate_dialog<F>(mut state: AppState, f: F) -> AppState
-where
-    F: FnOnce(&mut ZapConfirmState),
-{
+fn mutate_dialogs_text_input(mut state: AppState, c: char) -> AppState {
     if let Some(dialog) = state.zap_dialog.as_mut() {
-        f(dialog);
+        dialog.handle_char(c);
+    }
+    if let Some(dialog) = state.delete_one_dialog.as_mut() {
+        if !dialog.is_shared() {
+            dialog.handle_char(c);
+        }
+    }
+    state
+}
+
+/// Backspace counterpart to `mutate_dialogs_text_input`. Same routing rules.
+fn mutate_dialogs_backspace(mut state: AppState) -> AppState {
+    if let Some(dialog) = state.zap_dialog.as_mut() {
+        dialog.handle_backspace();
+    }
+    if let Some(dialog) = state.delete_one_dialog.as_mut() {
+        if !dialog.is_shared() {
+            dialog.handle_backspace();
+        }
     }
     state
 }
@@ -328,7 +382,107 @@ fn decide_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffect) {
     if state.zap_dialog.is_some() {
         return decide_zap_dialog(state, key);
     }
+    if state.delete_one_dialog.is_some() {
+        return decide_delete_one_unique(state, key);
+    }
     (state, UpdateEffect::default())
+}
+
+/// Resolve the delete-one dialog's Unique typed-id path. Enter triggers the
+/// `decide_on_enter` BYTE-EQUAL CASE-SENSITIVE comparison; Esc always
+/// cancels. In Shared mode, Enter is a no-op (Pending) per the dialog state
+/// machine — the dialog stays open so the user can press `[y]` or `[n]`.
+fn decide_delete_one_unique(state: AppState, key: DialogKey) -> (AppState, UpdateEffect) {
+    let Some(dialog) = &state.delete_one_dialog else {
+        return (state, UpdateEffect::default());
+    };
+    let decision = match key {
+        DialogKey::Enter => dialog.decide_on_enter(),
+        DialogKey::Esc => dialog.decide_on_esc(),
+    };
+    match decision {
+        DeleteOneDecision::Confirm => {
+            let trigger = trigger_from_dialog(dialog);
+            let next_state = AppState {
+                delete_one_dialog: None,
+                ..state
+            };
+            (
+                next_state,
+                UpdateEffect {
+                    trigger_delete_one: Some(trigger),
+                    ..UpdateEffect::default()
+                },
+            )
+        }
+        DeleteOneDecision::Cancel => (
+            AppState {
+                delete_one_dialog: None,
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        // Pending: Enter pressed in Shared mode — dialog stays open. The
+        // user must press [y] or [n] explicitly to resolve.
+        DeleteOneDecision::Pending => (state, UpdateEffect::default()),
+    }
+}
+
+/// Build the `DeleteOneTrigger` payload from the dialog's snapshot fields.
+fn trigger_from_dialog(dialog: &DeleteOneConfirmState) -> DeleteOneTrigger {
+    DeleteOneTrigger {
+        tool: dialog.tool,
+        model_id: dialog.model_id.clone(),
+        was_shared: dialog.is_shared(),
+        size_bytes: dialog.size_bytes,
+    }
+}
+
+/// Which key drove the Shared-mode delete-one decision. Only `[y]` and `[n]`
+/// reach this path; Esc flows through `Msg::DialogCancel` -> `decide_dialog`
+/// -> `decide_delete_one_unique` (which calls `decide_on_esc`).
+enum DeleteOneSharedKey {
+    Yes,
+    No,
+}
+
+/// Resolve the Shared-mode delete-one dialog. `[y]` confirms (low-friction
+/// per ADR-002 + ADR-009 — content preserved elsewhere); `[n]` cancels.
+fn decide_delete_one_shared(state: AppState, key: DeleteOneSharedKey) -> (AppState, UpdateEffect) {
+    let Some(dialog) = &state.delete_one_dialog else {
+        return (state, UpdateEffect::default());
+    };
+    let decision = match key {
+        DeleteOneSharedKey::Yes => dialog.decide_on_y(),
+        DeleteOneSharedKey::No => dialog.decide_on_n(),
+    };
+    match decision {
+        DeleteOneDecision::Confirm => {
+            let trigger = trigger_from_dialog(dialog);
+            let next_state = AppState {
+                delete_one_dialog: None,
+                ..state
+            };
+            (
+                next_state,
+                UpdateEffect {
+                    trigger_delete_one: Some(trigger),
+                    ..UpdateEffect::default()
+                },
+            )
+        }
+        DeleteOneDecision::Cancel => (
+            AppState {
+                delete_one_dialog: None,
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        // Pending: [y]/[n] pressed in Unique mode — typed input, not a
+        // decision. Caller should not have dispatched Shared-mode Msg in
+        // Unique mode, but defense in depth: leave dialog open.
+        DeleteOneDecision::Pending => (state, UpdateEffect::default()),
+    }
 }
 
 fn decide_zap_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffect) {
