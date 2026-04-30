@@ -76,6 +76,19 @@ pub enum RecordKind {
         /// Counted as success in `tools_unified` but reclaim is zero.
         cross_fs_targets_copied: u64,
     },
+    /// Result of a dry-run preview of a unify action (US-14). Distinct from
+    /// `ActionUnify` so K1/K5 instrumentation can distinguish previewed-vs-
+    /// executed actions; emitted with `outcome="previewed"` and never
+    /// written to disk (no `bytes_reclaimed`, only `bytes_would_reclaim`).
+    /// Per the privacy rule (`kpi-instrumentation.md` §"action.unify"): NO
+    /// model names, NO paths, NO hash values.
+    ActionUnifyDryRun {
+        model_dedup_key_kind: &'static str,
+        tools_to_unify: Vec<String>,
+        bytes_would_reclaim: u64,
+        cross_fs_targets: u64,
+        outcome: &'static str,
+    },
     /// One entry per discovered model. Written to a separate `models.log`
     /// file (NOT `launch.log`) so per-model metadata stays out of the
     /// privacy-sensitive launch event stream. Used by acceptance tests to
@@ -237,6 +250,21 @@ impl LaunchLogger {
                 env["outcome"] = json!(outcome);
                 env["cross_fs_targets_skipped"] = json!(cross_fs_targets_skipped);
                 env["cross_fs_targets_copied"] = json!(cross_fs_targets_copied);
+                env
+            }
+            RecordKind::ActionUnifyDryRun {
+                model_dedup_key_kind,
+                tools_to_unify,
+                bytes_would_reclaim,
+                cross_fs_targets,
+                outcome,
+            } => {
+                let mut env = self.base_envelope("action.unify_dry_run");
+                env["model_dedup_key_kind"] = json!(model_dedup_key_kind);
+                env["tools_to_unify"] = json!(tools_to_unify);
+                env["bytes_would_reclaim"] = json!(bytes_would_reclaim);
+                env["cross_fs_targets"] = json!(cross_fs_targets);
+                env["outcome"] = json!(outcome);
                 env
             }
             RecordKind::DiscoveredModel { .. } => unreachable!("handled above"),

@@ -17,12 +17,13 @@ use modeltap_core::logic::canonical_selector::{select_canonical, CandidatePath};
 use modeltap_core::logic::plan::{build_plan, PlanCandidate, UnifyPlan};
 use modeltap_core::{Tool, ToolId};
 use modeltap_tui::app_state::Screen;
+use modeltap_tui::dialogs::unify_confirm::UnifyMode;
 use modeltap_tui::screens::detail::DetailScreenState;
 use modeltap_tui::{update, view, AppState, Msg, UpdateEffect};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
-use crate::actions::unify::{self, UnifyOutcome, UnifyResult};
+use crate::actions::unify::{self, DryRunOutcome, UnifyOutcome, UnifyResult};
 use crate::actions::zap::{self, ZapOutcome, ZapResult};
 use crate::observability::{LaunchLogger, RecordKind};
 use crate::refresh;
@@ -81,15 +82,20 @@ pub fn run(
         }
     };
 
-    for token in tokens {
+    for (idx, token) in tokens.iter().enumerate() {
         let dialog_open = state.zap_dialog.is_some() || state.unify_dialog.is_some();
         let cross_fs_open = state.cross_fs_dialog.is_some();
-        let raw_msg = token_to_msg(&token, dialog_open, cross_fs_open);
+        let unify_open = state.unify_dialog.is_some();
+        let raw_msg = token_to_msg(token, dialog_open, cross_fs_open, unify_open);
         // Intercept Msg::Unify on the detail screen so we can build the
         // UnifyPlan from the registrations + plugins (the plan needs `stat`
         // results, which the pure update() can't compute). Outside the
         // detail screen, `Msg::Unify` stays a no-op per the keymap docs.
-        let msg = lift_unify_in_detail(&state, raw_msg);
+        // US-14: peek at the next token — if it is `n`, the user wants
+        // dry-run preview, so even with cross-fs targets we must open the
+        // unify dialog (read-only preview path).
+        let next_is_dry_run = matches!(tokens.get(idx + 1), Some(ScriptToken::Char('n')));
+        let msg = lift_unify_in_detail(&state, raw_msg, next_is_dry_run);
         // Intercept Enter on the main screen so we can open the detail
         // screen with synthesized registrations from the AppState.
         let msg = lift_enter_in_main(&state, msg);
@@ -100,6 +106,27 @@ pub fn run(
             return 1;
         }
         apply_effect(&effect, &mut logger, &plugins, &rt, &mut state);
+        // US-14 frame-capture seam: when `apply_effect` dispatched
+        // `UnifyDryRunCompleted`, the unify dialog just transitioned into
+        // `UnifyMode::DryRunPreview { lines }`. The next iteration's `<esc>`
+        // will close the dialog and the FINAL captured frame will no longer
+        // show the preview. Paint+print THIS post-effect frame so US-14 AC-2
+        // / AC-3 (frame must contain "(dry-run) Would..." / "WARNING") can
+        // assert against the transient overlay. Gated by mode so non-dry-run
+        // effects (zap, real unify) keep their existing single-final-frame
+        // capture contract — preserving the negative assertions in
+        // us_06::last_action_message_clears_when_devon_navigates.
+        let dry_run_visible = state
+            .unify_dialog
+            .as_ref()
+            .is_some_and(|d| matches!(d.mode, UnifyMode::DryRunPreview { .. }));
+        if dry_run_visible {
+            if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                eprintln!("modeltap: dry-run preview redraw failed: {e}");
+                return 1;
+            }
+            print_frame(&terminal);
+        }
         if state.should_quit {
             break;
         }
@@ -223,6 +250,18 @@ fn apply_effect(
             tracing::warn!(target: "modeltap.action.zap", "no plugin for {}", tool_id.0);
         }
     }
+    if let Some(plan) = effect.trigger_dry_run.clone() {
+        // US-14: walk the SAME plan value descriptively (no fs mutation),
+        // emit the action.unify_dry_run JSONL event, and dispatch
+        // Msg::UnifyDryRunCompleted(lines) so the dialog enters
+        // DryRunPreview mode. Plan stays unchanged in state.unify_dialog.
+        let outcome: DryRunOutcome = unify::dry_run(&plan, logger);
+        let (next, _) = update(
+            std::mem::take(state),
+            Msg::UnifyDryRunCompleted(outcome.lines),
+        );
+        *state = next;
+    }
     if let Some(plan) = effect.trigger_unify.clone() {
         // Synthesize the on-screen target name from the model id in the
         // detail screen state (if any) — fall back to the canonical's
@@ -307,7 +346,14 @@ fn apply_effect(
 /// target, lift to `Msg::OpenCrossFsDialog(plan)` instead so the user gets
 /// the per-target [s] skip / [c] copy / [x] cancel choice per ADR-008's
 /// refuse-default policy.
-fn lift_unify_in_detail(state: &AppState, msg: Msg) -> Msg {
+///
+/// US-14 (step 03-05): when `next_is_dry_run` is true (the script's next
+/// token is `n`), the user wants to preview via dry-run — open the unify
+/// dialog regardless of cross-fs so `[n]` can dispatch the dry-run preview.
+/// The dry-run output itself surfaces per-target "WARNING: target on
+/// different filesystem" lines (per `unify::dry_run`), satisfying US-14
+/// AC-3 without changing the destructive-path routing.
+fn lift_unify_in_detail(state: &AppState, msg: Msg, next_is_dry_run: bool) -> Msg {
     if !matches!(msg, Msg::Unify) {
         return msg;
     }
@@ -320,12 +366,15 @@ fn lift_unify_in_detail(state: &AppState, msg: Msg) -> Msg {
         // something to do.
         return msg;
     };
-    // US-19 — any active cross-fs target routes to the choice dialog.
+    // US-19 — any active cross-fs target routes to the choice dialog,
+    // EXCEPT when the next script token is `n` (US-14 dry-run preview);
+    // dry-run is read-only so it must be reachable even when the
+    // destructive path would be blocked by the cross-fs choice dialog.
     let has_cross_fs = plan
         .links
         .iter()
         .any(|l| !l.already_linked && l.cross_filesystem);
-    if has_cross_fs {
+    if has_cross_fs && !next_is_dry_run {
         Msg::OpenCrossFsDialog(plan)
     } else {
         Msg::OpenUnifyDialog(plan)
@@ -608,7 +657,16 @@ fn path_matches_fake_cross_fs(path: &std::path::Path, fake_cross_fs: &[PathBuf])
 /// US-19 cross-fs dialog: when `cross_fs_open` is true, `s` / `c` / `x`
 /// (and Esc / Enter, per the refuse-default policy) are interpreted as
 /// `Msg::CrossFsSkip` / `Msg::CrossFsCopy` / `Msg::CrossFsCancel`.
-fn token_to_msg(token: &ScriptToken, dialog_open: bool, cross_fs_open: bool) -> Msg {
+///
+/// US-14 dry-run: when `unify_open` is true, the `n` key is interpreted as
+/// `Msg::UnifyDryRun` (which dispatches `actions::unify::dry_run` against
+/// the dialog's plan without mutating fs).
+fn token_to_msg(
+    token: &ScriptToken,
+    dialog_open: bool,
+    cross_fs_open: bool,
+    unify_open: bool,
+) -> Msg {
     if cross_fs_open {
         return match token {
             ScriptToken::CtrlC => Msg::CtrlC,
@@ -634,7 +692,17 @@ fn token_to_msg(token: &ScriptToken, dialog_open: bool, cross_fs_open: bool) -> 
                 "backspace" => Msg::DialogBackspace,
                 _ => Msg::UnboundKey,
             },
-            ScriptToken::Char(c) => Msg::DialogTextInput(*c),
+            ScriptToken::Char(c) => {
+                // US-14: `[n]` while unify dialog is open dispatches the
+                // dry-run preview (no fs mutation). The zap dialog's typed-
+                // input buffer never sees `n` because the two dialogs are
+                // mutually exclusive (one open at a time).
+                if unify_open && *c == 'n' {
+                    Msg::UnifyDryRun
+                } else {
+                    Msg::DialogTextInput(*c)
+                }
+            }
         };
     }
     match token {

@@ -153,6 +153,24 @@ pub enum Msg {
     /// invariant holds. Wired to the delete-from-one effect in 03-06.
     DeleteFromOne,
 
+    // -----------------------------------------------------------------------
+    // US-14 dry-run preview before unify (step 03-05).
+    //
+    // The unify dialog grows a tri-state machine: Confirm -> DryRunPreview ->
+    // Confirm (back via Esc) OR Confirm -> DryRunPreview -> real run (via
+    // Enter, which dispatches DialogConfirm again with the same plan).
+    // -----------------------------------------------------------------------
+    /// User pressed `[n]` while the unify confirm dialog is open. `update()`
+    /// emits `UpdateEffect::trigger_dry_run = Some(plan)`; the composition
+    /// root invokes `actions::unify::dry_run` to walk the plan descriptively
+    /// (no fs mutation), emit the `action.unify_dry_run` JSONL event, and
+    /// dispatch `Msg::UnifyDryRunCompleted(lines)` once the lines are ready.
+    UnifyDryRun,
+    /// Composition root dispatches this after `actions::unify::dry_run`
+    /// returns. Carries the formatted "(dry-run) Would..." lines; `update()`
+    /// transitions the dialog to `UnifyMode::DryRunPreview { lines }`.
+    UnifyDryRunCompleted(Vec<String>),
+
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,
 }

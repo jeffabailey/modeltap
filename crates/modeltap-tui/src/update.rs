@@ -40,6 +40,16 @@ pub struct UpdateEffect {
     /// canonical's bytes to each cross-fs target. `None` means the orchestrator
     /// uses the default link path (US-10, no cross-fs targets).
     pub cross_fs_choice: Option<CrossFsChoice>,
+
+    /// US-14: when `Some(plan)`, the user pressed `[n]` in the unify confirm
+    /// dialog. The composition root invokes `actions::unify::dry_run(plan)`
+    /// (which emits the `action.unify_dry_run` JSONL event and returns the
+    /// formatted preview lines) and then dispatches
+    /// `Msg::UnifyDryRunCompleted(lines)` so the dialog transitions to
+    /// `UnifyMode::DryRunPreview { lines }`. The plan value is preserved
+    /// unchanged in `state.unify_dialog.plan` per the ADR-006 same-value-type
+    /// principle.
+    pub trigger_dry_run: Option<UnifyPlan>,
 }
 
 /// Pure transition. Takes ownership of `state` and returns the next state.
@@ -165,6 +175,9 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // while the state remains unchanged.
         Msg::Unify => (state, UpdateEffect::default()),
         Msg::DeleteFromOne => (state, UpdateEffect::default()),
+        // ----- US-14 dry-run preview (step 03-05) -----------------------
+        Msg::UnifyDryRun => decide_dry_run(state),
+        Msg::UnifyDryRunCompleted(lines) => apply_dry_run_lines(state, lines),
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
 }
@@ -351,21 +364,80 @@ fn decide_unify_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffe
         DialogKey::Enter => dialog.decide_on_enter(),
         DialogKey::Esc => dialog.decide_on_esc(),
     };
-    let trigger_unify = match decision {
-        UnifyDecision::Confirm => Some(dialog.plan.clone()),
-        UnifyDecision::Cancel => None,
+    match decision {
+        UnifyDecision::Confirm => {
+            let plan = dialog.plan.clone();
+            let next_state = AppState {
+                unify_dialog: None,
+                ..state
+            };
+            (
+                next_state,
+                UpdateEffect {
+                    trigger_unify: Some(plan),
+                    ..UpdateEffect::default()
+                },
+            )
+        }
+        UnifyDecision::Cancel => {
+            let next_state = AppState {
+                unify_dialog: None,
+                ..state
+            };
+            (next_state, UpdateEffect::default())
+        }
+        UnifyDecision::BackToConfirm => {
+            // From DryRunPreview, Esc returns the dialog to Confirm mode
+            // with the same plan. The dialog stays open.
+            let mut next_state = state;
+            if let Some(d) = next_state.unify_dialog.as_mut() {
+                d.back_to_confirm();
+            }
+            (next_state, UpdateEffect::default())
+        }
+        UnifyDecision::DryRun => {
+            // Defensive: decide_on_enter / decide_on_esc never return DryRun.
+            // A future change might wire dry-run through DialogKey; until
+            // then, no-op.
+            (state, UpdateEffect::default())
+        }
+    }
+}
+
+/// US-14: handle `Msg::UnifyDryRun` (the `[n]` key while the unify dialog is
+/// open). Reads the dialog mode; when Confirm, emits
+/// `UpdateEffect::trigger_dry_run = Some(plan)` so the composition root can
+/// invoke `actions::unify::dry_run`. The dialog STAYS OPEN — the dry-run
+/// effect later dispatches `Msg::UnifyDryRunCompleted(lines)` which
+/// transitions the dialog to `UnifyMode::DryRunPreview { lines }`.
+fn decide_dry_run(state: AppState) -> (AppState, UpdateEffect) {
+    let Some(dialog) = &state.unify_dialog else {
+        return (state, UpdateEffect::default());
     };
-    let next_state = AppState {
-        unify_dialog: None,
-        ..state
-    };
+    if !matches!(dialog.decide_on_dry_run_key(), UnifyDecision::DryRun) {
+        // [n] outside Confirm mode is a no-op (AlreadyUnified, DryRunPreview).
+        return (state, UpdateEffect::default());
+    }
+    let plan = dialog.plan.clone();
     (
-        next_state,
+        state,
         UpdateEffect {
-            trigger_unify,
+            trigger_dry_run: Some(plan),
             ..UpdateEffect::default()
         },
     )
+}
+
+/// US-14: handle `Msg::UnifyDryRunCompleted(lines)`. Transition the open
+/// unify dialog into `UnifyMode::DryRunPreview { lines }` so the render
+/// layer shows the formatted "(dry-run) Would..." lines. If the dialog has
+/// closed for any reason between the dry-run dispatch and its completion,
+/// the message is silently dropped (defense in depth).
+fn apply_dry_run_lines(mut state: AppState, lines: Vec<String>) -> (AppState, UpdateEffect) {
+    if let Some(dialog) = state.unify_dialog.as_mut() {
+        dialog.enter_dry_run_preview(lines);
+    }
+    (state, UpdateEffect::default())
 }
 
 /// Which key drove the cross-fs dialog decision (US-19).

@@ -30,25 +30,50 @@ use modeltap_core::logic::plan::UnifyPlan;
 
 /// Decision returned by `decide_on_enter` / `decide_on_esc`. The `update()`
 /// function maps `Confirm` to a `UpdateEffect::trigger_unify` and `Cancel` to
-/// closing the dialog with no destructive side-effect.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+/// closing the dialog with no destructive side-effect. `DryRun` is the
+/// US-14 pre-confirmation preview path: `update()` dispatches the dry-run
+/// effect (orchestrator calls `actions::unify::dry_run`) and parks the
+/// dialog in `UnifyMode::DryRunPreview`. `BackToConfirm` returns from the
+/// preview to the destructive Confirm dialog so the user can press Enter or
+/// Esc.
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UnifyDecision {
     /// User pressed Enter on the destructive path → run the unify.
     Confirm,
     /// User pressed Esc, OR pressed Enter on the AlreadyUnified informational
     /// path → close dialog, no-op.
     Cancel,
+    /// User pressed `n` on the destructive path → run the dry-run preview
+    /// (no fs mutation; parks the dialog in DryRunPreview mode).
+    DryRun,
+    /// User pressed Esc from the DryRunPreview path → return to the prior
+    /// Confirm dialog with the same plan.
+    BackToConfirm,
 }
 
 /// Which mode the dialog is in. `AlreadyUnified` is the benign US-10.AC-5
 /// path: the model has multiple registrations but they all already share an
-/// inode, so there is nothing for unify to do.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+/// inode, so there is nothing for unify to do. `DryRunPreview` is the US-14
+/// pre-confirmation preview path: pressing `[n]` from `Confirm` walks the
+/// plan descriptively without mutating disk and parks the dialog in this
+/// mode showing the formatted "(dry-run) Would..." lines. Pressing
+/// `[Enter]` from `DryRunPreview` proceeds to the real run with the same
+/// plan; `[Esc]` returns to `Confirm`.
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum UnifyMode {
     /// The destructive path. The plan has at least one link to perform.
     Confirm,
     /// All targets already share the canonical's inode. No action required.
     AlreadyUnified,
+    /// US-14 dry-run preview. The dialog shows the formatted "(dry-run)
+    /// Would..." lines produced by `actions::unify::dry_run`. Pressing
+    /// `[Enter]` proceeds to real run; `[Esc]` returns to `Confirm`.
+    DryRunPreview {
+        /// Pre-formatted lines from the orchestrator's `DryRunOutcome`.
+        /// Owned by the dialog so the render layer is decoupled from the
+        /// dry_run function itself (ADR-006: state stays in the TUI crate).
+        lines: Vec<String>,
+    },
 }
 
 /// Pure state for the unify confirmation dialog. The full `UnifyPlan` is
@@ -80,18 +105,59 @@ impl UnifyDialogState {
         matches!(self.mode, UnifyMode::AlreadyUnified)
     }
 
+    /// True when the dialog is in the US-14 dry-run preview mode.
+    pub fn is_dry_run_preview(&self) -> bool {
+        matches!(self.mode, UnifyMode::DryRunPreview { .. })
+    }
+
+    /// Transition this dialog into the US-14 DryRunPreview mode carrying the
+    /// pre-formatted "(dry-run) Would..." lines. Called by `update()` after
+    /// the orchestrator's dry_run effect produces a `DryRunOutcome` and the
+    /// `Msg::UnifyDryRunCompleted(...)` Msg arrives. The plan is preserved
+    /// unchanged so pressing Enter from the preview proceeds to real run
+    /// with the SAME plan value (ADR-006).
+    pub fn enter_dry_run_preview(&mut self, lines: Vec<String>) {
+        self.mode = UnifyMode::DryRunPreview { lines };
+    }
+
     /// Decide what Enter does given the current mode. AlreadyUnified is
-    /// informational only — Enter cancels just like Esc.
+    /// informational only — Enter cancels just like Esc. From DryRunPreview,
+    /// Enter proceeds to real run with the same plan.
     pub fn decide_on_enter(&self) -> UnifyDecision {
         match self.mode {
             UnifyMode::Confirm => UnifyDecision::Confirm,
             UnifyMode::AlreadyUnified => UnifyDecision::Cancel,
+            UnifyMode::DryRunPreview { .. } => UnifyDecision::Confirm,
         }
     }
 
-    /// Esc always cancels.
+    /// Esc always cancels — closes the dialog with no destructive
+    /// side-effect. From DryRunPreview this also exits cleanly per US-14
+    /// AC: "After dry-run, [Enter] proceeds with the same plan, [Esc]
+    /// cancels."
     pub fn decide_on_esc(&self) -> UnifyDecision {
         UnifyDecision::Cancel
+    }
+
+    /// Decide what `[n]` does. Only meaningful from the destructive Confirm
+    /// path; from any other mode (`AlreadyUnified`, `DryRunPreview`) it is a
+    /// no-op (Cancel — the dialog ignores the keystroke). The orchestrator
+    /// uses this branch to gate `Effect::trigger_dry_run` emission.
+    pub fn decide_on_dry_run_key(&self) -> UnifyDecision {
+        match self.mode {
+            UnifyMode::Confirm => UnifyDecision::DryRun,
+            // From AlreadyUnified or DryRunPreview, the [n] key is ignored.
+            _ => UnifyDecision::Cancel,
+        }
+    }
+
+    /// Transition back from DryRunPreview to Confirm — used by `update()`
+    /// when the user presses Esc from the preview. Defensive: if not in
+    /// preview, no-op.
+    pub fn back_to_confirm(&mut self) {
+        if matches!(self.mode, UnifyMode::DryRunPreview { .. }) {
+            self.mode = UnifyMode::Confirm;
+        }
     }
 }
 
@@ -228,5 +294,77 @@ mod tests {
             UnifyDialogState::from_plan(p2).decide_on_esc(),
             UnifyDecision::Cancel
         );
+    }
+
+    // ---- US-14 dry-run preview state machine -----------------------------
+
+    fn make_confirm_dialog() -> UnifyDialogState {
+        let plan = plan_with_links(
+            vec![PlannedLink {
+                tool: ToolId("hf"),
+                target: PathBuf::from("/h/a.bin"),
+                cross_filesystem: false,
+                already_linked: false,
+            }],
+            4096,
+        );
+        UnifyDialogState::from_plan(plan)
+    }
+
+    #[test]
+    fn dry_run_key_in_confirm_mode_returns_dry_run_decision() {
+        let dialog = make_confirm_dialog();
+        assert_eq!(dialog.decide_on_dry_run_key(), UnifyDecision::DryRun);
+    }
+
+    #[test]
+    fn enter_dry_run_preview_transitions_mode_and_carries_lines() {
+        let mut dialog = make_confirm_dialog();
+        let lines = vec![
+            "(dry-run) Would create canonical at /c".to_string(),
+            "(dry-run) Reclaim: 4 KB".to_string(),
+        ];
+        dialog.enter_dry_run_preview(lines.clone());
+        assert!(dialog.is_dry_run_preview());
+        if let UnifyMode::DryRunPreview { lines: stored } = &dialog.mode {
+            assert_eq!(stored, &lines);
+        } else {
+            panic!("expected DryRunPreview mode");
+        }
+    }
+
+    #[test]
+    fn enter_in_dry_run_preview_proceeds_to_real_run() {
+        // From DryRunPreview, Enter proceeds with the SAME plan to real run.
+        let mut dialog = make_confirm_dialog();
+        dialog.enter_dry_run_preview(vec!["(dry-run) preview".to_string()]);
+        assert_eq!(dialog.decide_on_enter(), UnifyDecision::Confirm);
+    }
+
+    #[test]
+    fn esc_in_dry_run_preview_cancels_per_us_14_ac() {
+        // Per US-14 AC: "After dry-run, [Enter] proceeds with the same plan,
+        // [Esc] cancels." Esc from DryRunPreview closes the dialog with no
+        // destructive side-effect.
+        let mut dialog = make_confirm_dialog();
+        dialog.enter_dry_run_preview(vec!["(dry-run) preview".to_string()]);
+        assert_eq!(dialog.decide_on_esc(), UnifyDecision::Cancel);
+    }
+
+    #[test]
+    fn dry_run_key_in_already_unified_is_ignored() {
+        let plan = plan_with_links(
+            vec![PlannedLink {
+                tool: ToolId("hf"),
+                target: PathBuf::from("/h"),
+                cross_filesystem: false,
+                already_linked: true,
+            }],
+            0,
+        );
+        let dialog = UnifyDialogState::from_plan(plan);
+        assert!(dialog.is_already_unified());
+        // [n] in AlreadyUnified is a no-op (Cancel sentinel).
+        assert_eq!(dialog.decide_on_dry_run_key(), UnifyDecision::Cancel);
     }
 }

@@ -19,6 +19,7 @@ mod acceptance {
     pub mod us_11_updated_totals;
     pub mod us_12_discover_hf;
     pub mod us_13_detail_screen;
+    pub mod us_14_dry_run;
     pub mod us_15_discover_lm_studio;
     pub mod us_16_format_locked_indicator;
     pub mod us_19_cross_fs_fallback;

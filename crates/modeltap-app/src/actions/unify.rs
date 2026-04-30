@@ -95,6 +95,117 @@ impl UnifyResult {
     }
 }
 
+/// Result of a US-14 dry-run preview. Carries the formatted preview lines for
+/// the dialog (what the user sees) and the aggregate counts the JSONL event
+/// already emitted. Returned to the composition root so it can dispatch
+/// `Msg::UnifyDryRunCompleted(...)` with the lines, which the dialog reads to
+/// transition `UnifyMode::Confirm` -> `UnifyMode::DryRunPreview { lines }`.
+///
+/// ADR-006 same-value-type principle: dry-run and real-run share the SAME
+/// `UnifyPlan` value. The only branching is at the COMMIT step — real-run
+/// iterates `plan.targets` and calls `plugin.link()`; dry-run iterates the
+/// SAME plan and emits descriptive lines without mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DryRunOutcome {
+    /// Formatted "(dry-run) Would..." lines for display in the dialog.
+    pub lines: Vec<String>,
+    /// Aggregate count of cross-fs targets in the plan (matches the JSONL
+    /// `cross_fs_targets` field). Surfaced separately so the dialog can
+    /// render WARNING markers without re-walking the plan.
+    pub cross_fs_targets: u64,
+    /// Bytes the plan WOULD reclaim if executed. Mirrors the planner's
+    /// `bytes_reclaimed_estimate`. Surfaced for the dialog header line.
+    pub bytes_would_reclaim: u64,
+}
+
+/// Run a US-14 dry-run preview of a unify action. Walks the SAME `plan` value
+/// the real-run would walk (per ADR-006), formats each target as a "(dry-run)
+/// Would ..." line, emits exactly one `action.unify_dry_run` JSONL event, and
+/// returns a `DryRunOutcome` for the UI dialog. This function NEVER calls
+/// `plugin.link()` and NEVER writes to the filesystem.
+///
+/// No-mutation invariant: the only side effect is the JSONL append to the
+/// launch log. The fixture file tree is left byte-for-byte unchanged. The
+/// US-14 acceptance test snapshots `(path, inode, size, mtime)` tuples
+/// before/after to enforce this.
+pub fn dry_run(plan: &UnifyPlan, logger: &mut LaunchLogger) -> DryRunOutcome {
+    let canonical_path = plan.canonical.path.display().to_string();
+    let bytes_would_reclaim = plan.bytes_reclaimed_estimate;
+    let cross_fs_targets: u64 = plan
+        .links
+        .iter()
+        .filter(|l| l.cross_filesystem && !l.already_linked)
+        .count() as u64;
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push(format!(
+        "(dry-run) Would create canonical at {}",
+        canonical_path
+    ));
+    lines.push("(dry-run) Would create hardlinks at:".to_string());
+    for link in &plan.links {
+        if link.already_linked {
+            lines.push(format!(
+                "  - {} (already linked, would skip)",
+                link.target.display()
+            ));
+        } else if link.cross_filesystem {
+            lines.push(format!(
+                "  - {} -- WARNING: target on different filesystem -- would fall back to copy",
+                link.target.display()
+            ));
+        } else {
+            lines.push(format!("  - {}", link.target.display()));
+        }
+    }
+    lines.push(format!(
+        "(dry-run) Reclaim: {}",
+        format_bytes(bytes_would_reclaim)
+    ));
+    lines.push(String::new());
+    lines.push("[Enter] proceed   [Esc] cancel".to_string());
+
+    // Sort + dedup tool ids for deterministic JSONL output (mirror the
+    // real-run's `tools_unified` ordering rules).
+    let mut tools_to_unify: Vec<String> = plan
+        .links
+        .iter()
+        .filter(|l| !l.already_linked)
+        .map(|l| l.tool.0.to_string())
+        .collect();
+    tools_to_unify.sort();
+    tools_to_unify.dedup();
+
+    logger.record(RecordKind::ActionUnifyDryRun {
+        model_dedup_key_kind: "sha256",
+        tools_to_unify,
+        bytes_would_reclaim,
+        cross_fs_targets,
+        outcome: "previewed",
+    });
+
+    DryRunOutcome {
+        lines,
+        cross_fs_targets,
+        bytes_would_reclaim,
+    }
+}
+
+/// Format a byte count into a human-readable string. Mirrors the dialog
+/// renderer's `format_bytes` so the dry-run "Reclaim:" line matches the
+/// real-run dialog's "Reclaim:" line character-for-character.
+fn format_bytes(bytes: u64) -> String {
+    const GB: u64 = 1_000_000_000;
+    const MB: u64 = 1_000_000;
+    if bytes >= GB {
+        format!("{:.1} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
 /// Run a confirmed unify action. For each `PlannedLink` in `plan.links`,
 /// look up the matching plugin and call `Tool::link(canonical, model)`.
 /// Collect per-target outcomes, emit one `action.unify` JSONL event, and
@@ -445,5 +556,318 @@ mod tests {
     #[test]
     fn classify_zero_targets_is_failed() {
         assert_eq!(classify(0, 0, 0, 0), UnifyResult::Failed);
+    }
+
+    // ---- US-14 dry-run unit tests ----------------------------------------
+
+    use modeltap_core::logic::plan::{PlanCandidate, PlannedLink, UnifyPlan};
+    use std::os::unix::fs::MetadataExt;
+    use std::path::{Path, PathBuf};
+
+    fn cand(tool: &'static str, path: &str, exists: bool) -> PlanCandidate {
+        PlanCandidate {
+            tool: ToolId(tool),
+            path: PathBuf::from(path),
+            exists,
+            device: 1,
+            inode: 100,
+            size_bytes: 4096,
+        }
+    }
+
+    fn make_plan(links: Vec<PlannedLink>, bytes_reclaimed: u64) -> UnifyPlan {
+        UnifyPlan {
+            canonical: cand("ollama", "/c/canonical.bin", true),
+            links,
+            bytes_reclaimed_estimate: bytes_reclaimed,
+        }
+    }
+
+    fn null_logger() -> LaunchLogger {
+        // None log_dir: writes are silently dropped, but RecordKind::record
+        // is still exercised.
+        LaunchLogger::open(None)
+    }
+
+    #[test]
+    fn dry_run_returns_lines_labeled_with_dry_run_prefix() {
+        let plan = make_plan(
+            vec![PlannedLink {
+                tool: ToolId("hf"),
+                target: PathBuf::from("/h/target.bin"),
+                cross_filesystem: false,
+                already_linked: false,
+            }],
+            4096,
+        );
+        let mut logger = null_logger();
+        let outcome = dry_run(&plan, &mut logger);
+        let joined = outcome.lines.join("\n");
+        assert!(
+            joined.contains("(dry-run)"),
+            "dry_run output must be labeled '(dry-run)', got: {}",
+            joined
+        );
+        assert!(
+            joined.contains("Would create canonical"),
+            "dry_run output must include 'Would create canonical' line, got: {}",
+            joined
+        );
+        assert!(
+            joined.contains("Would create hardlinks"),
+            "dry_run output must include 'Would create hardlinks' line, got: {}",
+            joined
+        );
+        assert!(
+            joined.contains("Reclaim:"),
+            "dry_run output must include reclaim summary, got: {}",
+            joined
+        );
+    }
+
+    #[test]
+    fn dry_run_surfaces_cross_filesystem_warning_per_target() {
+        let plan = make_plan(
+            vec![
+                PlannedLink {
+                    tool: ToolId("hf"),
+                    target: PathBuf::from("/h/same-fs.bin"),
+                    cross_filesystem: false,
+                    already_linked: false,
+                },
+                PlannedLink {
+                    tool: ToolId("llama-cli"),
+                    target: PathBuf::from("/l/cross-fs.bin"),
+                    cross_filesystem: true,
+                    already_linked: false,
+                },
+            ],
+            8192,
+        );
+        let mut logger = null_logger();
+        let outcome = dry_run(&plan, &mut logger);
+        let joined = outcome.lines.join("\n");
+        assert!(
+            joined.contains("WARNING")
+                && joined.contains("different filesystem")
+                && joined.contains("/l/cross-fs.bin"),
+            "cross-fs target must produce a per-target WARNING, got: {}",
+            joined
+        );
+        assert_eq!(
+            outcome.cross_fs_targets, 1,
+            "outcome.cross_fs_targets must count active cross-fs targets"
+        );
+    }
+
+    #[test]
+    fn dry_run_does_not_mutate_filesystem_for_any_target() {
+        // No-mutation property: build a plan whose `target` paths point at
+        // real files in tempdir, snapshot them, run dry_run, snapshot again,
+        // assert byte-for-byte equality of every (path, inode, size) tuple.
+        // mtime is excluded here — the unit test for the dialog state seam
+        // is enough; the acceptance test enforces (path, inode, size, mtime)
+        // end-to-end. (≥256 iterations covered by the property variant
+        // below.)
+        let temp = tempfile::tempdir().expect("tempdir");
+        let canonical = temp.path().join("canonical.bin");
+        let target_a = temp.path().join("target-a.bin");
+        let target_b = temp.path().join("target-b.bin");
+        std::fs::write(&canonical, b"canonical-bytes-aaaa").unwrap();
+        std::fs::write(&target_a, b"target-a-bytes-bbbbbb").unwrap();
+        std::fs::write(&target_b, b"target-b-bytes-cccccc").unwrap();
+
+        let pre_a = std::fs::read(&target_a).unwrap();
+        let pre_b = std::fs::read(&target_b).unwrap();
+        let pre_canon = std::fs::read(&canonical).unwrap();
+
+        let plan = UnifyPlan {
+            canonical: PlanCandidate {
+                tool: ToolId("ollama"),
+                path: canonical.clone(),
+                exists: true,
+                device: 1,
+                inode: 100,
+                size_bytes: pre_canon.len() as u64,
+            },
+            links: vec![
+                PlannedLink {
+                    tool: ToolId("hf"),
+                    target: target_a.clone(),
+                    cross_filesystem: false,
+                    already_linked: false,
+                },
+                PlannedLink {
+                    tool: ToolId("llama-cli"),
+                    target: target_b.clone(),
+                    cross_filesystem: false,
+                    already_linked: false,
+                },
+            ],
+            bytes_reclaimed_estimate: 2 * pre_canon.len() as u64,
+        };
+        let mut logger = null_logger();
+        let _ = dry_run(&plan, &mut logger);
+
+        // Bytes unchanged.
+        assert_eq!(pre_a, std::fs::read(&target_a).unwrap());
+        assert_eq!(pre_b, std::fs::read(&target_b).unwrap());
+        assert_eq!(pre_canon, std::fs::read(&canonical).unwrap());
+
+        // Inodes unchanged (no replacement happened).
+        let ino = |p: &Path| std::fs::metadata(p).unwrap().ino();
+        assert_ne!(
+            ino(&canonical),
+            ino(&target_a),
+            "target-a inode must remain distinct from canonical (no link created)"
+        );
+        assert_ne!(
+            ino(&canonical),
+            ino(&target_b),
+            "target-b inode must remain distinct from canonical (no link created)"
+        );
+    }
+
+    #[test]
+    fn dry_run_no_mutation_property_holds_for_256_iterations() {
+        // ≥256 generated plan/fixture combinations. Each iteration:
+        //   1. Build a tempdir with N (1..=4) target files of varying sizes.
+        //   2. Build a UnifyPlan over them.
+        //   3. Snapshot (path, inode, size) for every target.
+        //   4. Run dry_run.
+        //   5. Assert every snapshot tuple is unchanged.
+        // The property is over (plan, fixture) shape; the assertion is the
+        // ADR-006 same-value-type / no-mutation guarantee.
+        for seed in 0..256u64 {
+            let temp = tempfile::tempdir().unwrap();
+            let canonical_path = temp.path().join(format!("canon-{}.bin", seed));
+            // Vary canonical size deterministically so the plan's
+            // bytes_reclaimed_estimate is non-trivial.
+            let canon_size = 512 + (seed as usize % 2048);
+            let canon_bytes: Vec<u8> = (0..canon_size)
+                .map(|i| ((i + seed as usize) % 251) as u8)
+                .collect();
+            std::fs::write(&canonical_path, &canon_bytes).unwrap();
+
+            let n_targets = 1 + (seed % 4) as usize;
+            let mut links = Vec::new();
+            let mut targets: Vec<PathBuf> = Vec::new();
+            for i in 0..n_targets {
+                let tp = temp.path().join(format!("tgt-{}-{}.bin", seed, i));
+                let tb: Vec<u8> = (0..canon_size).map(|j| ((j + i + 7) % 251) as u8).collect();
+                std::fs::write(&tp, &tb).unwrap();
+                targets.push(tp.clone());
+                links.push(PlannedLink {
+                    tool: match i % 3 {
+                        0 => ToolId("hf"),
+                        1 => ToolId("llama-cli"),
+                        _ => ToolId("lm-studio"),
+                    },
+                    target: tp,
+                    cross_filesystem: (seed + i as u64) % 5 == 0,
+                    already_linked: false,
+                });
+            }
+            let plan = UnifyPlan {
+                canonical: PlanCandidate {
+                    tool: ToolId("ollama"),
+                    path: canonical_path.clone(),
+                    exists: true,
+                    device: 1,
+                    inode: 100 + seed,
+                    size_bytes: canon_size as u64,
+                },
+                links,
+                bytes_reclaimed_estimate: (n_targets as u64) * canon_size as u64,
+            };
+
+            // Pre-snapshot.
+            let pre: Vec<(u64, u64, Vec<u8>)> = targets
+                .iter()
+                .map(|p| {
+                    let m = std::fs::metadata(p).unwrap();
+                    (m.ino(), m.len(), std::fs::read(p).unwrap())
+                })
+                .collect();
+            let pre_canon = (
+                std::fs::metadata(&canonical_path).unwrap().ino(),
+                std::fs::metadata(&canonical_path).unwrap().len(),
+                std::fs::read(&canonical_path).unwrap(),
+            );
+
+            let mut logger = null_logger();
+            let _ = dry_run(&plan, &mut logger);
+
+            // Post-snapshot must equal pre-snapshot.
+            for (i, p) in targets.iter().enumerate() {
+                let m = std::fs::metadata(p).unwrap();
+                assert_eq!(
+                    pre[i].0,
+                    m.ino(),
+                    "iter {} target {} inode changed",
+                    seed,
+                    i
+                );
+                assert_eq!(pre[i].1, m.len(), "iter {} target {} size changed", seed, i);
+                assert_eq!(
+                    pre[i].2,
+                    std::fs::read(p).unwrap(),
+                    "iter {} target {} bytes changed",
+                    seed,
+                    i
+                );
+            }
+            let post_canon = (
+                std::fs::metadata(&canonical_path).unwrap().ino(),
+                std::fs::metadata(&canonical_path).unwrap().len(),
+                std::fs::read(&canonical_path).unwrap(),
+            );
+            assert_eq!(pre_canon, post_canon, "iter {} canonical changed", seed);
+        }
+    }
+
+    #[test]
+    fn build_plan_is_deterministic_for_256_iterations() {
+        // Plan-equality property: build_plan(model, inventory) for the same
+        // input ALWAYS returns the same UnifyPlan (deterministic; no global
+        // state). This is the ADR-006 same-value-type guarantee — dry-run
+        // and real-run must agree on the plan shape, which they trivially
+        // do if build_plan is a pure function of its inputs.
+        use modeltap_core::logic::plan::build_plan;
+        for seed in 0..256u64 {
+            let canonical = PlanCandidate {
+                tool: ToolId("ollama"),
+                path: PathBuf::from(format!("/c/{}.bin", seed)),
+                exists: true,
+                device: 1 + (seed % 3),
+                inode: 100 + seed,
+                size_bytes: 4096 + seed,
+            };
+            let targets = vec![
+                PlanCandidate {
+                    tool: ToolId("hf"),
+                    path: PathBuf::from(format!("/h/{}.bin", seed)),
+                    exists: true,
+                    device: 1 + (seed % 3),
+                    inode: 200 + seed,
+                    size_bytes: 4096 + seed,
+                },
+                PlanCandidate {
+                    tool: ToolId("llama-cli"),
+                    path: PathBuf::from(format!("/l/{}.bin", seed)),
+                    exists: true,
+                    device: 2 + (seed % 3),
+                    inode: 300 + seed,
+                    size_bytes: 4096 + seed,
+                },
+            ];
+            let plan_a = build_plan(&canonical, &targets);
+            let plan_b = build_plan(&canonical, &targets);
+            assert_eq!(
+                plan_a, plan_b,
+                "build_plan must be deterministic at seed {}",
+                seed
+            );
+        }
     }
 }

@@ -19,14 +19,16 @@ pub fn render(frame: &mut Frame<'_>, parent_area: Rect, dialog: &UnifyDialogStat
     let modal = centered_rect(70, 60, parent_area);
     frame.render_widget(Clear, modal);
 
-    let lines = match dialog.mode {
+    let lines = match &dialog.mode {
         UnifyMode::AlreadyUnified => build_already_unified_lines(dialog),
         UnifyMode::Confirm => build_confirm_lines(dialog),
+        UnifyMode::DryRunPreview { lines } => build_dry_run_preview_lines(lines),
     };
 
-    let title = match dialog.mode {
+    let title = match &dialog.mode {
         UnifyMode::AlreadyUnified => " Unify (already unified) ",
         UnifyMode::Confirm => " Confirm Unify ",
+        UnifyMode::DryRunPreview { .. } => " Unify (dry-run preview) ",
     };
     let block = Block::default().borders(Borders::ALL).title(title);
     let inner = block.inner(modal);
@@ -74,7 +76,24 @@ fn build_confirm_lines(dialog: &UnifyDialogState) -> Vec<Line<'static>> {
     }
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "[Enter] confirm   [Esc] cancel",
+        "[Enter] confirm   [n] dry-run   [Esc] cancel",
+        Style::default().add_modifier(Modifier::DIM),
+    )));
+    lines
+}
+
+/// Build the lines for the US-14 DryRunPreview mode. Renders the
+/// pre-formatted "(dry-run) Would..." lines from the `DryRunOutcome` plus
+/// a footer hint. The lines are produced by `actions::unify::dry_run` and
+/// carried in the dialog state by `Msg::UnifyDryRunCompleted(lines)`.
+fn build_dry_run_preview_lines(preview_lines: &[String]) -> Vec<Line<'static>> {
+    let mut lines: Vec<Line<'static>> = preview_lines
+        .iter()
+        .map(|s| Line::from(s.clone()))
+        .collect();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "[Enter] proceed   [Esc] return to confirm",
         Style::default().add_modifier(Modifier::DIM),
     )));
     lines
