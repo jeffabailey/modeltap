@@ -190,26 +190,123 @@ fn last_action_message_clears_when_devon_navigates() {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 3 (FUTURE-PENDING — re-enable when 03-02 lands):
+// Scenario 3 (US-06 unify-success — un-ignored in 03-02):
 // "Successful unify shows hardlink count"
 //
 // On successful unify, the right pane shows:
-//   Header: "Last action: unify mistral:7b (success)"
-//   Body:   "Reclaimed: 8.8 GB (1 inode, 3 hardlinks)"
+//   Header: "Last action: unify <model-id> (success)"
+//   Body:   "Reclaimed: <N> B (1 inode, <K> hardlinks)"
 //
-// Requires Tool::link to be implemented (currently returns
-// LinkError::NotYetImplemented per ADR-001 + ADR-009 trait freeze). Re-enable
-// by removing the #[ignore] attribute below once 03-02 lands.
+// Drives the headless harness against a multi-tool shared-content fixture;
+// after pressing `<enter>u<enter>q` the post-action banner records the unify
+// outcome with the structured `extra` line "1 inode, K hardlinks" per
+// `LastAction::for_unify_success` (US-06 schema).
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "re-enable when 03-02 lands (Tool::link implementation)"]
 fn successful_unify_shows_hardlink_count() {
-    // Future-pending: requires Tool::link wired to a real implementation in
-    // the Ollama plugin (or any plugin). The unify action dispatches a
-    // Msg::Unify and the resulting LastAction renders with verb=unify and
-    // an extra string "1 inode, 3 hardlinks" in the body.
-    panic!("future-pending: re-enable when 03-02 (unify) is implemented");
+    use std::os::unix::fs::MetadataExt;
+
+    // Build a shared-content fixture with 2 tools (ollama + llama-cli) so
+    // unify produces 1 hardlink (2 paths → 1 inode, 2 hardlinks counts the
+    // canonical's link count after unify).
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    let payload = vec![0xCAu8; 4096];
+
+    // Ollama layout.
+    let ollama_dir = root.join(".ollama").join("models");
+    let ollama_blobs = ollama_dir.join("blobs");
+    std::fs::create_dir_all(&ollama_blobs).expect("ollama blobs");
+    let blob_hash = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
+    let ollama_path = ollama_blobs.join(format!("sha256-{}", blob_hash));
+    std::fs::write(&ollama_path, &payload).expect("write ollama blob");
+    let manifest_dir = ollama_dir
+        .join("manifests")
+        .join("registry.ollama.ai")
+        .join("library")
+        .join("us06");
+    std::fs::create_dir_all(&manifest_dir).expect("manifest dir");
+    let manifest = format!(
+        r#"{{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{{"mediaType":"application/vnd.docker.container.image.v1+json","digest":"sha256:{blob}","size":412}},"layers":[{{"mediaType":"application/vnd.ollama.image.model","digest":"sha256:{blob}","size":4096}}]}}"#,
+        blob = blob_hash
+    );
+    std::fs::write(manifest_dir.join("7b"), manifest).expect("manifest");
+
+    // llama-cli layout (separate inode, same content).
+    let llama_dir = root.join("llms");
+    std::fs::create_dir_all(&llama_dir).expect("llama dir");
+    let llama_path = llama_dir.join("us06-7b.gguf");
+    let mut gguf_bytes = b"GGUF".to_vec();
+    gguf_bytes.extend(&payload[..payload.len() - 4]);
+    std::fs::write(&llama_path, &gguf_bytes).expect("llama gguf");
+
+    let pre_ollama_ino = std::fs::metadata(&ollama_path).unwrap().ino();
+    let pre_llama_ino = std::fs::metadata(&llama_path).unwrap().ino();
+    assert_ne!(pre_ollama_ino, pre_llama_ino, "fixture precondition");
+
+    let log_dir_temp = tempfile::tempdir().expect("log temp");
+    let log_dir = log_dir_temp.path().join(".modeltap");
+    std::fs::create_dir_all(&log_dir).expect("log dir");
+
+    let regs = serde_json::json!({
+        "id": "us06/synthetic-7b",
+        "regs": [
+            {"tool": "ollama",    "path": ollama_path.display().to_string()},
+            {"tool": "llama-cli", "path": llama_path.display().to_string()},
+        ]
+    })
+    .to_string();
+
+    let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin");
+    let assert = cmd
+        .env("MODELTAP_HEADLESS", "1")
+        .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_TERM_COLS", "120")
+        .env("MODELTAP_OLLAMA_DIR", &ollama_dir)
+        .env("MODELTAP_LLAMACLI_DIRS", &llama_dir)
+        .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
+        .env("HF_HOME", "/nonexistent/no-such-hf")
+        .env("MODELTAP_HEADLESS_INPUT", "<enter>u<enter>q")
+        .env("MODELTAP_HEADLESS_DETAIL_REGS", regs)
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+
+    // Inodes match after unify.
+    let post_ollama_ino = std::fs::metadata(&ollama_path).unwrap().ino();
+    let post_llama_ino = std::fs::metadata(&llama_path).unwrap().ino();
+    assert_eq!(
+        post_ollama_ino, post_llama_ino,
+        "post-condition: paths must share inode after unify"
+    );
+
+    // The headless harness prints the final TestBackend frame. After
+    // `Msg::SetLastAction(unify_success)` the right-pane banner renders:
+    //   "Last action: unify us06/synthetic-7b (success)"
+    //   "Reclaimed: <N> B (1 inode, K hardlinks)"
+    // We assert the hardlink-count phrasing schema; the exact reclaim byte
+    // count varies by classify() prorating logic so we only assert the
+    // "1 inode" + "hardlinks" markers from `LastAction::for_unify_success`.
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
+    let frame = frame_text(&stdout);
+    assert!(
+        frame.contains("Last action: unify"),
+        "unify-success banner header missing in frame:\n{}",
+        frame
+    );
+    // "1 inode" comes from the `extra` line of LastAction::for_unify_success.
+    assert!(
+        frame.contains("1 inode"),
+        "AC-3: '1 inode' marker missing from unify-success body:\n{}",
+        frame
+    );
+    assert!(
+        frame.contains("hardlinks"),
+        "AC-3: 'hardlinks' marker missing from unify-success body:\n{}",
+        frame
+    );
 }
 
 // ---------------------------------------------------------------------------

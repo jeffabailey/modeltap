@@ -144,4 +144,68 @@ impl LastAction {
             extra: None,
         }
     }
+
+    /// Construct a success banner for a confirmed unify (US-10). The
+    /// `target` is the model's display label / id (NOT a tool id — unify
+    /// acts on a single model across multiple tools). The `extra` line
+    /// renders "1 inode, N hardlinks" per the US-06 scenario.
+    pub fn for_unify_success(target: String, bytes_reclaimed: u64, hardlink_count: usize) -> Self {
+        Self {
+            verb: ActionVerb::Unify,
+            target,
+            status: ActionStatus::Success,
+            bytes_reclaimed,
+            bytes_retained: 0,
+            extra: Some(format!("1 inode, {hardlink_count} hardlinks")),
+        }
+    }
+
+    /// Construct an "already unified" banner. The unify dialog opened in
+    /// AlreadyUnified mode and the user dismissed; we record an
+    /// informational success-with-zero-reclaim banner.
+    pub fn for_unify_already_unified(target: String, hardlink_count: usize) -> Self {
+        Self {
+            verb: ActionVerb::Unify,
+            target,
+            status: ActionStatus::Success,
+            bytes_reclaimed: 0,
+            bytes_retained: 0,
+            extra: Some(format!(
+                "already unified: 1 inode, {hardlink_count} hardlinks"
+            )),
+        }
+    }
+
+    /// Construct a partial-success banner for a unify. Used by 03-03 (cross-fs).
+    pub fn for_unify_partial(
+        target: String,
+        bytes_reclaimed: u64,
+        successes: u64,
+        failures: Vec<TargetError>,
+    ) -> Self {
+        Self {
+            verb: ActionVerb::Unify,
+            target,
+            status: ActionStatus::Partial {
+                successes,
+                failures,
+            },
+            bytes_reclaimed,
+            bytes_retained: 0,
+            extra: None,
+        }
+    }
+
+    /// Construct a failure banner for a unify that errored before any work
+    /// (or where every target failed).
+    pub fn for_unify_failed(target: String) -> Self {
+        Self {
+            verb: ActionVerb::Unify,
+            target,
+            status: ActionStatus::Failed,
+            bytes_reclaimed: 0,
+            bytes_retained: 0,
+            extra: None,
+        }
+    }
 }

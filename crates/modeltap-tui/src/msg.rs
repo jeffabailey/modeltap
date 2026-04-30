@@ -6,6 +6,7 @@
 //! effects (`UpdateEffect`).
 
 use modeltap_core::domain::last_action::LastAction;
+use modeltap_core::logic::plan::UnifyPlan;
 
 use crate::app_state::ToolView;
 use crate::screens::detail::DetailScreenState;
@@ -84,10 +85,15 @@ pub enum Msg {
     /// the previous screen with selection state intact.
     ToggleHelp,
     /// User pressed `u` (unify). Bound here so the bottom-bar INT-6 invariant
-    /// holds (every visible shortcut maps to a non-noop Msg). The orchestrator
-    /// wires the actual unify effect in 03-02; for now `update()` returns
-    /// state unchanged so the message is non-destructive.
+    /// holds (every visible shortcut maps to a non-noop Msg). On the main
+    /// screen this is a no-op (unify needs the per-model context the detail
+    /// screen provides) — see `Msg::OpenUnifyDialog` for the productive path.
     Unify,
+    /// Composition root dispatches this when the user presses `u` on a
+    /// multi-tool model in the detail screen. Carries the `UnifyPlan` the
+    /// orchestrator built from the cross-tool registrations. `update()`
+    /// writes `unify_dialog = Some(UnifyDialogState::from_plan(plan))`.
+    OpenUnifyDialog(UnifyPlan),
     /// User pressed `d` (delete-from-one). Bound here so the bottom-bar INT-6
     /// invariant holds. Wired to the delete-from-one effect in 03-06.
     DeleteFromOne,

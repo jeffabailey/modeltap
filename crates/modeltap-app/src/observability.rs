@@ -57,6 +57,18 @@ pub enum RecordKind {
         bytes_reclaimed: u64,
         outcome: &'static str,
     },
+    /// Result of a confirmed unify action (US-10). Per the privacy rule
+    /// (`kpi-instrumentation.md` §"action.unify"): NO model names, NO paths,
+    /// NO hash values — only tool ids + aggregate byte counts. The
+    /// `model_dedup_key_kind` discriminator records WHICH dedup-key family
+    /// produced the unify (sha256 vs hf-hub-id+quant) without disclosing
+    /// the value.
+    ActionUnify {
+        model_dedup_key_kind: &'static str,
+        tools_unified: Vec<String>,
+        bytes_reclaimed: u64,
+        outcome: &'static str,
+    },
     /// One entry per discovered model. Written to a separate `models.log`
     /// file (NOT `launch.log`) so per-model metadata stays out of the
     /// privacy-sensitive launch event stream. Used by acceptance tests to
@@ -199,6 +211,19 @@ impl LaunchLogger {
                 let mut env = self.base_envelope("action.zap_all");
                 env["tool"] = json!(tool);
                 env["models_removed"] = json!(models_removed);
+                env["bytes_reclaimed"] = json!(bytes_reclaimed);
+                env["outcome"] = json!(outcome);
+                env
+            }
+            RecordKind::ActionUnify {
+                model_dedup_key_kind,
+                tools_unified,
+                bytes_reclaimed,
+                outcome,
+            } => {
+                let mut env = self.base_envelope("action.unify");
+                env["model_dedup_key_kind"] = json!(model_dedup_key_kind);
+                env["tools_unified"] = json!(tools_unified);
                 env["bytes_reclaimed"] = json!(bytes_reclaimed);
                 env["outcome"] = json!(outcome);
                 env

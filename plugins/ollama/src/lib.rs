@@ -96,12 +96,23 @@ impl Tool for OllamaPlugin {
 
     async fn link(
         &self,
-        _canonical_src: &Path,
-        _model: &ModelMeta,
+        canonical_src: &Path,
+        model: &ModelMeta,
     ) -> Result<LinkOutcome, LinkError> {
-        Err(LinkError::NotYetImplemented(
-            "Tool::link arrives in step 03-02".to_string(),
-        ))
+        // Per ADR-004 OQ-3, Ollama's link target is the model's existing
+        // on-disk blob path (`<root>/blobs/sha256-<hex>`). The blob filename
+        // IS the sha256 of bytes; `link::link_at` verifies content match
+        // before any mutation per ADR-008.
+        let target = model.on_disk_path.clone();
+        let canonical = canonical_src.to_path_buf();
+        let id = model.id_in_tool.clone();
+        tokio::task::spawn_blocking(move || link::link_at(&canonical, &target, &id))
+            .await
+            .map_err(|join_err| {
+                LinkError::Io(std::io::Error::other(format!(
+                    "ollama link task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn delete_one(&self, _model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {

@@ -4,9 +4,11 @@
 //! mutation of inputs, no clocks. The composition root interprets the
 //! returned `UpdateEffect` (write JSONL events, exit, dispatch zap-all, etc.).
 
+use modeltap_core::logic::plan::UnifyPlan;
 use modeltap_core::ToolId;
 
 use crate::app_state::{AppState, FocusPane, Screen};
+use crate::dialogs::unify_confirm::{UnifyDecision, UnifyDialogState};
 use crate::dialogs::zap_confirm::{ZapConfirmState, ZapDecision};
 use crate::msg::Msg;
 
@@ -24,6 +26,12 @@ pub struct UpdateEffect {
     /// `actions::zap::run` to call `Tool::delete_all` and emit the
     /// `action.zap_all` JSONL event.
     pub trigger_zap: Option<ToolId>,
+
+    /// When `Some(plan)`, the user has confirmed the unify action. The
+    /// composition root invokes `actions::unify::run` to call each plugin's
+    /// `Tool::link` per the plan, run the all-or-revert sequence (per
+    /// ADR-008), and emit the `action.unify` JSONL event.
+    pub trigger_unify: Option<UnifyPlan>,
 }
 
 /// Pure transition. Takes ownership of `state` and returns the next state.
@@ -38,6 +46,7 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             UpdateEffect {
                 emit_launch_ended: true,
                 trigger_zap: None,
+                trigger_unify: None,
             },
         ),
         Msg::CtrlC => (
@@ -85,6 +94,13 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         ),
         Msg::DialogConfirm => decide_dialog(state, DialogKey::Enter),
         Msg::DialogCancel => decide_dialog(state, DialogKey::Esc),
+        Msg::OpenUnifyDialog(plan) => (
+            AppState {
+                unify_dialog: Some(UnifyDialogState::from_plan(plan)),
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
         Msg::SetLastAction(action) => (
             AppState {
                 last_action: Some(action),
@@ -251,10 +267,23 @@ enum DialogKey {
     Esc,
 }
 
-/// Resolve a dialog Confirm/Cancel decision. On Confirm with a non-empty
-/// tool, emit `trigger_zap` so the composition root invokes `delete_all`.
-/// In every case, close the dialog.
+/// Resolve a dialog Confirm/Cancel decision. The unify dialog takes
+/// precedence over the zap dialog because it's the most recently opened (a
+/// well-formed app never opens both at once, but defense-in-depth picks
+/// one). On Confirm with the destructive path, emit the matching trigger
+/// so the composition root invokes `link()` (unify) or `delete_all` (zap).
+/// In every case, close whichever dialog was open.
 fn decide_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffect) {
+    if state.unify_dialog.is_some() {
+        return decide_unify_dialog(state, key);
+    }
+    if state.zap_dialog.is_some() {
+        return decide_zap_dialog(state, key);
+    }
+    (state, UpdateEffect::default())
+}
+
+fn decide_zap_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffect) {
     let Some(dialog) = &state.zap_dialog else {
         return (state, UpdateEffect::default());
     };
@@ -275,6 +304,33 @@ fn decide_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffect) {
         UpdateEffect {
             emit_launch_ended: false,
             trigger_zap,
+            trigger_unify: None,
+        },
+    )
+}
+
+fn decide_unify_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffect) {
+    let Some(dialog) = &state.unify_dialog else {
+        return (state, UpdateEffect::default());
+    };
+    let decision = match key {
+        DialogKey::Enter => dialog.decide_on_enter(),
+        DialogKey::Esc => dialog.decide_on_esc(),
+    };
+    let trigger_unify = match decision {
+        UnifyDecision::Confirm => Some(dialog.plan.clone()),
+        UnifyDecision::Cancel => None,
+    };
+    let next_state = AppState {
+        unify_dialog: None,
+        ..state
+    };
+    (
+        next_state,
+        UpdateEffect {
+            emit_launch_ended: false,
+            trigger_zap: None,
+            trigger_unify,
         },
     )
 }

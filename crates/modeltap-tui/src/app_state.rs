@@ -7,6 +7,7 @@
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{ToolId, ToolStatus};
 
+use crate::dialogs::unify_confirm::UnifyDialogState;
 use crate::dialogs::zap_confirm::ZapConfirmState;
 use crate::screens::detail::DetailScreenState;
 
@@ -108,6 +109,11 @@ pub struct AppState {
     /// this field and overlays a centered modal when set.
     pub zap_dialog: Option<ZapConfirmState>,
 
+    /// `Some(...)` when the unify-confirmation dialog is open (US-10). Same
+    /// rules as `zap_dialog` — mutation through `update()`, render overlay
+    /// when set.
+    pub unify_dialog: Option<UnifyDialogState>,
+
     /// Structured last-action banner for the right pane (US-06). Set by
     /// `Msg::SetLastAction(...)` after an action effect completes; cleared
     /// on any navigation Msg (`SelectNextTool`, `SelectPrevTool`,
@@ -135,6 +141,7 @@ impl Default for AppState {
             should_quit: false,
             exit_code: 0,
             zap_dialog: None,
+            unify_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
         }
@@ -160,6 +167,7 @@ impl AppState {
             should_quit: false,
             exit_code: 0,
             zap_dialog: None,
+            unify_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
         }

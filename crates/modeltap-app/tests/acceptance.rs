@@ -15,6 +15,7 @@ mod acceptance {
     pub mod us_07_discover_llama_cli;
     pub mod us_08_bottom_bar;
     pub mod us_09_compatibility_engine;
+    pub mod us_10_unify_hardlinks;
     pub mod us_12_discover_hf;
     pub mod us_13_detail_screen;
     pub mod us_15_discover_lm_studio;

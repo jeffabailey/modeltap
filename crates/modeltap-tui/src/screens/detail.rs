@@ -35,6 +35,7 @@ use ratatui::Frame;
 
 use crate::app_state::AppState;
 use crate::render::bottom_bar::{render_bottom_bar, BarContext};
+use crate::render::last_action;
 
 /// Pure state for the detail screen. Constructed by `update()` from
 /// `Msg::OpenDetail(...)`; mutated by `Msg::SetHashProgress(N)` when a lazy
@@ -110,10 +111,18 @@ pub fn render_detail(
     detail: &DetailScreenState,
     app: &AppState,
 ) {
-    // Vertical split: main detail panel (Min 1) | bottom bar (1 row).
+    // Vertical split: main detail panel (Min 1) | optional post-action banner
+    // (2 rows when present) | bottom bar (1 row). The banner is reserved
+    // only when `app.last_action.is_some()` so the regular detail layout is
+    // unaffected when no action has fired (US-13 default).
+    let banner_rows: u16 = if app.last_action.is_some() { 2 } else { 0 };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(banner_rows),
+            Constraint::Length(1),
+        ])
         .split(area);
 
     let title = format!(" Model: {} ", detail.model.id);
@@ -125,11 +134,19 @@ pub fn render_detail(
     let paragraph = Paragraph::new(body_lines).wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 
+    // Post-action banner (US-06): when the orchestrator has dispatched a
+    // Msg::SetLastAction, the detail screen reserves 2 rows above the bottom
+    // bar to render the structured banner. The banner is dismissed by any
+    // navigation Msg (clear_last_action in update.rs).
+    if let Some(action) = &app.last_action {
+        last_action::render(frame, chunks[1], action);
+    }
+
     // Bottom bar — generated from SHORTCUT_TABLE so the labels and dispatch
     // can never drift (US-08 AC-5 / INT-6 invariant).
     let ctx = BarContext::for_state(app);
     let bar = render_bottom_bar(&ctx, crate::render::colors::no_color_active());
-    frame.render_widget(Paragraph::new(bar), chunks[1]);
+    frame.render_widget(Paragraph::new(bar), chunks[2]);
 }
 
 /// Compose the body lines for the detail-screen panel. Pure.

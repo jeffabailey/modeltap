@@ -10,7 +10,7 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::Frame;
 
 use crate::app_state::{AppState, Screen};
-use crate::render::{bottom_bar, left_pane, right_pane, summary_bar, zap_dialog};
+use crate::render::{bottom_bar, left_pane, right_pane, summary_bar, unify_dialog, zap_dialog};
 use crate::screens::detail::render_detail;
 use crate::screens::help_overlay;
 
@@ -61,7 +61,15 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
 
     match &state.current_screen {
         Screen::Main => view_main(state, frame, area),
-        Screen::Detail(detail) => render_detail(frame, area, detail, state),
+        Screen::Detail(detail) => {
+            render_detail(frame, area, detail, state);
+            // The unify dialog (US-10) is opened from the detail screen via
+            // `Msg::OpenUnifyDialog`, so we must overlay it on top of the
+            // detail view as well. Same `Option` gate as in `view_main`.
+            if let Some(dialog) = state.unify_dialog.as_ref() {
+                unify_dialog::render(frame, area, dialog);
+            }
+        }
         Screen::Help { previous } => {
             // Render the underlying screen first so the help-close transition
             // is visually instant (no flash of empty terminal).
@@ -104,9 +112,15 @@ fn view_main(state: &AppState, frame: &mut Frame<'_>, area: ratatui::layout::Rec
     summary_bar::render(frame, chunks[1], state);
     bottom_bar::render(frame, chunks[2], state);
 
-    // Modal dialogs render LAST so they overlay the panes (US-05). The
-    // dialog reads `state.zap_dialog` (Option) — when None, this is a no-op.
+    // Modal dialogs render LAST so they overlay the panes (US-05/US-10). Each
+    // dialog reads its `Option` field on `state` — when None, the call is a
+    // no-op. The unify dialog (US-10) wins layering over the zap dialog when
+    // both are somehow open at once (defense-in-depth; the well-formed
+    // workflow only ever opens one at a time).
     if let Some(dialog) = state.zap_dialog.as_ref() {
         zap_dialog::render(frame, area, dialog);
+    }
+    if let Some(dialog) = state.unify_dialog.as_ref() {
+        unify_dialog::render(frame, area, dialog);
     }
 }
