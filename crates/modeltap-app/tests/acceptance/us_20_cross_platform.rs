@@ -51,6 +51,10 @@ fn modeltap_with_platform(platform: &str) -> (Command, TempDir, PathBuf) {
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama")
         .env("HF_HOME", "/nonexistent/no-such-hf")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, log_dir_temp, log_file)
 }

@@ -71,7 +71,11 @@ fn modeltap_headless() -> (Command, TempDir) {
         // The LM Studio plugin reads MODELTAP_LMSTUDIO_DIRS (colon-separated)
         // for its search-path override. Default to a non-existent path so
         // each test must explicitly opt in by overriding.
-        .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio");
+        .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        );
     (cmd, log_dir_temp)
 }
 

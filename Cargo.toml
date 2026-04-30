@@ -8,8 +8,13 @@ members = [
     "plugins/llama-cli",
     "plugins/hf",
     "plugins/lm-studio",
+    # 5th REAL production plugin — Atomic Chat (Jan-fork). Validates the US-18
+    # plugin extensibility contract live: zero changes to modeltap-core.
+    "plugins/atomic-chat",
     # TEST-ONLY 5th-plugin fixture (US-18). Behind `[features] test-fixtures`
-    # in modeltap-app so production binaries do NOT link it.
+    # in modeltap-app so production binaries do NOT link it. Coexists with the
+    # real `plugins/atomic-chat` above — the two register distinct ToolIds
+    # ("atomic-chat" vs "Atomic Chat").
     "plugins/atomic-chat-fixture",
 ]
 

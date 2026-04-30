@@ -178,6 +178,10 @@ fn modeltap_headless_shared(fix: &SharedFixture) -> (Command, TempDir, PathBuf) 
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
         .env("MODELTAP_LLAMACLI_DIRS", &fix.llama_cli_dir)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf");
     (cmd, log_dir_temp, log_file)
@@ -196,6 +200,10 @@ fn modeltap_headless_unique(fix: &UniqueFixture) -> (Command, TempDir, PathBuf) 
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf");
     (cmd, log_dir_temp, log_file)

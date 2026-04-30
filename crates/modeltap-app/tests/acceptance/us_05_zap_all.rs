@@ -63,6 +63,10 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
         // from the developer's real Ollama / llama-cli / HF / lm-studio installs.
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf-cache");
     if let Some(dir) = ollama_dir {

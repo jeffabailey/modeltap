@@ -56,6 +56,10 @@ fn modeltap_headless() -> (Command, TempDir) {
         .env("HF_HOME", "/nonexistent/hf-home")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/lm-studio")
         .env("MODELTAP_LLAMA_CLI_DIRS", "/nonexistent/llama-cli")
+        // Real Atomic Chat plugin (the 5th production plugin); pin its data
+        // dir at /nonexistent so it surfaces as NotInstalled and the
+        // fixture-only assertions below stay clean.
+        .env("MODELTAP_ATOMIC_CHAT_DIRS", "/nonexistent/atomic-chat")
         // Opt INTO the atomic-chat test fixture for the US-18 scenarios.
         // The fixture's `discover()` short-circuits to `NotInstalled` unless
         // this env var is set, so prior acceptance tests (US-02/03/05/...)
@@ -172,15 +176,17 @@ fn riley_observes_a_panicking_plugin_does_not_crash_modeltap() {
          {err_names:?}"
     );
 
-    // The other four production plugins must still be present in the
+    // The other production plugins must still be present in the
     // tools_registered inventory so the panic isolation is local, not
-    // catastrophic.
+    // catastrophic. Includes the real Atomic Chat (Jan-fork) plugin which
+    // registers as the human-readable `"Atomic Chat"` ToolId — distinct
+    // from the fixture's lowercase `"atomic-chat"`.
     let tools = inv
         .get("tools_registered")
         .and_then(|v| v.as_array())
         .expect("launch.inventory.tools_registered must be an array");
     let tool_names: Vec<&str> = tools.iter().filter_map(|v| v.as_str()).collect();
-    for name in &["ollama", "hf", "llama-cli", "lm-studio"] {
+    for name in &["ollama", "hf", "llama-cli", "lm-studio", "Atomic Chat"] {
         assert!(
             tool_names.contains(name),
             "tools_registered must still include {name} after a sibling panic, \
@@ -230,16 +236,21 @@ fn architecture_rule_r1_modeltap_core_has_no_concrete_plugin_dependency() {
         .expect("launch.inventory.tools_registered must be an array");
     let registered: Vec<&str> = tools.iter().filter_map(|v| v.as_str()).collect();
 
-    // Production: ollama, hf, llama-cli, lm-studio. Test fixture: atomic-chat.
-    // 5 total when the test-fixtures feature is on.
+    // Production: ollama, hf, llama-cli, lm-studio, "Atomic Chat" (real).
+    // Test fixture: "atomic-chat" (lowercase). 6 total when the
+    // test-fixtures feature is on.
     assert_eq!(
         registered.len(),
-        5,
-        "expected 5 registered plugins (4 production + 1 fixture), got {registered:?}"
+        6,
+        "expected 6 registered plugins (5 production + 1 fixture), got {registered:?}"
     );
     assert!(
         registered.contains(&"atomic-chat"),
-        "atomic-chat must be registered, got {registered:?}"
+        "atomic-chat fixture must be registered, got {registered:?}"
+    );
+    assert!(
+        registered.contains(&"Atomic Chat"),
+        "real Atomic Chat plugin must be registered, got {registered:?}"
     );
 
     // The contract: modeltap-core's published surface (`Tool`,
@@ -272,13 +283,22 @@ fn riley_reads_launch_inventory_lists_every_registered_plugin() {
         .expect("launch.inventory.tools_registered must be an array");
     let tool_names: Vec<&str> = tools.iter().filter_map(|v| v.as_str()).collect();
 
-    // 4 production + 1 test fixture = 5.
+    // 5 production + 1 test fixture = 6. The real Atomic Chat plugin's
+    // ToolId is `"Atomic Chat"` (with space, capitalized) and is distinct
+    // from the fixture's `"atomic-chat"`.
     assert_eq!(
         tool_names.len(),
-        5,
+        6,
         "tools_registered must list every registered plugin, got {tool_names:?}"
     );
-    for required in &["atomic-chat", "hf", "llama-cli", "lm-studio", "ollama"] {
+    for required in &[
+        "Atomic Chat",
+        "atomic-chat",
+        "hf",
+        "llama-cli",
+        "lm-studio",
+        "ollama",
+    ] {
         assert!(
             tool_names.contains(required),
             "tools_registered missing {required}, got {tool_names:?}"

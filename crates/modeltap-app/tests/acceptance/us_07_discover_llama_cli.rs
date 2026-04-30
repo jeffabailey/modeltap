@@ -65,6 +65,10 @@ fn modeltap_headless() -> (Command, TempDir) {
         // MODELTAP_LLAMACLI_DIRS (colon-separated). Tests opt in by setting it.
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         // Pin HF_HOME so the HF plugin doesn't surface the developer's real
         // ~/.cache/huggingface during a llama-cli-focused test.

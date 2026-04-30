@@ -68,6 +68,10 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
         // from the developer's real Ollama / llama-cli / HF / lm-studio installs.
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf-cache");
     if let Some(dir) = ollama_dir {
@@ -174,11 +178,12 @@ fn right_arrow_switches_to_next_tool() {
     let frame = frame_text(&stdout);
 
     // After Right Arrow, the next tool's header is shown. Tool order in the
-    // left pane is the inventory-iter order, which for the 4 stubs +
-    // OllamaPlugin sorts alphabetically by ToolId: hf, llama-cli, lm-studio,
-    // ollama. Default selection lands on the alphabetically-first INSTALLED
-    // tool (ollama, position 3); pressing Right Arrow wraps to position 0
-    // (hf), so the new header is "Models in hf (...)" / "(not installed)".
+    // left pane is alphabetical by ToolId. With the 5th real plugin in place
+    // ("Atomic Chat" — capital A sorts BEFORE lowercase letters in ASCII), the
+    // order is: "Atomic Chat", "hf", "llama-cli", "lm-studio", "ollama".
+    // Default selection lands on the alphabetically-first INSTALLED tool
+    // (ollama, the only installed tool here); Right Arrow wraps from
+    // position 4 to position 0 → "Atomic Chat".
     //
     // Our representation: after Right Arrow the right-pane header changes
     // away from "Models in ollama" — observable evidence that the selection
@@ -188,11 +193,11 @@ fn right_arrow_switches_to_next_tool() {
         "Right Arrow must move selection AWAY from default ollama, got frame:\n{}",
         frame
     );
-    // And lands on the next tool in cycle order. With alphabetical order,
-    // ollama wraps to hf.
+    // And lands on the next tool in cycle order — Atomic Chat is now the
+    // alphabetically-first ToolId.
     assert!(
-        frame.contains("Models in hf"),
-        "Right Arrow from ollama (last alphabetically) must wrap to hf, got frame:\n{}",
+        frame.contains("Models in Atomic Chat"),
+        "Right Arrow from ollama (last alphabetically) must wrap to Atomic Chat, got frame:\n{}",
         frame
     );
 }

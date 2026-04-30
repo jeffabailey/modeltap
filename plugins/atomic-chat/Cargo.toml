@@ -1,0 +1,44 @@
+[package]
+name = "modeltap-plugin-atomic-chat"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Atomic Chat plugin for modeltap (Jan-fork). Reads <data>/llamacpp/models/<id>/model.yml manifests; per-platform default search paths."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+modeltap-core = { path = "../../crates/modeltap-core" }
+
+# ADR-001: object-safe async trait for `Tool`.
+async-trait = "0.1"
+
+# ADR-005: tokio runtime; plugin uses spawn_blocking for the directory walk.
+tokio = { workspace = true }
+
+# Errors (per ADR-007).
+thiserror = { workspace = true }
+
+# Filesystem walk (recursive — but we only need depth-2 for <root>/<id>/model.yml).
+walkdir = "2"
+
+# Plugin registration (per ADR-001).
+inventory = "0.3"
+
+# Diagnostic logging.
+tracing = { workspace = true }
+
+# Config parsing — TOML for [plugins.atomic-chat] search_paths, YAML for model.yml.
+serde = { workspace = true }
+toml = "0.8"
+serde_yaml = "0.9"
+
+# Per-OS path defaults (Application Support on macOS, ~/.config on Linux).
+dirs = "5"
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

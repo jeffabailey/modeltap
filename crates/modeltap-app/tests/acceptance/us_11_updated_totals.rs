@@ -57,6 +57,10 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
         .env("MODELTAP_TERM_COLS", "100")
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf-cache");
     if let Some(dir) = ollama_dir {
@@ -265,6 +269,10 @@ fn totals_update_after_unify_disk_down_model_count_steady() {
         .env("MODELTAP_OLLAMA_DIR", &ollama_dir)
         .env("MODELTAP_LLAMACLI_DIRS", &llama_dir)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf")
         // <enter> opens detail; u opens unify dialog; <enter> confirms unify;

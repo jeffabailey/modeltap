@@ -69,6 +69,10 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
         // from the developer's real Ollama / llama-cli / HF / lm-studio installs.
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf-cache");
     if let Some(dir) = ollama_dir {
@@ -266,6 +270,10 @@ fn successful_unify_shows_hardlink_count() {
         .env("MODELTAP_OLLAMA_DIR", &ollama_dir)
         .env("MODELTAP_LLAMACLI_DIRS", &llama_dir)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf")
         .env("MODELTAP_HEADLESS_INPUT", "<enter>u<enter>q")
@@ -425,6 +433,10 @@ fn partial_unify_shows_partial_success_message() {
         .env("MODELTAP_LLAMACLI_DIRS", &llama_dir)
         .env("HF_HOME", &hf_home)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("MODELTAP_HEADLESS_INPUT", script)
         .env("MODELTAP_HEADLESS_DETAIL_REGS", regs)

@@ -61,6 +61,10 @@ fn modeltap_headless() -> (Command, TempDir) {
         .env("MODELTAP_OLLAMA_DIR", "/nonexistent/no-such-ollama")
         .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         // The HF plugin reads HF_HOME (the standard huggingface_hub env var)
         // for the cache root. Default to a non-existent path so each test

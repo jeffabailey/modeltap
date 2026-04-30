@@ -151,6 +151,10 @@ fn modeltap_headless(fix: &Fixture) -> (Command, TempDir, PathBuf) {
         .env("MODELTAP_LLAMACLI_DIRS", &fix.llama_cli_dir)
         .env("HF_HOME", &fix.hf_home)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, log_dir_temp, log_file)
 }
