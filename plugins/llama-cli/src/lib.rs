@@ -18,6 +18,7 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod delete;
 pub mod discover;
 pub mod gguf_header;
 pub mod link;
@@ -108,10 +109,17 @@ impl Tool for LlamaCliPlugin {
             })?
     }
 
-    async fn delete_one(&self, _model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {
-        Err(DeleteError::NotYetImplemented(
-            "llama-cli delete_one arrives in step 03-06".to_string(),
-        ))
+    async fn delete_one(&self, model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {
+        let target = model.on_disk_path.clone();
+        let id = model.id_in_tool.clone();
+        // Per ADR-005: fs::remove_file is sync; wrap in spawn_blocking.
+        tokio::task::spawn_blocking(move || delete::delete_one_at(&target, &id))
+            .await
+            .map_err(|join_err| {
+                DeleteError::Io(std::io::Error::other(format!(
+                    "llama-cli delete_one task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn delete_all(&self) -> Result<Vec<DeleteOutcome>, DeleteError> {

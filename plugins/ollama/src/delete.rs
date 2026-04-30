@@ -31,6 +31,109 @@ use walkdir::WalkDir;
 use crate::manifest::parse_manifest;
 use crate::TOOL_NAME;
 
+// ---------------------------------------------------------------------------
+// `delete_one_at` — single-model delete (US-05b, step 03-06; ADR-009).
+//
+// Removes ONE manifest by `id_in_tool` and conditionally cleans up its blob:
+//   - If the blob is referenced by ANY other surviving manifest, keep the
+//     blob (ref-counted); attribute zero bytes_freed (shared blob retained).
+//   - Otherwise unlink the blob and attribute its declared size as bytes_freed.
+//
+// Order: manifest first (registry consistent), then blob (orphan cleanup).
+// Same transactional pattern as `delete_all_at`.
+// ---------------------------------------------------------------------------
+
+/// Delete ONE manifest (and its now-orphaned blob, if not still referenced
+/// by another manifest). `target_id_in_tool` is the canonical Ollama id
+/// `<repo>:<tag>` (matches `discovery::manifest_id`).
+///
+/// Returns:
+///   - `Ok(DeleteOutcome { registration_removed: true, .. })` on success.
+///   - `Ok(DeleteOutcome { registration_removed: false, .. })` when the
+///     manifest cannot be found / removed (caller surfaces "not found").
+pub fn delete_one_at(root: &Path, target_id_in_tool: &str) -> Result<DeleteOutcome, DeleteError> {
+    let tool: ToolId = TOOL_NAME;
+    if !root.exists() {
+        return Err(DeleteError::NotFound(target_id_in_tool.to_string()));
+    }
+    let manifests_dir = root.join("manifests");
+    if !manifests_dir.exists() {
+        return Err(DeleteError::NotFound(target_id_in_tool.to_string()));
+    }
+
+    // Enumerate every manifest so we can look up our target AND know which
+    // blobs are still referenced after the target is removed (ref-counting).
+    let plans = enumerate_plans(&manifests_dir, &root.join("blobs"));
+    let target_idx = plans.iter().position(|p| p.id_in_tool == target_id_in_tool);
+    let Some(target_idx) = target_idx else {
+        return Err(DeleteError::NotFound(target_id_in_tool.to_string()));
+    };
+    let target = plans[target_idx].clone();
+
+    // Phase 2 — unlink the target manifest first. Registry is consistent the
+    // moment a manifest is gone (no dangling registration -> phantom blob).
+    let manifest_removed = match std::fs::remove_file(&target.manifest_path) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!(
+                target: "modeltap.ollama.delete",
+                "delete_one: remove manifest {}: {e}",
+                target.manifest_path.display()
+            );
+            false
+        }
+    };
+
+    if !manifest_removed {
+        return Ok(DeleteOutcome {
+            tool,
+            model_id_in_tool: target.id_in_tool,
+            bytes_freed: 0,
+            registration_removed: false,
+            file_deleted: false,
+        });
+    }
+
+    // Phase 3 — ref-count the blob across surviving manifests. ADR-002
+    // conservative-when-uncertain: if any surviving manifest references this
+    // blob, we keep it. Only when the target was the LAST referrer do we
+    // unlink and credit `bytes_freed`.
+    let (file_deleted, bytes_freed) = match &target.blob_path {
+        Some(blob_path) => {
+            let still_referenced = plans
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| *idx != target_idx)
+                .any(|(_, p)| p.blob_path.as_deref() == Some(blob_path));
+            if still_referenced {
+                (false, 0)
+            } else {
+                match std::fs::remove_file(blob_path) {
+                    Ok(()) => (true, target.declared_size),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, 0),
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "modeltap.ollama.delete",
+                            "delete_one: remove blob {}: {e}",
+                            blob_path.display()
+                        );
+                        (false, 0)
+                    }
+                }
+            }
+        }
+        None => (false, 0),
+    };
+
+    Ok(DeleteOutcome {
+        tool,
+        model_id_in_tool: target.id_in_tool,
+        bytes_freed,
+        registration_removed: true,
+        file_deleted,
+    })
+}
+
 /// Synchronous implementation of Ollama's `delete_all`. Caller (the async
 /// `Tool::delete_all` impl) wraps this in `tokio::task::spawn_blocking` so
 /// the directory walk + unlinks do not block the runtime thread.

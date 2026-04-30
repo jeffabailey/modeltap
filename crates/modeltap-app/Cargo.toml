@@ -64,3 +64,5 @@ predicates = { workspace = true }
 tempfile = { workspace = true }
 insta = { workspace = true }
 walkdir = "2"
+# Mock plugins in tests need async_trait to satisfy the `Tool` trait.
+async-trait = "0.1"

@@ -11,6 +11,7 @@ mod acceptance {
     pub mod us_03_two_pane_navigation;
     pub mod us_04_row_metadata;
     pub mod us_05_zap_all;
+    pub mod us_05b_delete_one;
     pub mod us_06_post_action_message;
     pub mod us_07_discover_llama_cli;
     pub mod us_08_bottom_bar;

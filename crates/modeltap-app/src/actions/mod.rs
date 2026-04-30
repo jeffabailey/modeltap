@@ -10,5 +10,6 @@
 //! NO usernames in any action JSONL event. The orchestrator is responsible
 //! for redaction at this seam.
 
+pub mod delete_one;
 pub mod unify;
 pub mod zap;

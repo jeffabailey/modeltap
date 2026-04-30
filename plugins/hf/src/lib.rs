@@ -22,6 +22,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cache_walk;
+pub mod delete;
 pub mod discover;
 pub mod link;
 pub mod symlink_resolve;
@@ -118,10 +119,18 @@ impl Tool for HfPlugin {
             })?
     }
 
-    async fn delete_one(&self, _model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {
-        Err(DeleteError::NotYetImplemented(
-            "hf delete_one arrives in step 03-06".to_string(),
-        ))
+    async fn delete_one(&self, model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {
+        let hub = self.hub_root.clone();
+        let blob = model.on_disk_path.clone();
+        let id = model.id_in_tool.clone();
+        // Per ADR-005: directory walk + unlinks are sync; wrap in spawn_blocking.
+        tokio::task::spawn_blocking(move || delete::delete_one_at(&hub, &blob, &id))
+            .await
+            .map_err(|join_err| {
+                DeleteError::Io(std::io::Error::other(format!(
+                    "hf delete_one task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn delete_all(&self) -> Result<Vec<DeleteOutcome>, DeleteError> {

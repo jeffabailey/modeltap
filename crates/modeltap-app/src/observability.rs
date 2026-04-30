@@ -57,6 +57,19 @@ pub enum RecordKind {
         bytes_reclaimed: u64,
         outcome: &'static str,
     },
+    /// Result of a confirmed single-model delete-from-one action (US-05b,
+    /// step 03-06; ADR-009). Per the privacy rule: NO model names, NO paths,
+    /// NO usernames — only tool name, aggregate byte count, was-shared
+    /// classification, outcome string. The `was_shared` discriminator lets
+    /// observability distinguish low-friction (`true` -> y/n confirm) from
+    /// typed-id (`false` -> Unique mode) destructive paths without leaking
+    /// the model id itself.
+    ActionZapOne {
+        tool: String,
+        bytes_reclaimed: u64,
+        was_shared: bool,
+        outcome: &'static str,
+    },
     /// Result of a confirmed unify action (US-10). Per the privacy rule
     /// (`kpi-instrumentation.md` §"action.unify"): NO model names, NO paths,
     /// NO hash values — only tool ids + aggregate byte counts. The
@@ -232,6 +245,19 @@ impl LaunchLogger {
                 env["tool"] = json!(tool);
                 env["models_removed"] = json!(models_removed);
                 env["bytes_reclaimed"] = json!(bytes_reclaimed);
+                env["outcome"] = json!(outcome);
+                env
+            }
+            RecordKind::ActionZapOne {
+                tool,
+                bytes_reclaimed,
+                was_shared,
+                outcome,
+            } => {
+                let mut env = self.base_envelope("action.zap_one");
+                env["tool"] = json!(tool);
+                env["bytes_reclaimed"] = json!(bytes_reclaimed);
+                env["was_shared"] = json!(was_shared);
                 env["outcome"] = json!(outcome);
                 env
             }

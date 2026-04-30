@@ -17,12 +17,14 @@ use modeltap_core::logic::canonical_selector::{select_canonical, CandidatePath};
 use modeltap_core::logic::plan::{build_plan, PlanCandidate, UnifyPlan};
 use modeltap_core::{Tool, ToolId};
 use modeltap_tui::app_state::Screen;
+use modeltap_tui::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use modeltap_tui::dialogs::unify_confirm::UnifyMode;
 use modeltap_tui::screens::detail::DetailScreenState;
 use modeltap_tui::{update, view, AppState, Msg, UpdateEffect};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
+use crate::actions::delete_one::{self, DeleteOneOutcome};
 use crate::actions::unify::{self, DryRunOutcome, UnifyOutcome, UnifyResult};
 use crate::actions::zap::{self, ZapOutcome, ZapResult};
 use crate::observability::{LaunchLogger, RecordKind};
@@ -83,10 +85,22 @@ pub fn run(
     };
 
     for (idx, token) in tokens.iter().enumerate() {
-        let dialog_open = state.zap_dialog.is_some() || state.unify_dialog.is_some();
+        let dialog_open = state.zap_dialog.is_some()
+            || state.unify_dialog.is_some()
+            || state.delete_one_dialog.is_some();
         let cross_fs_open = state.cross_fs_dialog.is_some();
         let unify_open = state.unify_dialog.is_some();
-        let raw_msg = token_to_msg(token, dialog_open, cross_fs_open, unify_open);
+        let delete_one_shared_open = state
+            .delete_one_dialog
+            .as_ref()
+            .is_some_and(|d| d.is_shared());
+        let raw_msg = token_to_msg(
+            token,
+            dialog_open,
+            cross_fs_open,
+            unify_open,
+            delete_one_shared_open,
+        );
         // Intercept Msg::Unify on the detail screen so we can build the
         // UnifyPlan from the registrations + plugins (the plan needs `stat`
         // results, which the pure update() can't compute). Outside the
@@ -96,6 +110,12 @@ pub fn run(
         // unify dialog (read-only preview path).
         let next_is_dry_run = matches!(tokens.get(idx + 1), Some(ScriptToken::Char('n')));
         let msg = lift_unify_in_detail(&state, raw_msg, next_is_dry_run);
+        // US-05b (step 03-06): intercept Msg::DeleteFromOne on the detail
+        // screen and build a DeleteOneConfirmState targeting the registration
+        // identified by `MODELTAP_HEADLESS_DELETE_TARGET` (or the first
+        // registration when unset). Outside the detail screen, the message
+        // stays a no-op.
+        let msg = lift_delete_one_in_detail(&state, msg);
         // Intercept Enter on the main screen so we can open the detail
         // screen with synthesized registrations from the AppState.
         let msg = lift_enter_in_main(&state, msg);
@@ -334,6 +354,83 @@ fn apply_effect(
             }
         }
     }
+    if let Some(trigger) = effect.trigger_delete_one.clone() {
+        // US-05b (step 03-06; ADR-009): the user confirmed a single-model
+        // delete. Resolve the targeted registration's on-disk path from the
+        // detail-screen registrations (the dialog snapshot only carries the
+        // model id + tool + size; the path is the orchestrator's job).
+        let on_disk_path = path_for_delete_target(state, trigger.tool, &trigger.model_id);
+        if let (Some(plugin), Some(path)) = (find_plugin(plugins, trigger.tool), on_disk_path) {
+            let outcome: DeleteOneOutcome = rt.block_on(delete_one::run(
+                plugin,
+                trigger.tool,
+                trigger.model_id.clone(),
+                path,
+                trigger.size_bytes,
+                trigger.was_shared,
+                logger,
+            ));
+            let last_action = build_delete_one_last_action(&outcome);
+            let (next, _) = update(std::mem::take(state), Msg::SetLastAction(last_action));
+            *state = next;
+
+            // US-11.AC-1 — re-run incremental refresh for the affected tool
+            // so the summary reflects the post-delete byte count.
+            let tool_id = trigger.tool;
+            if let Ok(view) = rt.block_on(refresh::refresh_tool_incremental(plugin)) {
+                let (next, _) = update(std::mem::take(state), Msg::RefreshSucceeded(view));
+                *state = next;
+            } else {
+                tracing::info!(
+                    target: "modeltap.refresh",
+                    "refresh after delete_one failed or not-installed for {}",
+                    tool_id.0
+                );
+            }
+        } else {
+            tracing::warn!(
+                target: "modeltap.action.delete_one",
+                "no plugin or path for delete_one of {} in {}",
+                trigger.model_id,
+                trigger.tool.0
+            );
+        }
+    }
+}
+
+/// Resolve the on-disk path for a delete-one trigger by looking up the
+/// matching tool's registration in the current Detail screen state. Returns
+/// `None` when the screen isn't Detail OR no registration matches the tool.
+fn path_for_delete_target(
+    state: &AppState,
+    tool: ToolId,
+    _model_id: &str,
+) -> Option<std::path::PathBuf> {
+    let Screen::Detail(detail) = &state.current_screen else {
+        return None;
+    };
+    detail
+        .registrations
+        .iter()
+        .find(|r| r.tool == tool)
+        .map(|r| r.path.clone())
+}
+
+/// Map a `DeleteOneOutcome` to a structured `LastAction` for the right-pane
+/// banner. Reuses `LastAction::for_zap_*` constructors because the single-
+/// model destructive path produces the same banner shape (tool + bytes
+/// reclaimed + outcome) — the JSONL event is what distinguishes the two
+/// observability streams (`action.zap_one` vs `action.zap_all`).
+fn build_delete_one_last_action(outcome: &DeleteOneOutcome) -> LastAction {
+    use crate::actions::delete_one::DeleteOneResult;
+    match outcome.outcome {
+        DeleteOneResult::Success => {
+            LastAction::for_zap_success(outcome.tool, outcome.bytes_reclaimed, 0)
+        }
+        DeleteOneResult::NotFound | DeleteOneResult::Failed => {
+            LastAction::for_zap_failed(outcome.tool)
+        }
+    }
 }
 
 /// On the detail screen, lift `Msg::Unify` (the keymap-bound no-op variant)
@@ -446,6 +543,55 @@ fn build_plan_from_detail(detail: &DetailScreenState) -> Option<UnifyPlan> {
         .find(|p| p.path == canonical.path)?
         .clone();
     build_plan(&canonical_plan, &plan_candidates)
+}
+
+/// US-05b (step 03-06): on the detail screen, lift `Msg::DeleteFromOne`
+/// into `Msg::OpenDeleteOneDialog(state)` after building a
+/// `DeleteOneConfirmState` snapshot from the screen's registrations. The
+/// targeted tool is selected by the `MODELTAP_HEADLESS_DELETE_TARGET` env
+/// var (matching the registration's tool id); when unset, the FIRST
+/// registration is used. The `was_shared` flag is computed conservatively
+/// (per ADR-002): true iff the screen has 2+ registrations (the same model
+/// content lives under another tool's tree, so deleting one preserves the
+/// content elsewhere); false for single-tool registrations (typed-id mode).
+///
+/// Outside the detail screen — or when no registration matches the target —
+/// `Msg::DeleteFromOne` passes through unchanged (keymap no-op).
+fn lift_delete_one_in_detail(state: &AppState, msg: Msg) -> Msg {
+    if !matches!(msg, Msg::DeleteFromOne) {
+        return msg;
+    }
+    let Screen::Detail(detail) = &state.current_screen else {
+        return msg;
+    };
+    if detail.registrations.is_empty() {
+        return msg;
+    }
+    let target_tool_str = std::env::var("MODELTAP_HEADLESS_DELETE_TARGET").ok();
+    let target_reg = match &target_tool_str {
+        Some(s) => detail.registrations.iter().find(|r| r.tool.0 == s.as_str()),
+        None => detail.registrations.first(),
+    };
+    let Some(reg) = target_reg else {
+        return msg;
+    };
+    let was_shared = detail.registrations.len() >= 2;
+    let size_bytes = std::fs::metadata(&reg.path)
+        .map(|m| m.len())
+        .unwrap_or(detail.model.canonical_size_bytes);
+    // The dialog's `model_id` is what the orchestrator passes to
+    // `Tool::delete_one(model.id_in_tool)`. For Ollama / HF, the per-tool
+    // id_in_tool is distinct from the display id; the test seam
+    // `MODELTAP_HEADLESS_DELETE_ID_IN_TOOL` overrides the dialog's
+    // model_id so production-shape lookups work in fixtures. When unset,
+    // fall back to the display id (correct for llama-cli / lm-studio
+    // where id_in_tool == filename and the dialog's typed-id matches the
+    // display id).
+    let dialog_model_id = std::env::var("MODELTAP_HEADLESS_DELETE_ID_IN_TOOL")
+        .unwrap_or_else(|_| detail.model.id.clone());
+    let dialog =
+        DeleteOneConfirmState::for_model(reg.tool, dialog_model_id, size_bytes, was_shared);
+    Msg::OpenDeleteOneDialog(dialog)
 }
 
 /// On the main screen, lift Enter (which `update` would otherwise treat as
@@ -661,11 +807,17 @@ fn path_matches_fake_cross_fs(path: &std::path::Path, fake_cross_fs: &[PathBuf])
 /// US-14 dry-run: when `unify_open` is true, the `n` key is interpreted as
 /// `Msg::UnifyDryRun` (which dispatches `actions::unify::dry_run` against
 /// the dialog's plan without mutating fs).
+///
+/// US-05b: when `delete_one_shared_open` is true (delete-one dialog in
+/// Shared mode), `y` is `Msg::DeleteOneConfirmShared` and `n` is
+/// `Msg::DeleteOneCancelShared`. Other characters are silently ignored
+/// (the dialog resolves only on y/n/Esc per the dialog state machine).
 fn token_to_msg(
     token: &ScriptToken,
     dialog_open: bool,
     cross_fs_open: bool,
     unify_open: bool,
+    delete_one_shared_open: bool,
 ) -> Msg {
     if cross_fs_open {
         return match token {
@@ -693,6 +845,17 @@ fn token_to_msg(
                 _ => Msg::UnboundKey,
             },
             ScriptToken::Char(c) => {
+                // US-05b: in delete-one Shared mode, `y` and `n` resolve the
+                // dialog directly (low-friction confirmation). Other keys
+                // are silently ignored (the keymap docs treat them as
+                // unbound while the [y/n] prompt is active).
+                if delete_one_shared_open {
+                    return match c {
+                        'y' => Msg::DeleteOneConfirmShared,
+                        'n' => Msg::DeleteOneCancelShared,
+                        _ => Msg::UnboundKey,
+                    };
+                }
                 // US-14: `[n]` while unify dialog is open dispatches the
                 // dry-run preview (no fs mutation). The zap dialog's typed-
                 // input buffer never sees `n` because the two dialogs are
