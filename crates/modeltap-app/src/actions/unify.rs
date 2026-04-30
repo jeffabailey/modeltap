@@ -31,11 +31,9 @@
 use std::path::PathBuf;
 
 use modeltap_core::logic::plan::{PlannedLink, UnifyPlan};
-use modeltap_core::{
-    DedupKey, DisplayLabel, Format, LinkError, LinkOutcome, LinkResult, ModelMeta, ModelStatus,
-    Tool, ToolId,
-};
+use modeltap_core::{LinkError, LinkOutcome, LinkResult, ModelMeta, Tool, ToolId};
 use modeltap_tui::dialogs::cross_fs_choice::CrossFsChoice;
+use modeltap_tui::render::bytes::format_bytes;
 
 use crate::observability::{LaunchLogger, RecordKind};
 
@@ -188,21 +186,6 @@ pub fn dry_run(plan: &UnifyPlan, logger: &mut LaunchLogger) -> DryRunOutcome {
         lines,
         cross_fs_targets,
         bytes_would_reclaim,
-    }
-}
-
-/// Format a byte count into a human-readable string. Mirrors the dialog
-/// renderer's `format_bytes` so the dry-run "Reclaim:" line matches the
-/// real-run dialog's "Reclaim:" line character-for-character.
-fn format_bytes(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
     }
 }
 
@@ -465,8 +448,8 @@ fn classify(
 
 /// Build a synthetic `ModelMeta` for the plugin's `link()` call. The plugin
 /// only needs `on_disk_path` (where the link target goes) and `id_in_tool`
-/// (for the `LinkOutcome` correlation); the other fields are filled in
-/// with conservative defaults because the planner doesn't know them.
+/// (for the `LinkOutcome` correlation); the rest is filled with conservative
+/// defaults via the shared `super::synthetic_model_meta` helper.
 fn synthesize_model_meta(link: &PlannedLink, size_bytes: u64) -> ModelMeta {
     let id_in_tool = link
         .target
@@ -474,16 +457,7 @@ fn synthesize_model_meta(link: &PlannedLink, size_bytes: u64) -> ModelMeta {
         .and_then(|n| n.to_str())
         .unwrap_or("")
         .to_string();
-    ModelMeta {
-        tool: link.tool,
-        id_in_tool: id_in_tool.clone(),
-        on_disk_path: link.target.clone(),
-        size_bytes,
-        format: Format::Other,
-        display_label: DisplayLabel::from(id_in_tool.clone()),
-        status: ModelStatus::Healthy,
-        dedup_key: DedupKey::Tentative(DisplayLabel::from(id_in_tool)),
-    }
+    super::synthetic_model_meta(link.tool, id_in_tool, link.target.clone(), size_bytes)
 }
 
 /// Translate a `LinkError` to a short user-visible reason string. Drops

@@ -33,6 +33,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
+use crate::render::bytes::format_bytes;
+
 use crate::app_state::AppState;
 use crate::render::bottom_bar::{render_bottom_bar, BarContext};
 use crate::render::last_action;
@@ -213,18 +215,6 @@ fn format_format(fmt: Format, quant: Option<&str>) -> String {
     match quant {
         Some(q) => format!("{base} [{q}]"),
         None => base.to_string(),
-    }
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
     }
 }
 

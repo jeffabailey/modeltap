@@ -11,6 +11,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::dialogs::zap_confirm::ZapConfirmState;
+use crate::render::bytes::format_bytes;
 
 /// Render the zap dialog modal centered in `parent_area`. Caller is the
 /// top-level `view()`; gates rendering on `state.zap_dialog.is_some()`.
@@ -81,17 +82,5 @@ fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
         y: r.y + (r.height.saturating_sub(popup_h)) / 2,
         width: popup_w,
         height: popup_h,
-    }
-}
-
-fn format_bytes(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
     }
 }

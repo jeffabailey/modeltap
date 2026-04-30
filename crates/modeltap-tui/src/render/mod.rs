@@ -6,6 +6,7 @@
 //! - `bottom_bar` — shortcut line driven by `keymap::SHORTCUT_TABLE`.
 
 pub mod bottom_bar;
+pub mod bytes;
 pub mod colors;
 pub mod indicator;
 pub mod last_action;

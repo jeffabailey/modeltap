@@ -17,10 +17,7 @@
 
 use std::path::PathBuf;
 
-use modeltap_core::{
-    DedupKey, DeleteError, DeleteOutcome, DisplayLabel, Format, ModelMeta, ModelStatus, Tool,
-    ToolId,
-};
+use modeltap_core::{DeleteError, DeleteOutcome, ModelMeta, Tool, ToolId};
 
 use crate::observability::{LaunchLogger, RecordKind};
 
@@ -132,25 +129,15 @@ pub async fn run(
 
 /// Build a synthetic `ModelMeta` for the plugin's `delete_one()` call. Only
 /// `tool`, `id_in_tool`, `on_disk_path`, and `size_bytes` are load-bearing
-/// for delete; the other fields are filled with conservative defaults
-/// because the orchestrator does not always have them at the dialog seam.
+/// for delete; the rest is filled with conservative defaults via the shared
+/// `super::synthetic_model_meta` helper.
 fn synthesize_model_meta(
     tool: ToolId,
     id_in_tool: String,
     on_disk_path: PathBuf,
     size_bytes: u64,
 ) -> ModelMeta {
-    let label = DisplayLabel::from(id_in_tool.clone());
-    ModelMeta {
-        tool,
-        id_in_tool: id_in_tool.clone(),
-        on_disk_path,
-        size_bytes,
-        format: Format::Other,
-        display_label: label.clone(),
-        status: ModelStatus::Healthy,
-        dedup_key: DedupKey::Tentative(label),
-    }
+    super::synthetic_model_meta(tool, id_in_tool, on_disk_path, size_bytes)
 }
 
 fn emit(logger: &mut LaunchLogger, outcome: &DeleteOneOutcome) {
