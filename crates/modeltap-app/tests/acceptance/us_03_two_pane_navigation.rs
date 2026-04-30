@@ -66,7 +66,7 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
         .env("MODELTAP_TERM_COLS", "100")
         // Pin the other plugins at non-existent paths so this test isolates
         // from the developer's real Ollama / llama-cli / HF / lm-studio installs.
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
@@ -97,13 +97,11 @@ fn frame_text(stdout: &str) -> String {
 // ---------------------------------------------------------------------------
 // Scenario 1: Default selection is the alphabetically-first INSTALLED tool.
 //
-// Production layout has 4 tool slots (Ollama, llama-cli, Hugging Face, LM
-// Studio). Step 01-03 only ships the Ollama plugin as functional; the other
-// three are stubs returning NotInstalled. The default selection must skip
-// the not-installed tools and land on the alphabetically-first INSTALLED
-// tool. With only Ollama installed the default is Ollama; the right-pane
-// header reflects "Models in ollama (...)". The fixture has Ollama models
-// to display.
+// Production layout has 4 tool slots (Ollama, Hugging Face, LM Studio, plus
+// the Atomic Chat plugin). The default selection must skip the not-installed
+// tools and land on the alphabetically-first INSTALLED tool. With only Ollama
+// installed the default is Ollama; the right-pane header reflects
+// "Models in ollama (...)". The fixture has Ollama models to display.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -135,11 +133,6 @@ fn default_selection_is_alphabetically_first_installed_tool() {
         frame
     );
     assert!(
-        frame.contains("llama-cli"),
-        "left pane must list llama-cli, got frame:\n{}",
-        frame
-    );
-    assert!(
         frame.contains("hf"),
         "left pane must list hf, got frame:\n{}",
         frame
@@ -156,8 +149,7 @@ fn default_selection_is_alphabetically_first_installed_tool() {
 //
 // Starting on Ollama (the alphabetically-first installed tool with 4 model
 // rows in devon-multi-tool), pressing Right Arrow moves the selection to
-// the next tool slot in left-pane order (llama-cli — even though it is not
-// installed, navigation visits all slots). The right-pane header updates.
+// the next tool slot in left-pane order. The right-pane header updates.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -178,12 +170,12 @@ fn right_arrow_switches_to_next_tool() {
     let frame = frame_text(&stdout);
 
     // After Right Arrow, the next tool's header is shown. Tool order in the
-    // left pane is alphabetical by ToolId. With the 5th real plugin in place
-    // ("Atomic Chat" — capital A sorts BEFORE lowercase letters in ASCII), the
-    // order is: "Atomic Chat", "hf", "llama-cli", "lm-studio", "ollama".
+    // left pane is alphabetical by ToolId. Capital letters sort BEFORE
+    // lowercase in ASCII, so the order is:
+    //   "Atomic Chat", "hf", "lm-studio", "ollama".
     // Default selection lands on the alphabetically-first INSTALLED tool
     // (ollama, the only installed tool here); Right Arrow wraps from
-    // position 4 to position 0 → "Atomic Chat".
+    // position 3 to position 0 → "Atomic Chat".
     //
     // Our representation: after Right Arrow the right-pane header changes
     // away from "Models in ollama" — observable evidence that the selection

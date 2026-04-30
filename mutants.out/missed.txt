@@ -1,0 +1,11 @@
+crates/modeltap-core/src/types.rs:34:9: replace <impl std::fmt::Display for ToolId>::fmt -> std::fmt::Result with Ok(Default::default())
+crates/modeltap-core/src/domain/last_action.rs:28:9: replace ActionVerb::as_str -> &'static str with ""
+crates/modeltap-core/src/domain/last_action.rs:28:9: replace ActionVerb::as_str -> &'static str with "xyzzy"
+crates/modeltap-core/src/domain/last_action.rs:53:9: replace ActionStatus::header_label -> String with String::new()
+crates/modeltap-core/src/domain/last_action.rs:53:9: replace ActionStatus::header_label -> String with "xyzzy".into()
+crates/modeltap-core/src/domain/last_action.rs:60:39: replace + with - in ActionStatus::header_label
+crates/modeltap-core/src/domain/last_action.rs:60:39: replace + with * in ActionStatus::header_label
+crates/modeltap-core/src/domain/last_action.rs:221:35: replace && with || in LastAction::for_delete_one_success
+crates/modeltap-core/src/domain/last_action.rs:221:54: replace == with != in LastAction::for_delete_one_success
+crates/modeltap-core/src/logic/unification_status.rs:106:9: delete match arm 0 in compute_unification_status
+crates/modeltap-core/src/ports/fs_probe.rs:136:9: replace FsProbe::detect_running_tools -> Result<Vec<RunningProcess>, ProbeError> with Ok(vec![])

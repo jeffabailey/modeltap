@@ -1,0 +1,21 @@
+--- crates/modeltap-core/src/logic/dedup.rs
++++ replace != with == in classify_unique_vs_shared
+@@ -74,17 +74,17 @@
+     let mut report = UniqueVsSharedReport {
+         unique_count: 0,
+         shared_count: 0,
+         unique_bytes: 0,
+         shared_bytes: 0,
+     };
+ 
+     for m in inventory {
+-        if m.tool != *tool_id {
++        if m.tool == /* ~ changed by cargo-mutants ~ */ *tool_id {
+             continue;
+         }
+         // Shared iff some OTHER tool also references this exact path.
+         let referenced_by_others = path_tools
+             .get(&m.on_disk_path)
+             .map(|tools| tools.iter().any(|t| t != tool_id))
+             .unwrap_or(false);
+         if referenced_by_others {

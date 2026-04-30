@@ -68,10 +68,18 @@ fn render_to_text(state: &AppState) -> String {
 fn state_with_not_unified_mistral() -> AppState {
     let mut state = AppState::new_with_default_selection(vec![
         tool_view("hf", &["mistralai/Mistral-7B-v0.3"], &[4_400_000_000]),
-        tool_view("llama-cli", &["mistral-7b.gguf"], &[4_400_000_000]),
+        tool_view("Loose GGUFs", &["mistral-7b.gguf"], &[4_400_000_000]),
         tool_view("ollama", &["mistral:7b"], &[4_400_000_000]),
     ]);
-    state.selected_tool = 0;
+    // Select the hf row whose model id is "mistralai/Mistral-7B-v0.3" — the
+    // canonical id this scenario exercises in the detail screen. Tools are
+    // sorted alphabetically by ToolId; "Loose GGUFs" (capital L) sorts before
+    // lowercase "hf"/"ollama", so we find hf's slot by name rather than index.
+    state.selected_tool = state
+        .tools
+        .iter()
+        .position(|t| t.tool.0 == "hf")
+        .expect("hf must be in fixture");
     state.selected_row = 0;
     state
 }
@@ -85,7 +93,7 @@ fn detail_not_unified_3_copies() -> DetailScreenState {
             inode: Some(1001),
         },
         DetailRegistration {
-            tool: ToolId("llama-cli"),
+            tool: ToolId("Loose GGUFs"),
             path: PathBuf::from("/llms/mistral-7b.gguf"),
             inode: Some(1002),
         },
@@ -140,7 +148,7 @@ fn detail_unified_3_hardlinks() -> DetailScreenState {
             inode: Some(7777),
         },
         DetailRegistration {
-            tool: ToolId("llama-cli"),
+            tool: ToolId("Loose GGUFs"),
             path: PathBuf::from("/llms/mistral-7b.gguf"),
             inode: Some(7777), // SAME inode → hardlink
         },
@@ -188,7 +196,7 @@ fn detail_screen_shows_duplicate_paths_and_reclaim_estimate() {
         frame
     );
     assert!(
-        frame.contains("llama-cli"),
+        frame.contains("Loose GGUFs"),
         "AC-1: llama-cli registration tool missing:\n{}",
         frame
     );

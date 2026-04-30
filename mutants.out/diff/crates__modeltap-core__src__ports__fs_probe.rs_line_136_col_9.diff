@@ -1,0 +1,21 @@
+--- crates/modeltap-core/src/ports/fs_probe.rs
++++ replace FsProbe::detect_running_tools -> Result<Vec<RunningProcess>, ProbeError> with Ok(vec![])
+@@ -128,17 +128,17 @@
+     /// Default impl returns empty (no running tools detected) so existing
+     /// fakes that only need `dev_and_inode` continue to compile. The real
+     /// production path overrides this; tests that exercise the running-tool
+     /// gate use a dedicated `FakeRunningToolProbe`.
+     fn detect_running_tools(
+         &self,
+         _target_paths: &[PathBuf],
+     ) -> Result<Vec<RunningProcess>, ProbeError> {
+-        Ok(Vec::new())
++        Ok(vec![]) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+     use std::collections::HashMap;
+     use std::path::PathBuf;

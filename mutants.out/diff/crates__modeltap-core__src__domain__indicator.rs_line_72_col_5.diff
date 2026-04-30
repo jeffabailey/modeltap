@@ -1,0 +1,24 @@
+--- crates/modeltap-core/src/domain/indicator.rs
++++ replace classify_row -> RowIndicator with Default::default()
+@@ -64,20 +64,17 @@
+ ///
+ /// Step 02-01 rule:
+ ///   - `Format::Other` → `Unknown`
+ ///   - else: count tools whose `model_ids` contain `model.id_in_tool`.
+ ///     `≥ 2` → `Shared`, else `Compatible`.
+ ///   - `FormatLocked` is unreachable from this function in 02-01; it lands in
+ ///     02-07 alongside the format-compatibility engine.
+ pub fn classify_row(model: &DiscoveredModel, inventory: &[ToolPresence]) -> RowIndicator {
+-    if matches!(model.format, Format::Other) {
+-        return RowIndicator::Unknown;
+-    }
+-    classify_by_presence(&model.id_in_tool, inventory)
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Presence-only half of the classifier — assumes the format is parseable.
+ /// Used by the render layer in 02-01 when only id-strings are plumbed through
+ /// the view-model. 02-05 will make the full `DiscoveredModel` available end-
+ /// to-end so the format-aware `classify_row` can be called from render code.
+ pub fn classify_by_presence(id_in_tool: &str, inventory: &[ToolPresence]) -> RowIndicator {
+     let count = inventory

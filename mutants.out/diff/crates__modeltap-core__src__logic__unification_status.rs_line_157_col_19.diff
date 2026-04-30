@@ -1,0 +1,21 @@
+--- crates/modeltap-core/src/logic/unification_status.rs
++++ replace += with -= in compute_shared_count
+@@ -149,17 +149,17 @@
+     let mut count = 0;
+     for (i, ino) in inodes.iter().enumerate() {
+         let Some(this) = ino else { continue };
+         let shared_with_another = inodes
+             .iter()
+             .enumerate()
+             .any(|(j, other)| j != i && other.as_ref() == Some(this));
+         if shared_with_another {
+-            count += 1;
++            count -= /* ~ changed by cargo-mutants ~ */ 1;
+         }
+     }
+     count
+ }
+ 
+ /// Compute the reclaim estimate in bytes for a given status + canonical size.
+ /// Pure. See module docstring for the formula table.
+ pub fn compute_reclaim_estimate(status: &UnificationStatus, canonical_size_bytes: u64) -> u64 {

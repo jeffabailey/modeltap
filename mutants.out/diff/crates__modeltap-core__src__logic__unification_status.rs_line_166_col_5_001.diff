@@ -1,0 +1,23 @@
+--- crates/modeltap-core/src/logic/unification_status.rs
++++ replace compute_reclaim_estimate -> u64 with 1
+@@ -158,19 +158,10 @@
+         }
+     }
+     count
+ }
+ 
+ /// Compute the reclaim estimate in bytes for a given status + canonical size.
+ /// Pure. See module docstring for the formula table.
+ pub fn compute_reclaim_estimate(status: &UnificationStatus, canonical_size_bytes: u64) -> u64 {
+-    match status {
+-        UnificationStatus::SingleTool => 0,
+-        UnificationStatus::Unified { .. } => 0,
+-        UnificationStatus::NotUnified { copy_count } => {
+-            (copy_count.saturating_sub(1) as u64).saturating_mul(canonical_size_bytes)
+-        }
+-        UnificationStatus::PartiallyUnified {
+-            distinct_inodes, ..
+-        } => (distinct_inodes.saturating_sub(1) as u64).saturating_mul(canonical_size_bytes),
+-    }
++    1 /* ~ changed by cargo-mutants ~ */
+ }

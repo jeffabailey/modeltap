@@ -38,7 +38,7 @@ fn tool_view(name: &'static str, status: ToolStatus, sizes: &[u64]) -> ToolView 
 fn state_with_ollama() -> AppState {
     AppState::new_with_default_selection(vec![
         tool_view("hf", ToolStatus::NotInstalled, &[]),
-        tool_view("llama-cli", ToolStatus::NotInstalled, &[]),
+        tool_view("Loose GGUFs", ToolStatus::NotInstalled, &[]),
         tool_view("lm-studio", ToolStatus::NotInstalled, &[]),
         tool_view(
             "ollama",
@@ -57,10 +57,10 @@ fn state_with_ollama() -> AppState {
 
 #[test]
 fn view_lines_for_zap_success_with_retained_renders_header_and_body() {
-    let action = LastAction::for_zap_success(ToolId("llama-cli"), 14_600_000_000, 6_800_000_000);
+    let action = LastAction::for_zap_success(ToolId("Loose GGUFs"), 14_600_000_000, 6_800_000_000);
     let lines = last_action_render::view_lines(&action);
     assert_eq!(lines.len(), 2, "two lines: header + body");
-    assert_eq!(lines[0], "Last action: zap llama-cli (success)");
+    assert_eq!(lines[0], "Last action: zap Loose GGUFs (success)");
     assert_eq!(
         lines[1],
         "Reclaimed: 14.6 GB (6.8 GB retained — also linked from other tools)"

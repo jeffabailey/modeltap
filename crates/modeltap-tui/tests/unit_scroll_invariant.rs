@@ -141,7 +141,7 @@ fn left_pane_selected_visible_after_cycling_with_small_left_viewport() {
     // selected_tool inside [left_scroll_offset, left_scroll_offset + 2).
     let mut state = AppState::new_with_default_selection(vec![
         tool("hf", 1),
-        tool("llama-cli", 1),
+        tool("Loose GGUFs", 1),
         tool("lm-studio", 1),
         tool("ollama", 1),
     ]);

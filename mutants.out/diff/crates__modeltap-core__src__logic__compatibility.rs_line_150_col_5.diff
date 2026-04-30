@@ -1,0 +1,17 @@
+--- crates/modeltap-core/src/logic/compatibility.rs
++++ replace any_other_plugin_accepts -> bool with true
+@@ -142,13 +142,10 @@
+ /// True if some plugin OTHER than `target_tool` declares `format` in its
+ /// `accepted_formats()`. Plugins with empty `accepted_formats()` cannot
+ /// accept anything (vacuously) so they don't contribute to compatibility.
+ fn any_other_plugin_accepts(
+     target_tool: ToolId,
+     format: Format,
+     plugin_capabilities: &PluginCapabilityMap,
+ ) -> bool {
+-    plugin_capabilities
+-        .iter()
+-        .filter(|(tool, _)| **tool != target_tool)
+-        .any(|(_, fmts)| fmts.contains(&format))
++    true /* ~ changed by cargo-mutants ~ */
+ }

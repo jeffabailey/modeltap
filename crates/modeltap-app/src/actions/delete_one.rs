@@ -6,7 +6,7 @@
 //! ADR-009, this calls `Tool::delete_one` ONCE — NOT `Tool::delete_all` and
 //! NOT a loop of `delete_one`. The plugin's `delete_one` performs its own
 //! transactional registration+blob cleanup (snapshot-symlink unlink for HF,
-//! manifest+ref-counted-blob for Ollama, simple unlink for llama-cli /
+//! manifest+ref-counted-blob for Ollama, simple unlink for Loose GGUFs /
 //! lm-studio).
 //!
 //! Per `kpi-instrumentation.md` §"action.zap_one", on completion we emit
@@ -64,7 +64,7 @@ impl DeleteOneResult {
 ///   - `plugin`: the plugin instance for `tool_id` (caller resolves).
 ///   - `tool_id`: the tool whose model is being deleted (echoed to JSONL).
 ///   - `model_id`: the model's `id_in_tool` (used to build `ModelMeta`).
-///   - `on_disk_path`: the model's on-disk path (used by HF / llama-cli /
+///   - `on_disk_path`: the model's on-disk path (used by HF / Loose GGUFs /
 ///     lm-studio's `delete_one` to locate the file).
 ///   - `size_bytes`: the model's apparent size (used by ModelMeta + as a
 ///     conservative reclaim estimate when the plugin doesn't return one).

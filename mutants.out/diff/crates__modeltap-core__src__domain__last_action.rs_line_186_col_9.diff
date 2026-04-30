@@ -1,0 +1,31 @@
+--- crates/modeltap-core/src/domain/last_action.rs
++++ replace LastAction::for_unify_partial -> Self with Default::default()
+@@ -178,27 +178,17 @@
+ 
+     /// Construct a partial-success banner for a unify. Used by 03-03 (cross-fs).
+     pub fn for_unify_partial(
+         target: String,
+         bytes_reclaimed: u64,
+         successes: u64,
+         failures: Vec<TargetError>,
+     ) -> Self {
+-        Self {
+-            verb: ActionVerb::Unify,
+-            target,
+-            status: ActionStatus::Partial {
+-                successes,
+-                failures,
+-            },
+-            bytes_reclaimed,
+-            bytes_retained: 0,
+-            extra: None,
+-        }
++        Default::default() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// Construct a failure banner for a unify that errored before any work
+     /// (or where every target failed).
+     pub fn for_unify_failed(target: String) -> Self {
+         Self {
+             verb: ActionVerb::Unify,
+             target,

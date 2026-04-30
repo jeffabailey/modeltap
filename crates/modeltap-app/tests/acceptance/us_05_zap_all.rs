@@ -61,7 +61,7 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
         .env("MODELTAP_TERM_COLS", "100")
         // Pin the other plugins at non-existent paths so this test isolates
         // from the developer's real Ollama / llama-cli / HF / lm-studio installs.
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",

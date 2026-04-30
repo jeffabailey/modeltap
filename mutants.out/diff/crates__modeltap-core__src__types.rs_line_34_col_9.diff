@@ -1,0 +1,21 @@
+--- crates/modeltap-core/src/types.rs
++++ replace <impl std::fmt::Display for ToolId>::fmt -> std::fmt::Result with Ok(Default::default())
+@@ -26,17 +26,17 @@
+ /// Used as the key for the left-pane selection and the Zap typed-confirmation
+ /// string. Newtype around `&'static str` so plugin authors cannot accidentally
+ /// construct one from runtime data.
+ #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize)]
+ pub struct ToolId(pub &'static str);
+ 
+ impl std::fmt::Display for ToolId {
+     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        f.write_str(self.0)
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ /// SHA-256 of file content. The PRIMARY dedup identity (per ADR-002). Not yet
+ /// produced by 01-02 (lazy hashing arrives in 01-05) but the type lives here
+ /// so trait method signatures don't churn when hashing lands.
+ #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize)]
+ pub struct ContentHash(pub [u8; 32]);

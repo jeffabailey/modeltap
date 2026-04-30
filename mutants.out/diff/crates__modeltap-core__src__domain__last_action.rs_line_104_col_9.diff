@@ -1,0 +1,28 @@
+--- crates/modeltap-core/src/domain/last_action.rs
++++ replace LastAction::for_zap_success -> Self with Default::default()
+@@ -96,24 +96,17 @@
+     pub extra: Option<String>,
+ }
+ 
+ impl LastAction {
+     /// Construct a success banner for a confirmed zap. `bytes_retained` is
+     /// the sum of bytes that stayed on disk because another tool references
+     /// them; pass 0 when no cross-tool sharing exists (WS slice).
+     pub fn for_zap_success(tool_id: ToolId, bytes_reclaimed: u64, bytes_retained: u64) -> Self {
+-        Self {
+-            verb: ActionVerb::Zap,
+-            target: tool_id.0.to_string(),
+-            status: ActionStatus::Success,
+-            bytes_reclaimed,
+-            bytes_retained,
+-            extra: None,
+-        }
++        Default::default() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// Construct a failure banner for a zap that errored before any work.
+     /// `bytes_reclaimed == 0` and `bytes_retained == 0` by definition.
+     pub fn for_zap_failed(tool_id: ToolId) -> Self {
+         Self {
+             verb: ActionVerb::Zap,
+             target: tool_id.0.to_string(),

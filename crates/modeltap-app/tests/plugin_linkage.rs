@@ -16,7 +16,6 @@
 // even though the binary's iter() works fine.
 use modeltap_plugin_atomic_chat as _;
 use modeltap_plugin_hf as _;
-use modeltap_plugin_llama_cli as _;
 use modeltap_plugin_lm_studio as _;
 use modeltap_plugin_ollama as _;
 
@@ -27,8 +26,8 @@ use modeltap_core::PluginFactory;
 fn all_production_plugin_factories_are_registered_via_inventory() {
     let count = iter::<PluginFactory>().count();
     assert!(
-        count >= 5,
-        "expected >= 5 PluginFactory entries (ollama, llama-cli, hf, lm-studio, atomic-chat); got {count}. \
+        count >= 4,
+        "expected >= 4 PluginFactory entries (ollama, hf, lm-studio, atomic-chat); got {count}. \
          Likely cause: missing `use modeltap_plugin_X as _;` in modeltap-app/src/main.rs."
     );
 }

@@ -39,25 +39,26 @@ fn tool_view(name: &'static str, status: ToolStatus, model_count: usize) -> Tool
     }
 }
 
-/// Build a state with 4 tools alphabetically: hf (not installed), llama-cli
-/// (not installed), lm-studio (not installed), ollama (installed, 4 models).
-/// Default selection lands on the alphabetically-first INSTALLED tool: ollama
-/// (index 3).
+/// Build a state with 4 tools alphabetically: Loose GGUFs (not installed,
+/// capital L sorts first), hf (not installed), lm-studio (not installed),
+/// ollama (installed, 4 models). Default selection lands on the alphabetically
+/// first INSTALLED tool: ollama (index 3).
 fn state_with_only_ollama_installed() -> AppState {
     AppState::new_with_default_selection(vec![
         tool_view("hf", ToolStatus::NotInstalled, 0),
-        tool_view("llama-cli", ToolStatus::NotInstalled, 0),
+        tool_view("Loose GGUFs", ToolStatus::NotInstalled, 0),
         tool_view("lm-studio", ToolStatus::NotInstalled, 0),
         tool_view("ollama", ToolStatus::Ok, 4),
     ])
 }
 
 /// Build a state where multiple tools are installed; the alphabetically-first
-/// installed tool is "hf".
+/// installed tool is "Loose GGUFs" (capital L sorts before lowercase letters
+/// in ASCII, so "Loose GGUFs" beats "hf" / "lm-studio" / "ollama").
 fn state_all_installed() -> AppState {
     AppState::new_with_default_selection(vec![
-        tool_view("hf", ToolStatus::Ok, 31),
-        tool_view("llama-cli", ToolStatus::Ok, 6),
+        tool_view("hf", ToolStatus::Ok, 6),
+        tool_view("Loose GGUFs", ToolStatus::Ok, 31),
         tool_view("lm-studio", ToolStatus::Ok, 9),
         tool_view("ollama", ToolStatus::Ok, 4),
     ])
@@ -70,7 +71,7 @@ fn state_all_installed() -> AppState {
 #[test]
 fn default_selection_picks_alphabetically_first_installed_tool_when_only_ollama_installed() {
     let state = state_with_only_ollama_installed();
-    // Tools listed alphabetically: hf, llama-cli, lm-studio, ollama.
+    // Tools alphabetic (ASCII): "Loose GGUFs", hf, lm-studio, ollama.
     // Only ollama is installed → default selection index 3.
     assert_eq!(
         state.selected_tool, 3,
@@ -79,12 +80,13 @@ fn default_selection_picks_alphabetically_first_installed_tool_when_only_ollama_
 }
 
 #[test]
-fn default_selection_picks_hf_when_all_installed() {
+fn default_selection_picks_first_alphabetic_when_all_installed() {
     let state = state_all_installed();
-    // All tools installed → alphabetically-first is hf at index 0.
+    // All tools installed → alphabetically-first is "Loose GGUFs" at index 0
+    // (capital L sorts before lowercase 'h'/'l'/'o' in ASCII).
     assert_eq!(
         state.selected_tool, 0,
-        "default selection must be hf (index 0)"
+        "default selection must be Loose GGUFs (index 0)"
     );
 }
 
@@ -92,7 +94,7 @@ fn default_selection_picks_hf_when_all_installed() {
 fn default_selection_picks_first_when_no_tool_installed() {
     let state = AppState::new_with_default_selection(vec![
         tool_view("hf", ToolStatus::NotInstalled, 0),
-        tool_view("llama-cli", ToolStatus::NotInstalled, 0),
+        tool_view("Loose GGUFs", ToolStatus::NotInstalled, 0),
     ]);
     // No installed tool — fall back to index 0 so the right pane has something
     // to render.
@@ -110,17 +112,23 @@ fn default_selection_picks_first_when_no_tool_installed() {
 fn right_arrow_advances_tool_selection_with_wraparound() {
     let state = state_with_only_ollama_installed(); // selected = 3
     let (next, _effect) = update(state, Msg::SelectNextTool);
-    assert_eq!(next.selected_tool, 0, "ollama (3) Right wraps to hf (0)");
+    assert_eq!(
+        next.selected_tool, 0,
+        "ollama (3) Right wraps to Loose GGUFs (0)"
+    );
 
     let (next2, _) = update(next, Msg::SelectNextTool);
-    assert_eq!(next2.selected_tool, 1, "hf (0) Right -> llama-cli (1)");
+    assert_eq!(next2.selected_tool, 1, "Loose GGUFs (0) Right -> hf (1)");
 }
 
 #[test]
 fn left_arrow_regresses_tool_selection_with_wraparound() {
-    let state = state_all_installed(); // selected = 0 (hf)
+    let state = state_all_installed(); // selected = 0 (Loose GGUFs)
     let (next, _) = update(state, Msg::SelectPrevTool);
-    assert_eq!(next.selected_tool, 3, "hf (0) Left wraps to ollama (3)");
+    assert_eq!(
+        next.selected_tool, 3,
+        "Loose GGUFs (0) Left wraps to ollama (3)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -143,14 +151,14 @@ fn switching_tool_resets_row_and_scroll() {
 
 #[test]
 fn down_arrow_advances_row_within_current_tool() {
-    let state = state_all_installed(); // selected = hf with 31 models
+    let state = state_all_installed(); // selected = Loose GGUFs with 31 models
     let (next, _) = update(state, Msg::SelectNextRow);
     assert_eq!(next.selected_row, 1, "Down advances row");
 }
 
 #[test]
 fn down_arrow_clamps_at_last_row() {
-    let mut state = state_all_installed(); // hf has 31 models
+    let mut state = state_all_installed(); // Loose GGUFs has 31 models
     state.selected_row = 30; // already on last
     let (next, _) = update(state, Msg::SelectNextRow);
     assert_eq!(
@@ -168,7 +176,7 @@ fn up_arrow_clamps_at_first_row() {
 
 #[test]
 fn down_arrow_advances_scroll_offset_when_past_visible_window() {
-    // hf has 31 models; visible_rows = 28. After 28 Down presses the
+    // Loose GGUFs has 31 models; visible_rows = 28. After 28 Down presses the
     // selected_row is 28; scroll_offset becomes 1 so the cursor is at the
     // bottom of the visible window. After 30 Down presses, scroll_offset = 3.
     let mut state = state_all_installed();

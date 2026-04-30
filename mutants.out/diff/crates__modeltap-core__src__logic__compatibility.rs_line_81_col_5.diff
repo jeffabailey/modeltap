@@ -1,0 +1,45 @@
+--- crates/modeltap-core/src/logic/compatibility.rs
++++ replace compute_indicator -> RowIndicator with Default::default()
+@@ -73,41 +73,17 @@
+ /// Evaluation order matches the rules above; see module-level docstring for
+ /// the full decision tree.
+ pub fn compute_indicator(
+     target: &InventoryEntry,
+     inventory: &Inventory,
+     plugin_capabilities: &PluginCapabilityMap,
+ ) -> RowIndicator {
+     // Rule 1a: undecidable format.
+-    if matches!(target.model.format, Format::Other) {
+-        return RowIndicator::Unknown;
+-    }
+-    // Rule 1b: defensive — empty `accepted_formats()` for the target's plugin
+-    // means the plugin's contract is undefined w.r.t. format compatibility.
+-    // Render as Unknown rather than guessing FormatLocked. (US-16 AC-3)
+-    if plugin_capabilities
+-        .get(&target.tool)
+-        .is_some_and(|fmts| fmts.is_empty())
+-    {
+-        return RowIndicator::Unknown;
+-    }
+-
+-    // Rule 2: Shared via dedup-key match against any OTHER inventory entry.
+-    if has_dedup_match_in_other_tool(target, inventory) {
+-        return RowIndicator::Shared;
+-    }
+-
+-    // Rule 3: another plugin (other than `target.tool`) accepts the format.
+-    if any_other_plugin_accepts(target.tool, target.model.format, plugin_capabilities) {
+-        return RowIndicator::Compatible;
+-    }
+-
+-    // Rule 4: format-locked into the current tool.
+-    RowIndicator::FormatLocked
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// True if the inventory contains some entry — in a tool DIFFERENT from
+ /// `target.tool` — whose dedup-key matches the target's. Per ADR-002 the
+ /// dedup-key match is **conservative-when-uncertain**: if either side's
+ /// SHA256 is `None`, the engine returns `false` (NOT shared). This preserves
+ /// the safety invariant that we never silently overstate compatibility.
+ fn has_dedup_match_in_other_tool(target: &InventoryEntry, inventory: &Inventory) -> bool {

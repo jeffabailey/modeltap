@@ -1,0 +1,50 @@
+crates/modeltap-core/src/domain/indicator.rs:85:52: replace == with != in classify_by_presence
+crates/modeltap-core/src/domain/indicator.rs:87:14: replace >= with < in classify_by_presence
+crates/modeltap-core/src/domain/indicator.rs:103:5: replace other_tools_for_model -> Vec<ToolId> with vec![]
+crates/modeltap-core/src/domain/indicator.rs:114:5: replace other_tools_by_presence -> Vec<ToolId> with vec![]
+crates/modeltap-core/src/domain/indicator.rs:116:28: replace != with == in other_tools_by_presence
+crates/modeltap-core/src/domain/indicator.rs:117:52: replace == with != in other_tools_by_presence
+crates/modeltap-core/src/logic/canonical_selector.rs:59:5: replace select_canonical -> Option<&CandidatePath> with None
+crates/modeltap-core/src/logic/compatibility.rs:114:5: replace has_dedup_match_in_other_tool -> bool with true
+crates/modeltap-core/src/logic/compatibility.rs:114:5: replace has_dedup_match_in_other_tool -> bool with false
+crates/modeltap-core/src/logic/compatibility.rs:117:28: replace != with == in has_dedup_match_in_other_tool
+crates/modeltap-core/src/logic/compatibility.rs:133:5: replace is_dedup_key_match -> bool with true
+crates/modeltap-core/src/logic/compatibility.rs:133:5: replace is_dedup_key_match -> bool with false
+crates/modeltap-core/src/logic/compatibility.rs:134:9: delete match arm (Some(ha), Some(hb)) in is_dedup_key_match
+crates/modeltap-core/src/logic/compatibility.rs:134:36: replace == with != in is_dedup_key_match
+crates/modeltap-core/src/logic/compatibility.rs:150:5: replace any_other_plugin_accepts -> bool with true
+crates/modeltap-core/src/logic/compatibility.rs:150:5: replace any_other_plugin_accepts -> bool with false
+crates/modeltap-core/src/logic/compatibility.rs:152:36: replace != with == in any_other_plugin_accepts
+crates/modeltap-core/src/logic/dedup.rs:82:19: replace != with == in classify_unique_vs_shared
+crates/modeltap-core/src/logic/dedup.rs:88:49: replace != with == in classify_unique_vs_shared
+crates/modeltap-core/src/logic/plan.rs:75:5: replace build_plan -> Option<UnifyPlan> with None
+crates/modeltap-core/src/logic/plan.rs:75:8: delete ! in build_plan
+crates/modeltap-core/src/logic/plan.rs:83:19: replace == with != in build_plan
+crates/modeltap-core/src/logic/plan.rs:86:12: delete ! in build_plan
+crates/modeltap-core/src/logic/plan.rs:92:59: replace && with || in build_plan
+crates/modeltap-core/src/logic/plan.rs:92:39: replace == with != in build_plan
+crates/modeltap-core/src/logic/plan.rs:92:70: replace == with != in build_plan
+crates/modeltap-core/src/logic/plan.rs:93:41: replace != with == in build_plan
+crates/modeltap-core/src/logic/plan.rs:94:12: delete ! in build_plan
+crates/modeltap-core/src/logic/unification_status.rs:107:9: delete match arm 1 in compute_unification_status
+crates/modeltap-core/src/logic/unification_status.rs:121:25: replace == with != in classify_multi
+crates/modeltap-core/src/logic/unification_status.rs:126:25: replace == with != in classify_multi
+crates/modeltap-core/src/logic/unification_status.rs:149:5: replace compute_shared_count -> usize with 0
+crates/modeltap-core/src/logic/unification_status.rs:149:5: replace compute_shared_count -> usize with 1
+crates/modeltap-core/src/logic/unification_status.rs:155:38: replace && with || in compute_shared_count
+crates/modeltap-core/src/logic/unification_status.rs:155:33: replace != with == in compute_shared_count
+crates/modeltap-core/src/logic/unification_status.rs:155:56: replace == with != in compute_shared_count
+crates/modeltap-core/src/logic/unification_status.rs:157:19: replace += with -= in compute_shared_count
+crates/modeltap-core/src/logic/unification_status.rs:157:19: replace += with *= in compute_shared_count
+crates/modeltap-core/src/logic/unification_status.rs:166:5: replace compute_reclaim_estimate -> u64 with 0
+crates/modeltap-core/src/logic/unification_status.rs:166:5: replace compute_reclaim_estimate -> u64 with 1
+crates/modeltap-core/src/ports/fs_probe.rs:93:9: replace FsProbe::same_filesystem -> bool with true
+crates/modeltap-core/src/ports/fs_probe.rs:93:9: replace FsProbe::same_filesystem -> bool with false
+crates/modeltap-core/src/ports/fs_probe.rs:94:13: delete match arm (Some((dev_a, _)), Some((dev_b, _))) in FsProbe::same_filesystem
+crates/modeltap-core/src/ports/fs_probe.rs:94:59: replace == with != in FsProbe::same_filesystem
+crates/modeltap-core/src/ports/fs_probe.rs:103:9: replace FsProbe::device_id -> Option<u64> with None
+crates/modeltap-core/src/ports/fs_probe.rs:103:9: replace FsProbe::device_id -> Option<u64> with Some(0)
+crates/modeltap-core/src/ports/fs_probe.rs:103:9: replace FsProbe::device_id -> Option<u64> with Some(1)
+crates/modeltap-core/src/ports/fs_probe.rs:110:9: replace FsProbe::inode -> Option<u64> with None
+crates/modeltap-core/src/ports/fs_probe.rs:110:9: replace FsProbe::inode -> Option<u64> with Some(0)
+crates/modeltap-core/src/ports/fs_probe.rs:110:9: replace FsProbe::inode -> Option<u64> with Some(1)

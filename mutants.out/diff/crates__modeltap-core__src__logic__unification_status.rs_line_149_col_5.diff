@@ -1,0 +1,32 @@
+--- crates/modeltap-core/src/logic/unification_status.rs
++++ replace compute_shared_count -> usize with 0
+@@ -141,28 +141,17 @@
+     UnificationStatus::NotUnified {
+         copy_count: regs.len(),
+     }
+ }
+ 
+ /// Number of registrations whose inode is shared with at least one other
+ /// registration.
+ fn compute_shared_count(inodes: &[Option<u64>]) -> usize {
+-    let mut count = 0;
+-    for (i, ino) in inodes.iter().enumerate() {
+-        let Some(this) = ino else { continue };
+-        let shared_with_another = inodes
+-            .iter()
+-            .enumerate()
+-            .any(|(j, other)| j != i && other.as_ref() == Some(this));
+-        if shared_with_another {
+-            count += 1;
+-        }
+-    }
+-    count
++    0 /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Compute the reclaim estimate in bytes for a given status + canonical size.
+ /// Pure. See module docstring for the formula table.
+ pub fn compute_reclaim_estimate(status: &UnificationStatus, canonical_size_bytes: u64) -> u64 {
+     match status {
+         UnificationStatus::SingleTool => 0,
+         UnificationStatus::Unified { .. } => 0,

@@ -186,7 +186,7 @@ fn riley_observes_a_panicking_plugin_does_not_crash_modeltap() {
         .and_then(|v| v.as_array())
         .expect("launch.inventory.tools_registered must be an array");
     let tool_names: Vec<&str> = tools.iter().filter_map(|v| v.as_str()).collect();
-    for name in &["ollama", "hf", "llama-cli", "lm-studio", "Atomic Chat"] {
+    for name in &["ollama", "hf", "lm-studio", "Atomic Chat"] {
         assert!(
             tool_names.contains(name),
             "tools_registered must still include {name} after a sibling panic, \
@@ -236,13 +236,13 @@ fn architecture_rule_r1_modeltap_core_has_no_concrete_plugin_dependency() {
         .expect("launch.inventory.tools_registered must be an array");
     let registered: Vec<&str> = tools.iter().filter_map(|v| v.as_str()).collect();
 
-    // Production: ollama, hf, llama-cli, lm-studio, "Atomic Chat" (real).
-    // Test fixture: "atomic-chat" (lowercase). 6 total when the
+    // Production: ollama, hf, lm-studio, "Atomic Chat" (real).
+    // Test fixture: "atomic-chat" (lowercase). 5 total when the
     // test-fixtures feature is on.
     assert_eq!(
         registered.len(),
-        6,
-        "expected 6 registered plugins (5 production + 1 fixture), got {registered:?}"
+        5,
+        "expected 5 registered plugins (4 production + 1 fixture), got {registered:?}"
     );
     assert!(
         registered.contains(&"atomic-chat"),
@@ -283,22 +283,15 @@ fn riley_reads_launch_inventory_lists_every_registered_plugin() {
         .expect("launch.inventory.tools_registered must be an array");
     let tool_names: Vec<&str> = tools.iter().filter_map(|v| v.as_str()).collect();
 
-    // 5 production + 1 test fixture = 6. The real Atomic Chat plugin's
+    // 4 production + 1 test fixture = 5. The real Atomic Chat plugin's
     // ToolId is `"Atomic Chat"` (with space, capitalized) and is distinct
     // from the fixture's `"atomic-chat"`.
     assert_eq!(
         tool_names.len(),
-        6,
+        5,
         "tools_registered must list every registered plugin, got {tool_names:?}"
     );
-    for required in &[
-        "Atomic Chat",
-        "atomic-chat",
-        "hf",
-        "llama-cli",
-        "lm-studio",
-        "ollama",
-    ] {
+    for required in &["Atomic Chat", "atomic-chat", "hf", "lm-studio", "ollama"] {
         assert!(
             tool_names.contains(required),
             "tools_registered missing {required}, got {tool_names:?}"

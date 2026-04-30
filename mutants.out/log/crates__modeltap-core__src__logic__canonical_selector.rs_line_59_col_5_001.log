@@ -1,0 +1,119 @@
+
+*** crates/modeltap-core/src/logic/canonical_selector.rs:59:5: replace select_canonical -> Option<&CandidatePath> with Some(Box::leak(Box::new(Default::default())))
+
+*** mutation diff:
+--- crates/modeltap-core/src/logic/canonical_selector.rs
++++ replace select_canonical -> Option<&CandidatePath> with Some(Box::leak(Box::new(Default::default())))
+@@ -51,30 +51,17 @@
+ 
+ /// Pick the canonical path from a slice of candidates. Returns `None` when
+ /// no candidate exists on disk (the unify action is then not applicable).
+ ///
+ /// See the module docstring for the full ranking rules. This function is
+ /// its own driving port — calling it directly in tests IS port-to-port
+ /// testing per the `nw-tdd-methodology` convention.
+ pub fn select_canonical(candidates: &[CandidatePath]) -> Option<&CandidatePath> {
+-    candidates.iter().filter(|c| c.exists).max_by(|a, b| {
+-        // Largest size_bytes first. `Ord::cmp` returns Greater when the
+-        // left is larger; we want the largest to be "max", so the natural
+-        // ordering works — but `max_by` needs a comparator that reflects
+-        // "a > b" by returning Greater. So compare a vs b directly.
+-        a.size_bytes
+-            .cmp(&b.size_bytes)
+-            // Prefer Ollama-blob paths (true > false).
+-            .then_with(|| a.is_ollama_blob.cmp(&b.is_ollama_blob))
+-            // Lexicographic — but inverted because `max_by` keeps the
+-            // greater. We want the *smaller* path lexicographically as
+-            // canonical for stability across runs ⇒ invert.
+-            .then_with(|| b.path.cmp(&a.path))
+-    })
++    Some(Box::leak(Box::new(Default::default()))) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+ 
+     fn cand(
+         tool: &'static str,
+
+
+*** /Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --verbose --package=modeltap-core@0.1.0
+       Fresh unicode-ident v1.0.24
+       Fresh cfg-if v1.0.4
+       Fresh autocfg v1.5.0
+       Fresh bitflags v2.11.1
+       Fresh fastrand v2.4.1
+       Fresh once_cell v1.21.4
+       Fresh bit-vec v0.8.0
+       Fresh libc v0.2.186
+       Fresh fnv v1.0.7
+       Fresh quick-error v1.2.3
+       Fresh bit-set v0.8.0
+       Fresh inventory v0.3.24
+       Fresh regex-syntax v0.8.10
+       Fresh unarray v0.1.4
+       Fresh proc-macro2 v1.0.106
+       Fresh getrandom v0.3.4
+       Fresh errno v0.3.14
+       Fresh zerocopy v0.8.48
+       Fresh getrandom v0.4.2
+       Fresh wait-timeout v0.2.1
+       Fresh serde_core v1.0.228
+       Fresh quote v1.0.45
+       Fresh rand_core v0.9.5
+       Fresh rustix v1.1.4
+       Fresh ppv-lite86 v0.2.21
+       Fresh num-traits v0.2.19
+       Fresh syn v2.0.117
+       Fresh tempfile v3.27.0
+       Fresh rand_xorshift v0.4.0
+       Fresh rand v0.9.4
+       Fresh rand_chacha v0.9.0
+       Fresh serde_derive v1.0.228
+       Fresh thiserror-impl v1.0.69
+       Fresh async-trait v0.1.89
+       Fresh rusty-fork v0.3.1
+       Fresh serde v1.0.228
+       Fresh thiserror v1.0.69
+       Fresh proptest v1.11.0
+       Dirty modeltap-core v0.1.0 (/Users/jeffbailey/Projects/foss/leading/modeltap/crates/modeltap-core): the file `crates/modeltap-core/src/logic/canonical_selector.rs` has changed (1777529268.734522081s, 1s after last build at 1777529267.234250253s)
+   Compiling modeltap-core v0.1.0 (/Users/jeffbailey/Projects/foss/leading/modeltap/crates/modeltap-core)
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=97bb73afabf58faf -C extra-filename=-2d270179d2f92e5c --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib`
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=76a2906454acb363 -C extra-filename=-c6a0ee5313ca8a7d --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rmeta --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rmeta --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rmeta`
+error[E0277]: the trait bound `CandidatePath: Default` is not satisfied
+  --> crates/modeltap-core/src/logic/canonical_selector.rs:59:29
+   |
+59 |     Some(Box::leak(Box::new(Default::default()))) /* ~ changed by cargo-mutants ~ */
+   |                             ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Default` is not implemented for `CandidatePath`
+  --> crates/modeltap-core/src/logic/canonical_selector.rs:39:1
+   |
+39 | pub struct CandidatePath {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+
+For more information about this error, try `rustc --explain E0277`.
+error[E0277]: the trait bound `canonical_selector::CandidatePath: Default` is not satisfied
+  --> crates/modeltap-core/src/logic/canonical_selector.rs:59:29
+   |
+59 |     Some(Box::leak(Box::new(Default::default()))) /* ~ changed by cargo-mutants ~ */
+   |                             ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Default` is not implemented for `canonical_selector::CandidatePath`
+  --> crates/modeltap-core/src/logic/canonical_selector.rs:39:1
+   |
+39 | pub struct CandidatePath {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: could not compile `modeltap-core` (lib) due to 1 previous error
+
+Caused by:
+  process didn't exit successfully: `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=76a2906454acb363 -C extra-filename=-c6a0ee5313ca8a7d --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rmeta --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rmeta --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rmeta` (exit status: 1)
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `modeltap-core` (lib test) due to 1 previous error
+
+Caused by:
+  process didn't exit successfully: `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=97bb73afabf58faf -C extra-filename=-2d270179d2f92e5c --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib` (exit status: 1)
+
+*** result: Failure(101)

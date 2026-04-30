@@ -5,7 +5,6 @@ members = [
     "crates/modeltap-tui",
     "crates/modeltap-app",
     "plugins/ollama",
-    "plugins/llama-cli",
     "plugins/hf",
     "plugins/lm-studio",
     # 5th REAL production plugin — Atomic Chat (Jan-fork). Validates the US-18

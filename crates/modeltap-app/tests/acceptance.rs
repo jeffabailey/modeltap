@@ -13,7 +13,6 @@ mod acceptance {
     pub mod us_05_zap_all;
     pub mod us_05b_delete_one;
     pub mod us_06_post_action_message;
-    pub mod us_07_discover_llama_cli;
     pub mod us_08_bottom_bar;
     pub mod us_09_compatibility_engine;
     pub mod us_10_unify_hardlinks;

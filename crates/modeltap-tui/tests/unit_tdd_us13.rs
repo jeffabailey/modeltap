@@ -180,7 +180,7 @@ fn detail_screen_renders_not_unified_status_with_reclaim() {
             inode: Some(1),
         },
         DetailRegistration {
-            tool: ToolId("llama-cli"),
+            tool: ToolId("Loose GGUFs"),
             path: PathBuf::from("/llms/m"),
             inode: Some(2),
         },
@@ -231,7 +231,7 @@ fn detail_screen_renders_unified_status_with_hardlink_count() {
             inode: Some(7777),
         },
         DetailRegistration {
-            tool: ToolId("llama-cli"),
+            tool: ToolId("Loose GGUFs"),
             path: PathBuf::from("/llms/m"),
             inode: Some(7777),
         },
@@ -273,7 +273,7 @@ fn detail_screen_renders_partially_unified_status() {
             inode: Some(7777),
         },
         DetailRegistration {
-            tool: ToolId("llama-cli"),
+            tool: ToolId("Loose GGUFs"),
             path: PathBuf::from("/llms/m"),
             inode: Some(7777),
         },

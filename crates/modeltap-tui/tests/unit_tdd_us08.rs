@@ -95,7 +95,7 @@ fn detail_not_unified() -> DetailScreenState {
                 inode: Some(1001),
             },
             DetailRegistration {
-                tool: ToolId("llama-cli"),
+                tool: ToolId("Loose GGUFs"),
                 path: PathBuf::from("/llms/mistral-7b.gguf"),
                 inode: Some(1002),
             },

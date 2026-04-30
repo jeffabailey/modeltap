@@ -1,0 +1,28 @@
+--- crates/modeltap-core/src/domain/last_action.rs
++++ replace LastAction::for_zap_failed -> Self with Default::default()
+@@ -109,24 +109,17 @@
+             bytes_retained,
+             extra: None,
+         }
+     }
+ 
+     /// Construct a failure banner for a zap that errored before any work.
+     /// `bytes_reclaimed == 0` and `bytes_retained == 0` by definition.
+     pub fn for_zap_failed(tool_id: ToolId) -> Self {
+-        Self {
+-            verb: ActionVerb::Zap,
+-            target: tool_id.0.to_string(),
+-            status: ActionStatus::Failed,
+-            bytes_reclaimed: 0,
+-            bytes_retained: 0,
+-            extra: None,
+-        }
++        Default::default() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// Construct a partial-success banner for a zap. Some targets succeeded,
+     /// some failed. `bytes_reclaimed` is the bytes freed by the successes.
+     pub fn for_zap_partial(
+         tool_id: ToolId,
+         bytes_reclaimed: u64,
+         successes: u64,

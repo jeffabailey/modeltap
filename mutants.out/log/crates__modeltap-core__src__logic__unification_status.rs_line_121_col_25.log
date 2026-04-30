@@ -1,0 +1,240 @@
+
+*** crates/modeltap-core/src/logic/unification_status.rs:121:25: replace == with != in classify_multi
+
+*** mutation diff:
+--- crates/modeltap-core/src/logic/unification_status.rs
++++ replace == with != in classify_multi
+@@ -113,17 +113,17 @@
+ fn classify_multi(regs: &[DetailRegistration]) -> UnificationStatus {
+     // Collect known inodes; treat any None as a distinct "ghost" inode (per
+     // ADR-002 conservative rule — preserve data when uncertain).
+     let inodes: Vec<Option<u64>> = regs.iter().map(|r| r.inode).collect();
+ 
+     // If ALL inodes are Some and equal → Unified.
+     if inodes.iter().all(|i| i.is_some()) {
+         let unique: HashSet<u64> = inodes.iter().filter_map(|i| *i).collect();
+-        if unique.len() == 1 {
++        if unique.len() != /* ~ changed by cargo-mutants ~ */ 1 {
+             return UnificationStatus::Unified {
+                 hardlink_count: regs.len(),
+             };
+         }
+         if unique.len() == regs.len() {
+             return UnificationStatus::NotUnified {
+                 copy_count: regs.len(),
+             };
+
+
+*** /Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --verbose --package=modeltap-core@0.1.0
+       Fresh cfg-if v1.0.4
+       Fresh unicode-ident v1.0.24
+       Fresh autocfg v1.5.0
+       Fresh bitflags v2.11.1
+       Fresh once_cell v1.21.4
+       Fresh fastrand v2.4.1
+       Fresh bit-vec v0.8.0
+       Fresh libc v0.2.186
+       Fresh quick-error v1.2.3
+       Fresh fnv v1.0.7
+       Fresh bit-set v0.8.0
+       Fresh regex-syntax v0.8.10
+       Fresh inventory v0.3.24
+       Fresh unarray v0.1.4
+       Fresh proc-macro2 v1.0.106
+       Fresh getrandom v0.3.4
+       Fresh errno v0.3.14
+       Fresh getrandom v0.4.2
+       Fresh zerocopy v0.8.48
+       Fresh wait-timeout v0.2.1
+       Fresh serde_core v1.0.228
+       Fresh quote v1.0.45
+       Fresh rand_core v0.9.5
+       Fresh rustix v1.1.4
+       Fresh ppv-lite86 v0.2.21
+       Fresh num-traits v0.2.19
+       Fresh syn v2.0.117
+       Fresh tempfile v3.27.0
+       Fresh rand_xorshift v0.4.0
+       Fresh rand v0.9.4
+       Fresh rand_chacha v0.9.0
+       Fresh thiserror-impl v1.0.69
+       Fresh serde_derive v1.0.228
+       Fresh async-trait v0.1.89
+       Fresh rusty-fork v0.3.1
+       Fresh serde v1.0.228
+       Fresh thiserror v1.0.69
+       Fresh proptest v1.11.0
+       Dirty modeltap-core v0.1.0 (/Users/jeffbailey/Projects/foss/leading/modeltap/crates/modeltap-core): couldn't read metadata for file `target/debug/deps/libmodeltap_core-c6a0ee5313ca8a7d.rlib`
+   Compiling modeltap-core v0.1.0 (/Users/jeffbailey/Projects/foss/leading/modeltap/crates/modeltap-core)
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=76a2906454acb363 -C extra-filename=-c6a0ee5313ca8a7d --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rmeta --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rmeta --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rmeta`
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=97bb73afabf58faf -C extra-filename=-2d270179d2f92e5c --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib`
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name dedup_classifier --edition=2021 crates/modeltap-core/tests/dedup_classifier.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=413d1d713519e6d4 -C extra-filename=-c7e489ca2944a185 --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern modeltap_core=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libmodeltap_core-c6a0ee5313ca8a7d.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib`
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name unification_status --edition=2021 crates/modeltap-core/tests/unification_status.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=5c190c46df5213e6 -C extra-filename=-5ba5e80477f0ddb9 --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern modeltap_core=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libmodeltap_core-c6a0ee5313ca8a7d.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib`
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name last_action --edition=2021 crates/modeltap-core/tests/last_action.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=fc15573112fa1b52 -C extra-filename=-019eadca097277e4 --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern modeltap_core=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libmodeltap_core-c6a0ee5313ca8a7d.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib`
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name compatibility_property --edition=2021 crates/modeltap-core/tests/compatibility_property.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=7dedbd3560f70136 -C extra-filename=-dd8bebe5e1445c75 --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern modeltap_core=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libmodeltap_core-c6a0ee5313ca8a7d.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.99s
+  Executable `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/modeltap_core-2d270179d2f92e5c`
+  Executable `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/compatibility_property-dd8bebe5e1445c75`
+  Executable `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/dedup_classifier-c7e489ca2944a185`
+  Executable `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/last_action-019eadca097277e4`
+  Executable `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/unification_status-5ba5e80477f0ddb9`
+
+*** result: Success
+
+*** /Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --verbose --package=modeltap-core@0.1.0
+       Fresh cfg-if v1.0.4
+       Fresh unicode-ident v1.0.24
+       Fresh bitflags v2.11.1
+       Fresh autocfg v1.5.0
+       Fresh once_cell v1.21.4
+       Fresh fastrand v2.4.1
+       Fresh quick-error v1.2.3
+       Fresh libc v0.2.186
+       Fresh bit-vec v0.8.0
+       Fresh fnv v1.0.7
+       Fresh regex-syntax v0.8.10
+       Fresh unarray v0.1.4
+       Fresh inventory v0.3.24
+       Fresh proc-macro2 v1.0.106
+       Fresh getrandom v0.3.4
+       Fresh errno v0.3.14
+       Fresh getrandom v0.4.2
+       Fresh zerocopy v0.8.48
+       Fresh serde_core v1.0.228
+       Fresh wait-timeout v0.2.1
+       Fresh bit-set v0.8.0
+       Fresh quote v1.0.45
+       Fresh rand_core v0.9.5
+       Fresh rustix v1.1.4
+       Fresh ppv-lite86 v0.2.21
+       Fresh num-traits v0.2.19
+       Fresh syn v2.0.117
+       Fresh tempfile v3.27.0
+       Fresh rand_chacha v0.9.0
+       Fresh rand_xorshift v0.4.0
+       Fresh rand v0.9.4
+       Fresh serde_derive v1.0.228
+       Fresh thiserror-impl v1.0.69
+       Fresh async-trait v0.1.89
+       Fresh rusty-fork v0.3.1
+       Fresh serde v1.0.228
+       Fresh thiserror v1.0.69
+       Fresh proptest v1.11.0
+       Fresh modeltap-core v0.1.0 (/Users/jeffbailey/Projects/foss/leading/modeltap/crates/modeltap-core)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.03s
+     Running `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/modeltap_core-2d270179d2f92e5c`
+
+running 28 tests
+test logic::canonical_selector::tests::empty_input_returns_none ... ok
+test logic::canonical_selector::tests::final_tiebreak_is_deterministic_lexicographic ... ok
+test domain::indicator::tests::classify_row_returns_shared_when_two_tools_have_the_same_model ... ok
+test domain::indicator::tests::other_tools_for_model_returns_empty_for_single_tool_registration ... ok
+test domain::indicator::tests::classify_row_returns_compatible_when_only_one_tool_has_the_model ... ok
+test domain::indicator::tests::classify_row_returns_unknown_when_format_is_other ... ok
+test domain::indicator::tests::classify_row_returns_shared_when_three_tools_have_the_same_model ... ok
+test domain::indicator::tests::other_tools_for_model_excludes_home_tool ... ok
+test domain::indicator::tests::classify_row_returns_compatible_for_empty_inventory ... ok
+test logic::canonical_selector::tests::prefers_largest_existing_candidate ... ok
+test logic::canonical_selector::tests::returns_none_when_no_candidates_exist_on_disk ... ok
+test logic::canonical_selector::tests::single_existing_candidate_is_picked ... ok
+test domain::indicator::tests::property_format_other_always_yields_unknown_regardless_of_presence ... ok
+test logic::canonical_selector::tests::tiebreaks_equal_size_in_favor_of_ollama_blob ... ok
+test logic::canonical_selector::tests::returns_only_existing_when_others_missing ... ok
+test domain::indicator::tests::property_shared_iff_present_in_two_or_more_tools_for_parseable_format ... ok
+test logic::plan::tests::computes_bytes_reclaimed_per_unique_inode ... ok
+test logic::plan::tests::empty_targets_yields_empty_plan_with_zero_reclaim ... ok
+test logic::plan::tests::excludes_canonical_from_link_list ... ok
+test logic::plan::tests::flags_already_linked_when_inodes_match ... ok
+test logic::plan::tests::flags_cross_filesystem_when_devices_differ ... ok
+test logic::plan::tests::returns_none_when_canonical_missing ... ok
+test logic::plan::tests::skips_missing_targets ... ok
+test ports::fs_probe::tests::device_id_returns_dev_when_present ... ok
+test ports::fs_probe::tests::inode_returns_ino_when_present ... ok
+test ports::fs_probe::tests::same_filesystem_false_when_devices_differ ... ok
+test ports::fs_probe::tests::same_filesystem_false_when_either_path_missing ... ok
+test ports::fs_probe::tests::same_filesystem_true_when_devices_match ... ok
+
+test result: ok. 28 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/compatibility_property-dd8bebe5e1445c75`
+
+running 7 tests
+test sha256_absent_does_not_yield_shared_when_uncertain ... ok
+test single_tool_no_other_plugin_accepts_format_yields_format_locked ... ok
+test empty_accepted_formats_for_targets_plugin_yields_unknown ... ok
+test format_other_always_yields_unknown ... ok
+test single_tool_format_accepted_by_other_plugin_yields_compatible ... ok
+test matching_sha256_in_two_tools_yields_shared ... ok
+test every_indicator_is_one_of_four_variants ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/dedup_classifier-c7e489ca2944a185`
+
+running 4 tests
+test tool_not_present_in_inventory_returns_zeros ... ok
+test cross_tool_same_path_classifies_as_shared ... ok
+test empty_inventory_returns_zero_counts ... ok
+test single_tool_inventory_classifies_all_models_as_unique ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/last_action-019eadca097277e4`
+
+running 4 tests
+test for_zap_success_populates_verb_target_status_and_bytes ... ok
+test property_bytes_reclaimed_round_trips_for_many_values ... ok
+test for_zap_failed_uses_failed_status_with_zero_bytes ... ok
+test for_zap_success_with_zero_retained_is_valid ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running `/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/unification_status-5ba5e80477f0ddb9`
+
+running 10 tests
+test missing_inodes_default_to_not_unified_conservative ... ok
+test reclaim_estimate_for_partially_unified_uses_distinct_inodes ... ok
+test reclaim_estimate_for_single_tool_is_zero ... ok
+test reclaim_estimate_for_not_unified_is_count_minus_one_times_canonical ... ok
+test one_registration_yields_single_tool_status ... ok
+test reclaim_estimate_for_unified_is_zero ... ok
+test mixed_inodes_yield_partially_unified_status ... FAILED
+test distinct_inodes_yield_not_unified_status ... FAILED
+test all_registrations_with_same_inode_yield_unified_status ... FAILED
+test unified_carries_hardlink_count_for_render ... FAILED
+
+failures:
+
+---- mixed_inodes_yield_partially_unified_status stdout ----
+
+thread 'mixed_inodes_yield_partially_unified_status' (71227189) panicked at crates/modeltap-core/tests/unification_status.rs:116:18:
+expected PartiallyUnified, got Unified { hardlink_count: 3 }
+
+---- distinct_inodes_yield_not_unified_status stdout ----
+
+thread 'distinct_inodes_yield_not_unified_status' (71227187) panicked at crates/modeltap-core/tests/unification_status.rs:90:18:
+expected NotUnified, got Unified { hardlink_count: 3 }
+
+---- all_registrations_with_same_inode_yield_unified_status stdout ----
+
+thread 'all_registrations_with_same_inode_yield_unified_status' (71227186) panicked at crates/modeltap-core/tests/unification_status.rs:67:18:
+expected Unified, got PartiallyUnified { shared_count: 3, total_count: 3, distinct_inodes: 1 }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- unified_carries_hardlink_count_for_render stdout ----
+
+thread 'unified_carries_hardlink_count_for_render' (71227195) panicked at crates/modeltap-core/tests/unification_status.rs:197:5:
+Unified must carry hardlink_count for the render layer to display
+
+
+failures:
+    all_registrations_with_same_inode_yield_unified_status
+    distinct_inodes_yield_not_unified_status
+    mixed_inodes_yield_partially_unified_status
+    unified_carries_hardlink_count_for_render
+
+test result: FAILED. 6 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `-p modeltap-core --test unification_status`
+
+*** result: Failure(101)

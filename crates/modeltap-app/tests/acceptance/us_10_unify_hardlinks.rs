@@ -65,12 +65,10 @@ use tempfile::TempDir;
 struct SharedFixture {
     _temp: TempDir,
     ollama_dir: PathBuf,
-    llama_cli_dir: PathBuf,
     hf_home: PathBuf,
     /// Per-tool concrete paths to the model bytes (these are what the
     /// orchestrator will hardlink across).
     ollama_path: PathBuf,
-    llama_cli_path: PathBuf,
     /// HF: the snapshot file is a symlink; the actual bytes live under blobs/.
     /// The unify operation targets the snapshot file, but the inode test
     /// follows the symlink to the blob.
@@ -125,24 +123,6 @@ fn build_shared_fixture(pre_unify: bool, payload_size: u64) -> SharedFixture {
     );
     fs::write(&manifest_path, manifest_json).expect("write manifest");
 
-    // llama-cli: <root>/llms/synthetic-7b.gguf
-    let llama_cli_dir = root.join("llms");
-    fs::create_dir_all(&llama_cli_dir).expect("create llms dir");
-    let llama_cli_path = llama_cli_dir.join("synthetic-7b.gguf");
-    if pre_unify {
-        // Pre-unified — hardlink to ollama path.
-        fs::hard_link(&ollama_path, &llama_cli_path).expect("hardlink llama-cli");
-    } else {
-        // Distinct inode — write fresh bytes (same content, different inode).
-        // NOTE: real .gguf would have a GGUF header; for unify-flow signaling
-        // the bytes are equal but the format-detector rejection is fine
-        // because we drive registration via MODELTAP_HEADLESS_DETAIL_REGS.
-        // For discoverability of llama-cli, write a real GGUF-magic prefix.
-        let mut bytes = b"GGUF".to_vec();
-        bytes.extend(&payload[..(payload_size as usize - 4)]);
-        fs::write(&llama_cli_path, &bytes).expect("write llama-cli gguf");
-    }
-
     // HF: <hf_home>/hub/models--synthetic--Synthetic-7B/...
     let hf_home = root.join(".cache").join("huggingface");
     let hf_hub = hf_home.join("hub");
@@ -173,10 +153,8 @@ fn build_shared_fixture(pre_unify: bool, payload_size: u64) -> SharedFixture {
     SharedFixture {
         _temp: temp,
         ollama_dir,
-        llama_cli_dir,
         hf_home,
         ollama_path,
-        llama_cli_path,
         hf_blob_path,
         payload_size,
     }
@@ -238,7 +216,6 @@ fn modeltap_headless(fix: &SharedFixture) -> (Command, TempDir, PathBuf) {
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", &fix.llama_cli_dir)
         .env("HF_HOME", &fix.hf_home)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
@@ -260,7 +237,6 @@ fn modeltap_headless_single_tool(fix: &SingleToolFixture) -> (Command, TempDir, 
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
@@ -289,9 +265,8 @@ fn detail_regs_json(fix: &SharedFixture) -> String {
     serde_json::json!({
         "id": "synthetic/Synthetic-7B",
         "regs": [
-            {"tool": "ollama",    "path": fix.ollama_path.display().to_string()},
-            {"tool": "llama-cli", "path": fix.llama_cli_path.display().to_string()},
-            {"tool": "hf",        "path": hf_snapshot.display().to_string()},
+            {"tool": "ollama", "path": fix.ollama_path.display().to_string()},
+            {"tool": "hf",     "path": hf_snapshot.display().to_string()},
         ]
     })
     .to_string()
@@ -328,14 +303,9 @@ fn ino_of(p: &Path) -> u64 {
 fn unify_creates_hardlinks_and_reclaims_disk() {
     let fix = build_shared_fixture(false, 4096);
 
-    // Pre-condition: all 3 paths have DIFFERENT inodes.
+    // Pre-condition: both paths have DIFFERENT inodes.
     let pre_ino_ollama = ino_of(&fix.ollama_path);
-    let pre_ino_llama = ino_of(&fix.llama_cli_path);
     let pre_ino_hf = ino_of(&fix.hf_blob_path);
-    assert_ne!(
-        pre_ino_ollama, pre_ino_llama,
-        "fixture precondition: ollama and llama-cli must have distinct inodes"
-    );
     assert_ne!(
         pre_ino_ollama, pre_ino_hf,
         "fixture precondition: ollama and hf must have distinct inodes"
@@ -355,23 +325,17 @@ fn unify_creates_hardlinks_and_reclaims_disk() {
         .assert()
         .success();
 
-    // Post-condition: all 3 paths now share one inode. The HF blob is what
+    // Post-condition: both paths now share one inode. The HF blob is what
     // shares, since the snapshot file is a symlink — `metadata()` follows it.
     let post_ino_ollama = ino_of(&fix.ollama_path);
-    let post_ino_llama = ino_of(&fix.llama_cli_path);
     let post_ino_hf = ino_of(&fix.hf_blob_path);
-    assert_eq!(
-        post_ino_ollama, post_ino_llama,
-        "AC-1: ollama + llama-cli must share inode after unify (got {} vs {})",
-        post_ino_ollama, post_ino_llama
-    );
     assert_eq!(
         post_ino_ollama, post_ino_hf,
         "AC-1: ollama + hf-blob must share inode after unify (got {} vs {})",
         post_ino_ollama, post_ino_hf
     );
 
-    // Reclaim assertion: bytes_reclaimed = (N - 1) * size for N=3 hardlinks.
+    // Reclaim assertion: bytes_reclaimed = (N - 1) * size for N=2 hardlinks.
     // We assert on the JSONL event below in scenario 4; here we just confirm
     // the inode merge happened.
     let _ = fix.payload_size;
@@ -385,13 +349,8 @@ fn unify_creates_hardlinks_and_reclaims_disk() {
 fn already_unified_model_shows_benign_message() {
     let fix = build_shared_fixture(/* pre_unify = */ true, 4096);
 
-    // Pre-condition: all 3 paths already share one inode.
+    // Pre-condition: both paths already share one inode.
     let pre_ino = ino_of(&fix.ollama_path);
-    assert_eq!(
-        pre_ino,
-        ino_of(&fix.llama_cli_path),
-        "fixture precondition: pre-unified llama-cli must share ollama's inode"
-    );
     assert_eq!(
         pre_ino,
         ino_of(&fix.hf_blob_path),
@@ -498,18 +457,7 @@ fn each_tools_registration_remains_valid_after_unify() {
         "ollama blob byte length must equal payload"
     );
 
-    // 2. llama-cli .gguf is readable and points at the canonical bytes.
-    assert!(
-        fix.llama_cli_path.exists(),
-        "llama-cli gguf must remain after unify"
-    );
-    let llama_bytes = fs::read(&fix.llama_cli_path).expect("read llama-cli gguf");
-    assert_eq!(
-        llama_bytes, ollama_bytes,
-        "llama-cli bytes must equal ollama bytes after unify"
-    );
-
-    // 3. HF snapshot symlink resolves to readable bytes (the symlink
+    // 2. HF snapshot symlink resolves to readable bytes (the symlink
     //    target is the HF blob, which now hardlinks to ollama).
     let hf_snapshot = fix
         .hf_home
@@ -578,7 +526,7 @@ fn successful_unify_emits_action_unify_event() {
     let tool_names: Vec<&str> = tools_unified.iter().filter_map(|v| v.as_str()).collect();
     // Sorted, deterministic order per actions::unify::run.
     assert!(
-        tool_names.contains(&"hf") || tool_names.contains(&"llama-cli"),
+        tool_names.contains(&"hf"),
         "AC-6: tools_unified must include the linked tools, got {:?}",
         tool_names
     );

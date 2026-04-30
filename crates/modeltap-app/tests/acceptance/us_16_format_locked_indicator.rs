@@ -130,7 +130,7 @@ fn awq_model_gets_red_bang_indicator_paired_with_symbol() {
     };
     let plugin_caps = caps(&[
         ("hf", &[Format::Gguf, Format::Safetensors, Format::Awq]),
-        ("llama-cli", &[Format::Gguf]),
+        ("Loose GGUFs", &[Format::Gguf]),
         ("ollama", &[Format::OllamaBlob, Format::Gguf]),
         ("lm-studio", &[Format::Gguf]),
     ]);
@@ -281,7 +281,7 @@ fn empty_accepted_formats_produces_unknown_indicator_not_format_locked() {
     // Real plugins declare formats; broken-plugin declares none.
     let plugin_caps = caps(&[
         ("hf", &[Format::Gguf, Format::Safetensors]),
-        ("llama-cli", &[Format::Gguf]),
+        ("Loose GGUFs", &[Format::Gguf]),
         ("broken-plugin", &[]), // empty!
     ]);
 
@@ -361,7 +361,7 @@ fn empty_capability_plugin_emits_diagnostics_warning() {
     // Run the offender check inside the subscriber's scope.
     let plugin_caps = caps(&[
         ("hf", &[Format::Gguf, Format::Safetensors]),
-        ("llama-cli", &[Format::Gguf]),
+        ("Loose GGUFs", &[Format::Gguf]),
         ("broken-plugin", &[]), // empty!
     ]);
     let offenders = tracing::subscriber::with_default(subscriber, || {

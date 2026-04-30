@@ -1,0 +1,48 @@
+--- crates/modeltap-core/src/logic/unification_status.rs
++++ replace classify_multi -> UnificationStatus with Default::default()
+@@ -108,44 +108,17 @@
+         _ => classify_multi(regs),
+     }
+ }
+ 
+ /// Classify when there are 2+ registrations.
+ fn classify_multi(regs: &[DetailRegistration]) -> UnificationStatus {
+     // Collect known inodes; treat any None as a distinct "ghost" inode (per
+     // ADR-002 conservative rule — preserve data when uncertain).
+-    let inodes: Vec<Option<u64>> = regs.iter().map(|r| r.inode).collect();
+-
+-    // If ALL inodes are Some and equal → Unified.
+-    if inodes.iter().all(|i| i.is_some()) {
+-        let unique: HashSet<u64> = inodes.iter().filter_map(|i| *i).collect();
+-        if unique.len() == 1 {
+-            return UnificationStatus::Unified {
+-                hardlink_count: regs.len(),
+-            };
+-        }
+-        if unique.len() == regs.len() {
+-            return UnificationStatus::NotUnified {
+-                copy_count: regs.len(),
+-            };
+-        }
+-        // Mixed: some share, some don't.
+-        let shared_count = compute_shared_count(&inodes);
+-        return UnificationStatus::PartiallyUnified {
+-            shared_count,
+-            total_count: regs.len(),
+-            distinct_inodes: unique.len(),
+-        };
+-    }
+-
+-    // At least one inode is None → conservative NotUnified.
+-    UnificationStatus::NotUnified {
+-        copy_count: regs.len(),
+-    }
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Number of registrations whose inode is shared with at least one other
+ /// registration.
+ fn compute_shared_count(inodes: &[Option<u64>]) -> usize {
+     let mut count = 0;
+     for (i, ino) in inodes.iter().enumerate() {
+         let Some(this) = ino else { continue };

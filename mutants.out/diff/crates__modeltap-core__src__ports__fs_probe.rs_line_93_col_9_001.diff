@@ -1,0 +1,24 @@
+--- crates/modeltap-core/src/ports/fs_probe.rs
++++ replace FsProbe::same_filesystem -> bool with false
+@@ -85,20 +85,17 @@
+     fn dev_and_inode(&self, path: &Path) -> Option<(u64, u64)>;
+ 
+     /// True iff `a` and `b` reside on the same filesystem (same `dev_t`).
+     /// Returns `false` when either path cannot be statted — the conservative
+     /// "treat unknown as cross-fs" stance that aligns with ADR-008's
+     /// refuse-default policy. The orchestrator surfaces the per-target choice
+     /// dialog rather than silently linking-or-skipping.
+     fn same_filesystem(&self, a: &Path, b: &Path) -> bool {
+-        match (self.dev_and_inode(a), self.dev_and_inode(b)) {
+-            (Some((dev_a, _)), Some((dev_b, _))) => dev_a == dev_b,
+-            _ => false,
+-        }
++        false /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// The device id (`dev_t`) of `path`, or `None` if the path cannot be
+     /// statted. Useful for callers that need just the device part without the
+     /// inode (e.g., per-target cross-fs flagging in `build_plan`).
+     fn device_id(&self, path: &Path) -> Option<u64> {
+         self.dev_and_inode(path).map(|(d, _)| d)
+     }

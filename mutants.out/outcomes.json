@@ -1,0 +1,5121 @@
+{
+  "outcomes": [
+    {
+      "scenario": "Baseline",
+      "summary": "Success",
+      "log_path": "log/baseline.log",
+      "diff_path": null,
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.780009,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.864716583,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/types.rs:34:9: replace <impl std::fmt::Display for ToolId>::fmt -> std::fmt::Result with Ok(Default::default())",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/types.rs",
+          "function": {
+            "function_name": "<impl std::fmt::Display for ToolId>::fmt",
+            "return_type": "-> std::fmt::Result",
+            "span": {
+              "start": {
+                "line": 33,
+                "column": 5
+              },
+              "end": {
+                "line": 35,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 34,
+              "column": 9
+            },
+            "end": {
+              "line": 34,
+              "column": 28
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__types.rs_line_34_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__types.rs_line_34_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.901576625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.889390333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/types.rs:51:9: replace DisplayLabel::from -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/types.rs",
+          "function": {
+            "function_name": "DisplayLabel::from",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 50,
+                "column": 5
+              },
+              "end": {
+                "line": 52,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 51,
+              "column": 9
+            },
+            "end": {
+              "line": 51,
+              "column": 23
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__types.rs_line_51_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__types.rs_line_51_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.341593833,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:72:5: replace classify_row -> RowIndicator with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "classify_row",
+            "return_type": "-> RowIndicator",
+            "span": {
+              "start": {
+                "line": 62,
+                "column": 1
+              },
+              "end": {
+                "line": 76,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 72,
+              "column": 5
+            },
+            "end": {
+              "line": 75,
+              "column": 55
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_72_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_72_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.349067,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:83:5: replace classify_by_presence -> RowIndicator with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "classify_by_presence",
+            "return_type": "-> RowIndicator",
+            "span": {
+              "start": {
+                "line": 78,
+                "column": 1
+              },
+              "end": {
+                "line": 92,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 83,
+              "column": 5
+            },
+            "end": {
+              "line": 91,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_83_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_83_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.298705167,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:85:52: replace == with != in classify_by_presence",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "classify_by_presence",
+            "return_type": "-> RowIndicator",
+            "span": {
+              "start": {
+                "line": 78,
+                "column": 1
+              },
+              "end": {
+                "line": 92,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 85,
+              "column": 52
+            },
+            "end": {
+              "line": 85,
+              "column": 54
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_85_col_52.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_85_col_52.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.881693083,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.608811542,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:87:14: replace >= with < in classify_by_presence",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "classify_by_presence",
+            "return_type": "-> RowIndicator",
+            "span": {
+              "start": {
+                "line": 78,
+                "column": 1
+              },
+              "end": {
+                "line": 92,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 87,
+              "column": 14
+            },
+            "end": {
+              "line": 87,
+              "column": 16
+            }
+          },
+          "replacement": "<",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_87_col_14.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_87_col_14.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.111962667,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.568939667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:103:5: replace other_tools_for_model -> Vec<ToolId> with vec![]",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "other_tools_for_model",
+            "return_type": "-> Vec<ToolId>",
+            "span": {
+              "start": {
+                "line": 94,
+                "column": 1
+              },
+              "end": {
+                "line": 104,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 103,
+              "column": 5
+            },
+            "end": {
+              "line": 103,
+              "column": 64
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_103_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_103_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.168591,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.569672958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:103:5: replace other_tools_for_model -> Vec<ToolId> with vec![Default::default()]",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "other_tools_for_model",
+            "return_type": "-> Vec<ToolId>",
+            "span": {
+              "start": {
+                "line": 94,
+                "column": 1
+              },
+              "end": {
+                "line": 104,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 103,
+              "column": 5
+            },
+            "end": {
+              "line": 103,
+              "column": 64
+            }
+          },
+          "replacement": "vec![Default::default()]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_103_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_103_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.469011125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:114:5: replace other_tools_by_presence -> Vec<ToolId> with vec![]",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "other_tools_by_presence",
+            "return_type": "-> Vec<ToolId>",
+            "span": {
+              "start": {
+                "line": 106,
+                "column": 1
+              },
+              "end": {
+                "line": 120,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 114,
+              "column": 5
+            },
+            "end": {
+              "line": 119,
+              "column": 19
+            }
+          },
+          "replacement": "vec![]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_114_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_114_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.0387624579999999,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.570494542,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:114:5: replace other_tools_by_presence -> Vec<ToolId> with vec![Default::default()]",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "other_tools_by_presence",
+            "return_type": "-> Vec<ToolId>",
+            "span": {
+              "start": {
+                "line": 106,
+                "column": 1
+              },
+              "end": {
+                "line": 120,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 114,
+              "column": 5
+            },
+            "end": {
+              "line": 119,
+              "column": 19
+            }
+          },
+          "replacement": "vec![Default::default()]",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_114_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_114_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.462228334,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:116:28: replace != with == in other_tools_by_presence",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "other_tools_by_presence",
+            "return_type": "-> Vec<ToolId>",
+            "span": {
+              "start": {
+                "line": 106,
+                "column": 1
+              },
+              "end": {
+                "line": 120,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 116,
+              "column": 28
+            },
+            "end": {
+              "line": 116,
+              "column": 30
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_116_col_28.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_116_col_28.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.019901166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.566202291,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/indicator.rs:117:52: replace == with != in other_tools_by_presence",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/indicator.rs",
+          "function": {
+            "function_name": "other_tools_by_presence",
+            "return_type": "-> Vec<ToolId>",
+            "span": {
+              "start": {
+                "line": 106,
+                "column": 1
+              },
+              "end": {
+                "line": 120,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 52
+            },
+            "end": {
+              "line": 117,
+              "column": 54
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__indicator.rs_line_117_col_52.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__indicator.rs_line_117_col_52.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.174501958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.547705125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:28:9: replace ActionVerb::as_str -> &'static str with \"\"",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "ActionVerb::as_str",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 27,
+                "column": 5
+              },
+              "end": {
+                "line": 33,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 28,
+              "column": 9
+            },
+            "end": {
+              "line": 32,
+              "column": 10
+            }
+          },
+          "replacement": "\"\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_28_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_28_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.119337542,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.972267833,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:28:9: replace ActionVerb::as_str -> &'static str with \"xyzzy\"",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "ActionVerb::as_str",
+            "return_type": "-> &'static str",
+            "span": {
+              "start": {
+                "line": 27,
+                "column": 5
+              },
+              "end": {
+                "line": 33,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 28,
+              "column": 9
+            },
+            "end": {
+              "line": 32,
+              "column": 10
+            }
+          },
+          "replacement": "\"xyzzy\"",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_28_col_9_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_28_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.931253584,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 5.226504125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:53:9: replace ActionStatus::header_label -> String with String::new()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "ActionStatus::header_label",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 50,
+                "column": 5
+              },
+              "end": {
+                "line": 64,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 53,
+              "column": 9
+            },
+            "end": {
+              "line": 63,
+              "column": 10
+            }
+          },
+          "replacement": "String::new()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_53_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_53_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.020492333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.006564958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:53:9: replace ActionStatus::header_label -> String with \"xyzzy\".into()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "ActionStatus::header_label",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 50,
+                "column": 5
+              },
+              "end": {
+                "line": 64,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 53,
+              "column": 9
+            },
+            "end": {
+              "line": 63,
+              "column": 10
+            }
+          },
+          "replacement": "\"xyzzy\".into()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_53_col_9_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_53_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.940793542,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.041964375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:60:39: replace + with - in ActionStatus::header_label",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "ActionStatus::header_label",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 50,
+                "column": 5
+              },
+              "end": {
+                "line": 64,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 60,
+              "column": 39
+            },
+            "end": {
+              "line": 60,
+              "column": 40
+            }
+          },
+          "replacement": "-",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_60_col_39.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_60_col_39.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.944818792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.168944792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:60:39: replace + with * in ActionStatus::header_label",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "ActionStatus::header_label",
+            "return_type": "-> String",
+            "span": {
+              "start": {
+                "line": 50,
+                "column": 5
+              },
+              "end": {
+                "line": 64,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 60,
+              "column": 39
+            },
+            "end": {
+              "line": 60,
+              "column": 40
+            }
+          },
+          "replacement": "*",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_60_col_39_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_60_col_39_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.898492416,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.034223917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:104:9: replace LastAction::for_zap_success -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_zap_success",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 100,
+                "column": 5
+              },
+              "end": {
+                "line": 112,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 9
+            },
+            "end": {
+              "line": 111,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_104_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_104_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.340112959,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:117:9: replace LastAction::for_zap_failed -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_zap_failed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 114,
+                "column": 5
+              },
+              "end": {
+                "line": 125,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 9
+            },
+            "end": {
+              "line": 124,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_117_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_117_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.326752083,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:135:9: replace LastAction::for_zap_partial -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_zap_partial",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 127,
+                "column": 5
+              },
+              "end": {
+                "line": 146,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 135,
+              "column": 9
+            },
+            "end": {
+              "line": 145,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_135_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_135_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.342438291,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:153:9: replace LastAction::for_unify_success -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_unify_success",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 148,
+                "column": 5
+              },
+              "end": {
+                "line": 161,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 153,
+              "column": 9
+            },
+            "end": {
+              "line": 160,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_153_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_153_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.335084583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:167:9: replace LastAction::for_unify_already_unified -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_unify_already_unified",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 163,
+                "column": 5
+              },
+              "end": {
+                "line": 177,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 167,
+              "column": 9
+            },
+            "end": {
+              "line": 176,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_167_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_167_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.336156875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:186:9: replace LastAction::for_unify_partial -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_unify_partial",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 179,
+                "column": 5
+              },
+              "end": {
+                "line": 197,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 186,
+              "column": 9
+            },
+            "end": {
+              "line": 196,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_186_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_186_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.349212917,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:202:9: replace LastAction::for_unify_failed -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_unify_failed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 199,
+                "column": 5
+              },
+              "end": {
+                "line": 210,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 202,
+              "column": 9
+            },
+            "end": {
+              "line": 209,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_202_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_202_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.340690208,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:221:9: replace LastAction::for_delete_one_success -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_delete_one_success",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 212,
+                "column": 5
+              },
+              "end": {
+                "line": 234,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 221,
+              "column": 9
+            },
+            "end": {
+              "line": 233,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_221_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_221_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.338294542,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:221:35: replace && with || in LastAction::for_delete_one_success",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_delete_one_success",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 212,
+                "column": 5
+              },
+              "end": {
+                "line": 234,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 221,
+              "column": 35
+            },
+            "end": {
+              "line": 221,
+              "column": 37
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_221_col_35.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_221_col_35.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.903260584,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.039373625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:221:54: replace == with != in LastAction::for_delete_one_success",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_delete_one_success",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 212,
+                "column": 5
+              },
+              "end": {
+                "line": 234,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 221,
+              "column": 54
+            },
+            "end": {
+              "line": 221,
+              "column": 56
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_221_col_54.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_221_col_54.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.91470575,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.176595916,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/domain/last_action.rs:239:9: replace LastAction::for_delete_one_failed -> Self with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/domain/last_action.rs",
+          "function": {
+            "function_name": "LastAction::for_delete_one_failed",
+            "return_type": "-> Self",
+            "span": {
+              "start": {
+                "line": 236,
+                "column": 5
+              },
+              "end": {
+                "line": 247,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 239,
+              "column": 9
+            },
+            "end": {
+              "line": 246,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__domain__last_action.rs_line_239_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__domain__last_action.rs_line_239_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.368415792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/canonical_selector.rs:59:5: replace select_canonical -> Option<&CandidatePath> with None",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/canonical_selector.rs",
+          "function": {
+            "function_name": "select_canonical",
+            "return_type": "-> Option<&CandidatePath>",
+            "span": {
+              "start": {
+                "line": 52,
+                "column": 1
+              },
+              "end": {
+                "line": 73,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 59,
+              "column": 5
+            },
+            "end": {
+              "line": 72,
+              "column": 7
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__canonical_selector.rs_line_59_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__canonical_selector.rs_line_59_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.969147375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.570368667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/canonical_selector.rs:59:5: replace select_canonical -> Option<&CandidatePath> with Some(Box::leak(Box::new(Default::default())))",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/canonical_selector.rs",
+          "function": {
+            "function_name": "select_canonical",
+            "return_type": "-> Option<&CandidatePath>",
+            "span": {
+              "start": {
+                "line": 52,
+                "column": 1
+              },
+              "end": {
+                "line": 73,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 59,
+              "column": 5
+            },
+            "end": {
+              "line": 72,
+              "column": 7
+            }
+          },
+          "replacement": "Some(Box::leak(Box::new(Default::default())))",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__logic__canonical_selector.rs_line_59_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__canonical_selector.rs_line_59_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.509161291,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:81:5: replace compute_indicator -> RowIndicator with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "compute_indicator",
+            "return_type": "-> RowIndicator",
+            "span": {
+              "start": {
+                "line": 69,
+                "column": 1
+              },
+              "end": {
+                "line": 106,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 81,
+              "column": 5
+            },
+            "end": {
+              "line": 105,
+              "column": 31
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_81_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_81_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.442528542,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:114:5: replace has_dedup_match_in_other_tool -> bool with true",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "has_dedup_match_in_other_tool",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 108,
+                "column": 1
+              },
+              "end": {
+                "line": 119,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 114,
+              "column": 5
+            },
+            "end": {
+              "line": 118,
+              "column": 54
+            }
+          },
+          "replacement": "true",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_114_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_114_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.9954375,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.304668,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:114:5: replace has_dedup_match_in_other_tool -> bool with false",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "has_dedup_match_in_other_tool",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 108,
+                "column": 1
+              },
+              "end": {
+                "line": 119,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 114,
+              "column": 5
+            },
+            "end": {
+              "line": 118,
+              "column": 54
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_114_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_114_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.145054458,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.285472541,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:117:28: replace != with == in has_dedup_match_in_other_tool",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "has_dedup_match_in_other_tool",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 108,
+                "column": 1
+              },
+              "end": {
+                "line": 119,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 117,
+              "column": 28
+            },
+            "end": {
+              "line": 117,
+              "column": 30
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_117_col_28.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_117_col_28.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.2490947079999999,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.31545025,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:133:5: replace is_dedup_key_match -> bool with true",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "is_dedup_key_match",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 121,
+                "column": 1
+              },
+              "end": {
+                "line": 140,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 133,
+              "column": 5
+            },
+            "end": {
+              "line": 139,
+              "column": 6
+            }
+          },
+          "replacement": "true",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_133_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_133_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.2278282919999999,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.292711,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:133:5: replace is_dedup_key_match -> bool with false",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "is_dedup_key_match",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 121,
+                "column": 1
+              },
+              "end": {
+                "line": 140,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 133,
+              "column": 5
+            },
+            "end": {
+              "line": 139,
+              "column": 6
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_133_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_133_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.244303625,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.338287292,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:134:9: delete match arm (Some(ha), Some(hb)) in is_dedup_key_match",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "is_dedup_key_match",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 121,
+                "column": 1
+              },
+              "end": {
+                "line": 140,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 134,
+              "column": 9
+            },
+            "end": {
+              "line": 134,
+              "column": 42
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_134_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_134_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.194421917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.400714959,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:134:36: replace == with != in is_dedup_key_match",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "is_dedup_key_match",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 121,
+                "column": 1
+              },
+              "end": {
+                "line": 140,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 134,
+              "column": 36
+            },
+            "end": {
+              "line": 134,
+              "column": 38
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_134_col_36.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_134_col_36.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.194844166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.338313916,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:150:5: replace any_other_plugin_accepts -> bool with true",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "any_other_plugin_accepts",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 142,
+                "column": 1
+              },
+              "end": {
+                "line": 154,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 150,
+              "column": 5
+            },
+            "end": {
+              "line": 153,
+              "column": 49
+            }
+          },
+          "replacement": "true",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_150_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_150_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.266674916,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.338018708,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:150:5: replace any_other_plugin_accepts -> bool with false",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "any_other_plugin_accepts",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 142,
+                "column": 1
+              },
+              "end": {
+                "line": 154,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 150,
+              "column": 5
+            },
+            "end": {
+              "line": 153,
+              "column": 49
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_150_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_150_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.225026709,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.336142917,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/compatibility.rs:152:36: replace != with == in any_other_plugin_accepts",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/compatibility.rs",
+          "function": {
+            "function_name": "any_other_plugin_accepts",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 142,
+                "column": 1
+              },
+              "end": {
+                "line": 154,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 152,
+              "column": 36
+            },
+            "end": {
+              "line": 152,
+              "column": 38
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__compatibility.rs_line_152_col_36.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__compatibility.rs_line_152_col_36.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.2325445,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 1.334592166,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/dedup.rs:69:5: replace classify_unique_vs_shared -> UniqueVsSharedReport with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/dedup.rs",
+          "function": {
+            "function_name": "classify_unique_vs_shared",
+            "return_type": "-> UniqueVsSharedReport",
+            "span": {
+              "start": {
+                "line": 54,
+                "column": 1
+              },
+              "end": {
+                "line": 100,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 69,
+              "column": 5
+            },
+            "end": {
+              "line": 99,
+              "column": 11
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__logic__dedup.rs_line_69_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__dedup.rs_line_69_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.508115666,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/dedup.rs:82:19: replace != with == in classify_unique_vs_shared",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/dedup.rs",
+          "function": {
+            "function_name": "classify_unique_vs_shared",
+            "return_type": "-> UniqueVsSharedReport",
+            "span": {
+              "start": {
+                "line": 54,
+                "column": 1
+              },
+              "end": {
+                "line": 100,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 82,
+              "column": 19
+            },
+            "end": {
+              "line": 82,
+              "column": 21
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__dedup.rs_line_82_col_19.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__dedup.rs_line_82_col_19.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.027505833,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.040369834,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/dedup.rs:88:49: replace != with == in classify_unique_vs_shared",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/dedup.rs",
+          "function": {
+            "function_name": "classify_unique_vs_shared",
+            "return_type": "-> UniqueVsSharedReport",
+            "span": {
+              "start": {
+                "line": 54,
+                "column": 1
+              },
+              "end": {
+                "line": 100,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 88,
+              "column": 49
+            },
+            "end": {
+              "line": 88,
+              "column": 51
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__dedup.rs_line_88_col_49.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__dedup.rs_line_88_col_49.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.184025792,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.053021792,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:75:5: replace build_plan -> Option<UnifyPlan> with None",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 75,
+              "column": 5
+            },
+            "end": {
+              "line": 112,
+              "column": 7
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_75_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_75_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.2149566250000001,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.615376083,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:75:5: replace build_plan -> Option<UnifyPlan> with Some(Default::default())",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 75,
+              "column": 5
+            },
+            "end": {
+              "line": 112,
+              "column": 7
+            }
+          },
+          "replacement": "Some(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_75_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_75_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.4975385,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:75:8: delete ! in build_plan",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 75,
+              "column": 8
+            },
+            "end": {
+              "line": 75,
+              "column": 9
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_75_col_8.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_75_col_8.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.115357541,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.616931083,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:83:19: replace == with != in build_plan",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 83,
+              "column": 19
+            },
+            "end": {
+              "line": 83,
+              "column": 21
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_83_col_19.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_83_col_19.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.244392416,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.572803917,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:86:12: delete ! in build_plan",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 86,
+              "column": 12
+            },
+            "end": {
+              "line": 86,
+              "column": 13
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_86_col_12.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_86_col_12.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.227579417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.617419583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:92:59: replace && with || in build_plan",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 92,
+              "column": 59
+            },
+            "end": {
+              "line": 92,
+              "column": 61
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_92_col_59.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_92_col_59.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.197899333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.581389208,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:92:39: replace == with != in build_plan",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 92,
+              "column": 39
+            },
+            "end": {
+              "line": 92,
+              "column": 41
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_92_col_39.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_92_col_39.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.16994125,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.627193708,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:92:70: replace == with != in build_plan",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 92,
+              "column": 70
+            },
+            "end": {
+              "line": 92,
+              "column": 72
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_92_col_70.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_92_col_70.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.2601333750000001,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.622114417,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:93:41: replace != with == in build_plan",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 93,
+              "column": 41
+            },
+            "end": {
+              "line": 93,
+              "column": 43
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_93_col_41.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_93_col_41.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.255064417,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.618292583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/plan.rs:94:12: delete ! in build_plan",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/plan.rs",
+          "function": {
+            "function_name": "build_plan",
+            "return_type": "-> Option<UnifyPlan>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 113,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 94,
+              "column": 12
+            },
+            "end": {
+              "line": 94,
+              "column": 13
+            }
+          },
+          "replacement": "",
+          "genre": "UnaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__plan.rs_line_94_col_12.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__plan.rs_line_94_col_12.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.266818041,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.620856833,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:104:5: replace compute_unification_status -> UnificationStatus with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_unification_status",
+            "return_type": "-> UnificationStatus",
+            "span": {
+              "start": {
+                "line": 100,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 104,
+              "column": 5
+            },
+            "end": {
+              "line": 109,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_104_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_104_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.508761125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:106:9: delete match arm 0 in compute_unification_status",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_unification_status",
+            "return_type": "-> UnificationStatus",
+            "span": {
+              "start": {
+                "line": 100,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 106,
+              "column": 9
+            },
+            "end": {
+              "line": 106,
+              "column": 44
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_106_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_106_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.119349791,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.315419042,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:107:9: delete match arm 1 in compute_unification_status",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_unification_status",
+            "return_type": "-> UnificationStatus",
+            "span": {
+              "start": {
+                "line": 100,
+                "column": 1
+              },
+              "end": {
+                "line": 110,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 107,
+              "column": 9
+            },
+            "end": {
+              "line": 107,
+              "column": 44
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_107_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_107_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.933065333,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.54813825,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:116:5: replace classify_multi -> UnificationStatus with Default::default()",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "classify_multi",
+            "return_type": "-> UnificationStatus",
+            "span": {
+              "start": {
+                "line": 112,
+                "column": 1
+              },
+              "end": {
+                "line": 144,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 116,
+              "column": 5
+            },
+            "end": {
+              "line": 143,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_116_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_116_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.549313667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:121:25: replace == with != in classify_multi",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "classify_multi",
+            "return_type": "-> UnificationStatus",
+            "span": {
+              "start": {
+                "line": 112,
+                "column": 1
+              },
+              "end": {
+                "line": 144,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 121,
+              "column": 25
+            },
+            "end": {
+              "line": 121,
+              "column": 27
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_121_col_25.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_121_col_25.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.03980225,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.52795025,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:126:25: replace == with != in classify_multi",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "classify_multi",
+            "return_type": "-> UnificationStatus",
+            "span": {
+              "start": {
+                "line": 112,
+                "column": 1
+              },
+              "end": {
+                "line": 144,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 126,
+              "column": 25
+            },
+            "end": {
+              "line": 126,
+              "column": 27
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_126_col_25.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_126_col_25.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.216341916,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.536701875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:149:5: replace compute_shared_count -> usize with 0",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_shared_count",
+            "return_type": "-> usize",
+            "span": {
+              "start": {
+                "line": 146,
+                "column": 1
+              },
+              "end": {
+                "line": 161,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 149,
+              "column": 5
+            },
+            "end": {
+              "line": 160,
+              "column": 10
+            }
+          },
+          "replacement": "0",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_149_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_149_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.2513110840000001,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.519608292,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:149:5: replace compute_shared_count -> usize with 1",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_shared_count",
+            "return_type": "-> usize",
+            "span": {
+              "start": {
+                "line": 146,
+                "column": 1
+              },
+              "end": {
+                "line": 161,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 149,
+              "column": 5
+            },
+            "end": {
+              "line": 160,
+              "column": 10
+            }
+          },
+          "replacement": "1",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_149_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_149_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.258914917,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.514146667,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:155:38: replace && with || in compute_shared_count",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_shared_count",
+            "return_type": "-> usize",
+            "span": {
+              "start": {
+                "line": 146,
+                "column": 1
+              },
+              "end": {
+                "line": 161,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 155,
+              "column": 38
+            },
+            "end": {
+              "line": 155,
+              "column": 40
+            }
+          },
+          "replacement": "||",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_155_col_38.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_155_col_38.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.274053167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.530166291,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:155:33: replace != with == in compute_shared_count",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_shared_count",
+            "return_type": "-> usize",
+            "span": {
+              "start": {
+                "line": 146,
+                "column": 1
+              },
+              "end": {
+                "line": 161,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 155,
+              "column": 33
+            },
+            "end": {
+              "line": 155,
+              "column": 35
+            }
+          },
+          "replacement": "==",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_155_col_33.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_155_col_33.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.263110041,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.5447024579999997,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:155:56: replace == with != in compute_shared_count",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_shared_count",
+            "return_type": "-> usize",
+            "span": {
+              "start": {
+                "line": 146,
+                "column": 1
+              },
+              "end": {
+                "line": 161,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 155,
+              "column": 56
+            },
+            "end": {
+              "line": 155,
+              "column": 58
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_155_col_56.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_155_col_56.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.260735209,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.507621583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:157:19: replace += with -= in compute_shared_count",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_shared_count",
+            "return_type": "-> usize",
+            "span": {
+              "start": {
+                "line": 146,
+                "column": 1
+              },
+              "end": {
+                "line": 161,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 157,
+              "column": 19
+            },
+            "end": {
+              "line": 157,
+              "column": 21
+            }
+          },
+          "replacement": "-=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_157_col_19.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_157_col_19.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.263140292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.531704042,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:157:19: replace += with *= in compute_shared_count",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_shared_count",
+            "return_type": "-> usize",
+            "span": {
+              "start": {
+                "line": 146,
+                "column": 1
+              },
+              "end": {
+                "line": 161,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 157,
+              "column": 19
+            },
+            "end": {
+              "line": 157,
+              "column": 21
+            }
+          },
+          "replacement": "*=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_157_col_19_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_157_col_19_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.3074231250000001,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.538126042,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:166:5: replace compute_reclaim_estimate -> u64 with 0",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_reclaim_estimate",
+            "return_type": "-> u64",
+            "span": {
+              "start": {
+                "line": 163,
+                "column": 1
+              },
+              "end": {
+                "line": 176,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 166,
+              "column": 5
+            },
+            "end": {
+              "line": 175,
+              "column": 6
+            }
+          },
+          "replacement": "0",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_166_col_5.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_166_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.266991791,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.536490458,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/logic/unification_status.rs:166:5: replace compute_reclaim_estimate -> u64 with 1",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/logic/unification_status.rs",
+          "function": {
+            "function_name": "compute_reclaim_estimate",
+            "return_type": "-> u64",
+            "span": {
+              "start": {
+                "line": 163,
+                "column": 1
+              },
+              "end": {
+                "line": 176,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 166,
+              "column": 5
+            },
+            "end": {
+              "line": 175,
+              "column": 6
+            }
+          },
+          "replacement": "1",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__logic__unification_status.rs_line_166_col_5_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__logic__unification_status.rs_line_166_col_5_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.041946167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.050067167,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:93:9: replace FsProbe::same_filesystem -> bool with true",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::same_filesystem",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 87,
+                "column": 5
+              },
+              "end": {
+                "line": 97,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 93,
+              "column": 9
+            },
+            "end": {
+              "line": 96,
+              "column": 10
+            }
+          },
+          "replacement": "true",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_93_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_93_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.252960584,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.63380525,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:93:9: replace FsProbe::same_filesystem -> bool with false",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::same_filesystem",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 87,
+                "column": 5
+              },
+              "end": {
+                "line": 97,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 93,
+              "column": 9
+            },
+            "end": {
+              "line": 96,
+              "column": 10
+            }
+          },
+          "replacement": "false",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_93_col_9_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_93_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.340126708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.600753958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:94:13: delete match arm (Some((dev_a, _)), Some((dev_b, _))) in FsProbe::same_filesystem",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::same_filesystem",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 87,
+                "column": 5
+              },
+              "end": {
+                "line": 97,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 94,
+              "column": 13
+            },
+            "end": {
+              "line": 94,
+              "column": 68
+            }
+          },
+          "replacement": "",
+          "genre": "MatchArm"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_94_col_13.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_94_col_13.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.240388,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.605986625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:94:59: replace == with != in FsProbe::same_filesystem",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::same_filesystem",
+            "return_type": "-> bool",
+            "span": {
+              "start": {
+                "line": 87,
+                "column": 5
+              },
+              "end": {
+                "line": 97,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 94,
+              "column": 59
+            },
+            "end": {
+              "line": 94,
+              "column": 61
+            }
+          },
+          "replacement": "!=",
+          "genre": "BinaryOperator"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_94_col_59.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_94_col_59.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.242829166,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.629235958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:103:9: replace FsProbe::device_id -> Option<u64> with None",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::device_id",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 99,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 103,
+              "column": 9
+            },
+            "end": {
+              "line": 103,
+              "column": 49
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_103_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_103_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.262823083,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.621969333,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:103:9: replace FsProbe::device_id -> Option<u64> with Some(0)",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::device_id",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 99,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 103,
+              "column": 9
+            },
+            "end": {
+              "line": 103,
+              "column": 49
+            }
+          },
+          "replacement": "Some(0)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_103_col_9_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_103_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.295873334,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.623891583,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:103:9: replace FsProbe::device_id -> Option<u64> with Some(1)",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::device_id",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 99,
+                "column": 5
+              },
+              "end": {
+                "line": 104,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 103,
+              "column": 9
+            },
+            "end": {
+              "line": 103,
+              "column": 49
+            }
+          },
+          "replacement": "Some(1)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_103_col_9_002.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_103_col_9_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.245909042,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.6124735,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:110:9: replace FsProbe::inode -> Option<u64> with None",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::inode",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 106,
+                "column": 5
+              },
+              "end": {
+                "line": 111,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 110,
+              "column": 9
+            },
+            "end": {
+              "line": 110,
+              "column": 49
+            }
+          },
+          "replacement": "None",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_110_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_110_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.313524708,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.672602708,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:110:9: replace FsProbe::inode -> Option<u64> with Some(0)",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::inode",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 106,
+                "column": 5
+              },
+              "end": {
+                "line": 111,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 110,
+              "column": 9
+            },
+            "end": {
+              "line": 110,
+              "column": 49
+            }
+          },
+          "replacement": "Some(0)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_110_col_9_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_110_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.269535167,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.620983584,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:110:9: replace FsProbe::inode -> Option<u64> with Some(1)",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::inode",
+            "return_type": "-> Option<u64>",
+            "span": {
+              "start": {
+                "line": 106,
+                "column": 5
+              },
+              "end": {
+                "line": 111,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 110,
+              "column": 9
+            },
+            "end": {
+              "line": 110,
+              "column": 49
+            }
+          },
+          "replacement": "Some(1)",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_110_col_9_002.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_110_col_9_002.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.2581128750000001,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 0.657489875,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:136:9: replace FsProbe::detect_running_tools -> Result<Vec<RunningProcess>, ProbeError> with Ok(vec![])",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::detect_running_tools",
+            "return_type": "-> Result<Vec<RunningProcess>, ProbeError>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 5
+              },
+              "end": {
+                "line": 137,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 136,
+              "column": 9
+            },
+            "end": {
+              "line": 136,
+              "column": 23
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "MissedMutant",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_136_col_9.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_136_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 1.307223584,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 4.471689958,
+          "process_status": "Success",
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "crates/modeltap-core/src/ports/fs_probe.rs:136:9: replace FsProbe::detect_running_tools -> Result<Vec<RunningProcess>, ProbeError> with Ok(vec![Default::default()])",
+          "package": "modeltap-core",
+          "file": "crates/modeltap-core/src/ports/fs_probe.rs",
+          "function": {
+            "function_name": "FsProbe::detect_running_tools",
+            "return_type": "-> Result<Vec<RunningProcess>, ProbeError>",
+            "span": {
+              "start": {
+                "line": 113,
+                "column": 5
+              },
+              "end": {
+                "line": 137,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 136,
+              "column": 9
+            },
+            "end": {
+              "line": 136,
+              "column": 23
+            }
+          },
+          "replacement": "Ok(vec![Default::default()])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/crates__modeltap-core__src__ports__fs_probe.rs_line_136_col_9_001.log",
+      "diff_path": "diff/crates__modeltap-core__src__ports__fs_probe.rs_line_136_col_9_001.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.413824666,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--package=modeltap-core@0.1.0"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_mutants": 82,
+  "missed": 11,
+  "caught": 50,
+  "timeout": 0,
+  "unviable": 21,
+  "success": 0,
+  "start_time": "2026-04-30T06:06:41.552263Z",
+  "end_time": "2026-04-30T06:10:07.757906Z",
+  "cargo_mutants_version": "27.0.0"
+}

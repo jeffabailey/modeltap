@@ -610,7 +610,7 @@ mod tests {
                     already_linked: false,
                 },
                 PlannedLink {
-                    tool: ToolId("llama-cli"),
+                    tool: ToolId("Loose GGUFs"),
                     target: PathBuf::from("/l/cross-fs.bin"),
                     cross_filesystem: true,
                     already_linked: false,
@@ -672,7 +672,7 @@ mod tests {
                     already_linked: false,
                 },
                 PlannedLink {
-                    tool: ToolId("llama-cli"),
+                    tool: ToolId("Loose GGUFs"),
                     target: target_b.clone(),
                     cross_filesystem: false,
                     already_linked: false,
@@ -734,7 +734,7 @@ mod tests {
                 links.push(PlannedLink {
                     tool: match i % 3 {
                         0 => ToolId("hf"),
-                        1 => ToolId("llama-cli"),
+                        1 => ToolId("Loose GGUFs"),
                         _ => ToolId("lm-studio"),
                     },
                     target: tp,
@@ -827,7 +827,7 @@ mod tests {
                     size_bytes: 4096 + seed,
                 },
                 PlanCandidate {
-                    tool: ToolId("llama-cli"),
+                    tool: ToolId("Loose GGUFs"),
                     path: PathBuf::from(format!("/l/{}.bin", seed)),
                     exists: true,
                     device: 2 + (seed % 3),

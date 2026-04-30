@@ -1,0 +1,21 @@
+--- crates/modeltap-core/src/logic/plan.rs
++++ replace == with != in build_plan
+@@ -75,17 +75,17 @@
+     if !canonical.exists {
+         return None;
+     }
+ 
+     let mut links: Vec<PlannedLink> = Vec::new();
+     let mut inodes_replaced: HashSet<(u64, u64)> = HashSet::new();
+ 
+     for t in targets {
+-        if t.path == canonical.path {
++        if t.path != /* ~ changed by cargo-mutants ~ */ canonical.path {
+             continue; // canonical itself
+         }
+         if !t.exists {
+             // Missing target: skip silently. The acceptance contract says
+             // unify operates on currently-registered models; a vanished
+             // file is the orchestrator's concern, not the planner's.
+             continue;
+         }

@@ -1,8 +1,7 @@
 # modeltap
 
 Terminal UI for discovering, inspecting, and cleaning up local AI model files
-across multiple tools (Ollama, llama.cpp / `llama-cli`, Hugging Face cache,
-LM Studio).
+across multiple tools (Ollama, Hugging Face cache, LM Studio, Atomic Chat).
 
 ## Supported platforms (v1)
 

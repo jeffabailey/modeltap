@@ -40,10 +40,8 @@ use tempfile::TempDir;
 struct SharedFixture {
     _temp: TempDir,
     ollama_dir: PathBuf,
-    llama_cli_dir: PathBuf,
     hf_home: PathBuf,
     ollama_path: PathBuf,
-    llama_cli_path: PathBuf,
     #[allow(dead_code)]
     hf_blob_path: PathBuf,
     /// Root tempdir path so the snapshot helper can walk the whole tree.
@@ -78,14 +76,6 @@ fn build_shared_fixture(payload_size: u64) -> SharedFixture {
     );
     fs::write(&manifest_path, manifest_json).unwrap();
 
-    // llama-cli
-    let llama_cli_dir = root.join("llms");
-    fs::create_dir_all(&llama_cli_dir).unwrap();
-    let llama_cli_path = llama_cli_dir.join("synthetic-7b.gguf");
-    let mut llama_bytes = b"GGUF".to_vec();
-    llama_bytes.extend(&payload[..(payload_size as usize - 4)]);
-    fs::write(&llama_cli_path, &llama_bytes).unwrap();
-
     // HF
     let hf_home = root.join(".cache").join("huggingface");
     let hf_hub = hf_home.join("hub");
@@ -111,10 +101,8 @@ fn build_shared_fixture(payload_size: u64) -> SharedFixture {
     SharedFixture {
         _temp: temp,
         ollama_dir,
-        llama_cli_dir,
         hf_home,
         ollama_path,
-        llama_cli_path,
         hf_blob_path,
         root,
     }
@@ -162,7 +150,6 @@ fn modeltap_headless(fix: &SharedFixture) -> (Command, TempDir, PathBuf) {
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", &fix.llama_cli_dir)
         .env("HF_HOME", &fix.hf_home)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
@@ -184,9 +171,8 @@ fn detail_regs_json(fix: &SharedFixture) -> String {
     serde_json::json!({
         "id": "synthetic/Synthetic-7B",
         "regs": [
-            {"tool": "ollama",    "path": fix.ollama_path.display().to_string()},
-            {"tool": "llama-cli", "path": fix.llama_cli_path.display().to_string()},
-            {"tool": "hf",        "path": hf_snapshot.display().to_string()},
+            {"tool": "ollama", "path": fix.ollama_path.display().to_string()},
+            {"tool": "hf",     "path": hf_snapshot.display().to_string()},
         ]
     })
     .to_string()
@@ -297,13 +283,13 @@ fn dry_run_reveals_cross_filesystem_issue() {
     let (mut cmd, _log_temp, _log_file) = modeltap_headless(&fix);
     let regs = detail_regs_json(&fix);
 
-    // Mark llama-cli's directory as cross-fs via the test seam (same fake-
+    // Mark HF's home directory as cross-fs via the test seam (same fake-
     // probe used in 03-03 cross-fs acceptance). We mark the parent dir so
-    // the canonicalized llama-cli path matches the prefix. Canonicalize so
+    // the canonicalized HF blob path matches the prefix. Canonicalize so
     // the prefix-match in the headless harness works on macOS where
     // `/var/folders/...` resolves to `/private/var/folders/...`.
-    let fake_xfs = fs::canonicalize(&fix.llama_cli_dir)
-        .unwrap_or_else(|e| panic!("canonicalize {}: {e}", fix.llama_cli_dir.display()))
+    let fake_xfs = fs::canonicalize(&fix.hf_home)
+        .unwrap_or_else(|e| panic!("canonicalize {}: {e}", fix.hf_home.display()))
         .display()
         .to_string();
 

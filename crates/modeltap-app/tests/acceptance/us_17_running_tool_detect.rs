@@ -146,7 +146,7 @@ fn modeltap_headless(fix: &Fixture) -> (Command, TempDir, PathBuf) {
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
         .env("HF_HOME", &fix.hf_home)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(

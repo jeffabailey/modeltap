@@ -26,7 +26,6 @@ use modeltap_app::refresh;
 // returns empty (per ADR-001 §"Plugin registration mechanism" caveat).
 use modeltap_plugin_atomic_chat as _;
 use modeltap_plugin_hf as _;
-use modeltap_plugin_llama_cli as _;
 use modeltap_plugin_lm_studio as _;
 use modeltap_plugin_ollama as _;
 

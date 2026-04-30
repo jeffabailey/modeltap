@@ -240,7 +240,7 @@ fn apply_effect(
             // Per US-06.AC-4 / US-11.AC-1: re-run discover() ONLY for the
             // affected tool to keep the summary refresh under 500 ms (the
             // alternative — re-running every plugin's discover() — scales
-            // O(N plugins) and would break the budget once HF/llama-cli
+            // O(N plugins) and would break the budget once HF/Loose GGUFs
             // populate). Failures dispatch `Msg::RefreshFailed(tool_id)` so
             // the UI shows `(refresh failed)` + [r] retry per US-11.AC-2.
             //
@@ -655,7 +655,7 @@ fn lift_delete_one_in_detail(state: &AppState, msg: Msg) -> Msg {
     // id_in_tool is distinct from the display id; the test seam
     // `MODELTAP_HEADLESS_DELETE_ID_IN_TOOL` overrides the dialog's
     // model_id so production-shape lookups work in fixtures. When unset,
-    // fall back to the display id (correct for llama-cli / lm-studio
+    // fall back to the display id (correct for Loose GGUFs / lm-studio
     // where id_in_tool == filename and the dialog's typed-id matches the
     // display id).
     let dialog_model_id = std::env::var("MODELTAP_HEADLESS_DELETE_ID_IN_TOOL")
@@ -699,7 +699,7 @@ fn lift_enter_in_main(state: &AppState, msg: Msg) -> Msg {
 ///   "regs": [
 ///     {"tool": "ollama",    "path": "/abs/path/a"},
 ///     {"tool": "hf",        "path": "/abs/path/b"},
-///     {"tool": "llama-cli", "path": "/abs/path/c"}
+///     {"tool": "Loose GGUFs", "path": "/abs/path/c"}
 ///   ]
 /// }
 /// ```
@@ -718,7 +718,6 @@ fn synthesize_detail_from_env(_state: &AppState) -> Option<DetailScreenState> {
         let tool = match tool_str {
             "ollama" => ToolId("ollama"),
             "hf" => ToolId("hf"),
-            "llama-cli" => ToolId("llama-cli"),
             "lm-studio" => ToolId("lm-studio"),
             _ => continue,
         };

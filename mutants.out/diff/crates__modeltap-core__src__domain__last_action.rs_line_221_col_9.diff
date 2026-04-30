@@ -1,0 +1,33 @@
+--- crates/modeltap-core/src/domain/last_action.rs
++++ replace LastAction::for_delete_one_success -> Self with Default::default()
+@@ -213,29 +213,17 @@
+     /// (US-05b, step 03-06; ADR-009). `target` is the model id (NOT a tool
+     /// id — delete-from-one acts on a single model). `bytes_reclaimed` is
+     /// the bytes freed by the unlink (zero when the blob was shared and
+     /// kept on purpose). `was_shared` is the orchestrator's classification;
+     /// when true and `bytes_reclaimed == 0`, the body line includes
+     /// "(content preserved — also on disk under another tool)" so the user
+     /// understands why the reclaim is zero.
+     pub fn for_delete_one_success(target: String, bytes_reclaimed: u64, was_shared: bool) -> Self {
+-        let extra = if was_shared && bytes_reclaimed == 0 {
+-            Some("content preserved — also on disk under another tool".to_string())
+-        } else {
+-            None
+-        };
+-        Self {
+-            verb: ActionVerb::Delete,
+-            target,
+-            status: ActionStatus::Success,
+-            bytes_reclaimed,
+-            bytes_retained: 0,
+-            extra,
+-        }
++        Default::default() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// Construct a failure banner for a delete-from-one that errored before
+     /// any work (or where the plugin reported NotFound).
+     pub fn for_delete_one_failed(target: String) -> Self {
+         Self {
+             verb: ActionVerb::Delete,
+             target,

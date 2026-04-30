@@ -100,7 +100,7 @@ mod tests {
     fn warn_on_empty_capabilities_returns_empty_when_all_plugins_have_formats() {
         let caps = caps(&[
             ("hf", &[Format::Gguf, Format::Safetensors]),
-            ("llama-cli", &[Format::Gguf]),
+            ("Loose GGUFs", &[Format::Gguf]),
             ("ollama", &[Format::OllamaBlob]),
         ]);
         let offenders = warn_on_empty_capabilities(&caps);
@@ -112,7 +112,7 @@ mod tests {
         let caps = caps(&[
             ("hf", &[Format::Gguf]),
             ("broken-plugin", &[]), // empty
-            ("llama-cli", &[Format::Gguf]),
+            ("Loose GGUFs", &[Format::Gguf]),
         ]);
         let offenders = warn_on_empty_capabilities(&caps);
         assert_eq!(offenders, vec![ToolId("broken-plugin")]);

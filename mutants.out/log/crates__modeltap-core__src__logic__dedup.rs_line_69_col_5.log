@@ -1,0 +1,127 @@
+
+*** crates/modeltap-core/src/logic/dedup.rs:69:5: replace classify_unique_vs_shared -> UniqueVsSharedReport with Default::default()
+
+*** mutation diff:
+--- crates/modeltap-core/src/logic/dedup.rs
++++ replace classify_unique_vs_shared -> UniqueVsSharedReport with Default::default()
+@@ -61,40 +61,10 @@
+ /// AND they belong to different tools. All other cases (different paths,
+ /// uncomputed hashes) are treated as UNIQUE — preserving data is the safer
+ /// default.
+ pub fn classify_unique_vs_shared(
+     inventory: &[ToolModel],
+     tool_id: &ToolId,
+ ) -> UniqueVsSharedReport {
+     // Index every on_disk_path → set of tools that reference it.
+-    let mut path_tools: HashMap<&PathBuf, Vec<ToolId>> = HashMap::new();
+-    for m in inventory {
+-        path_tools.entry(&m.on_disk_path).or_default().push(m.tool);
+-    }
+-
+-    let mut report = UniqueVsSharedReport {
+-        unique_count: 0,
+-        shared_count: 0,
+-        unique_bytes: 0,
+-        shared_bytes: 0,
+-    };
+-
+-    for m in inventory {
+-        if m.tool != *tool_id {
+-            continue;
+-        }
+-        // Shared iff some OTHER tool also references this exact path.
+-        let referenced_by_others = path_tools
+-            .get(&m.on_disk_path)
+-            .map(|tools| tools.iter().any(|t| t != tool_id))
+-            .unwrap_or(false);
+-        if referenced_by_others {
+-            report.shared_count = report.shared_count.saturating_add(1);
+-            report.shared_bytes = report.shared_bytes.saturating_add(m.size_bytes);
+-        } else {
+-            report.unique_count = report.unique_count.saturating_add(1);
+-            report.unique_bytes = report.unique_bytes.saturating_add(m.size_bytes);
+-        }
+-    }
+-
+-    report
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+
+
+*** /Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/cargo test --no-run --verbose --package=modeltap-core@0.1.0
+       Fresh cfg-if v1.0.4
+       Fresh unicode-ident v1.0.24
+       Fresh bitflags v2.11.1
+       Fresh autocfg v1.5.0
+       Fresh once_cell v1.21.4
+       Fresh fastrand v2.4.1
+       Fresh fnv v1.0.7
+       Fresh libc v0.2.186
+       Fresh quick-error v1.2.3
+       Fresh bit-vec v0.8.0
+       Fresh unarray v0.1.4
+       Fresh regex-syntax v0.8.10
+       Fresh inventory v0.3.24
+       Fresh proc-macro2 v1.0.106
+       Fresh getrandom v0.3.4
+       Fresh errno v0.3.14
+       Fresh zerocopy v0.8.48
+       Fresh getrandom v0.4.2
+       Fresh wait-timeout v0.2.1
+       Fresh serde_core v1.0.228
+       Fresh bit-set v0.8.0
+       Fresh quote v1.0.45
+       Fresh rand_core v0.9.5
+       Fresh rustix v1.1.4
+       Fresh ppv-lite86 v0.2.21
+       Fresh num-traits v0.2.19
+       Fresh syn v2.0.117
+       Fresh tempfile v3.27.0
+       Fresh rand_chacha v0.9.0
+       Fresh rand_xorshift v0.4.0
+       Fresh rand v0.9.4
+       Fresh thiserror-impl v1.0.69
+       Fresh serde_derive v1.0.228
+       Fresh rusty-fork v0.3.1
+       Fresh async-trait v0.1.89
+       Fresh thiserror v1.0.69
+       Fresh serde v1.0.228
+       Fresh proptest v1.11.0
+       Dirty modeltap-core v0.1.0 (/Users/jeffbailey/Projects/foss/leading/modeltap/crates/modeltap-core): the file `crates/modeltap-core/src/logic/dedup.rs` has changed (1777529294.962160493s, 2s after last build at 1777529292.432858399s)
+   Compiling modeltap-core v0.1.0 (/Users/jeffbailey/Projects/foss/leading/modeltap/crates/modeltap-core)
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=97bb73afabf58faf -C extra-filename=-2d270179d2f92e5c --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib`
+     Running `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=76a2906454acb363 -C extra-filename=-c6a0ee5313ca8a7d --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rmeta --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rmeta --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rmeta`
+warning: unused import: `std::collections::HashMap`
+  --> crates/modeltap-core/src/logic/dedup.rs:22:5
+   |
+22 | use std::collections::HashMap;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+error[E0277]: the trait bound `UniqueVsSharedReport: Default` is not satisfied
+  --> crates/modeltap-core/src/logic/dedup.rs:69:5
+   |
+69 |     Default::default() /* ~ changed by cargo-mutants ~ */
+   |     ^^^^^^^^^^^^^^^^^^ the trait `Default` is not implemented for `UniqueVsSharedReport`
+   |
+help: consider annotating `UniqueVsSharedReport` with `#[derive(Default)]`
+   |
+47 + #[derive(Default)]
+48 | pub struct UniqueVsSharedReport {
+   |
+
+For more information about this error, try `rustc --explain E0277`.
+warning: `modeltap-core` (lib) generated 1 warning
+error: could not compile `modeltap-core` (lib) due to 1 previous error; 1 warning emitted
+
+Caused by:
+  process didn't exit successfully: `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=76a2906454acb363 -C extra-filename=-c6a0ee5313ca8a7d --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rmeta --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rmeta --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rmeta` (exit status: 1)
+warning: build failed, waiting for other jobs to finish...
+warning: `modeltap-core` (lib test) generated 1 warning (1 duplicate)
+error: could not compile `modeltap-core` (lib test) due to 1 previous error; 1 warning emitted
+
+Caused by:
+  process didn't exit successfully: `/Users/jeffbailey/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc --crate-name modeltap_core --edition=2021 crates/modeltap-core/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --forbid=unsafe_code --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=97bb73afabf58faf -C extra-filename=-2d270179d2f92e5c --out-dir /Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps -C incremental=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/incremental -L dependency=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps --extern async_trait=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libasync_trait-6fa44903a3159084.dylib --extern inventory=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libinventory-4a25f772dcfa2dc1.rlib --extern proptest=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libproptest-781b48b6c78effd9.rlib --extern serde=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libserde-6fa6a1cbb2050411.rlib --extern thiserror=/Users/jeffbailey/Projects/foss/leading/modeltap/target/debug/deps/libthiserror-b88f4cf0bc3753a7.rlib` (exit status: 1)
+
+*** result: Failure(101)

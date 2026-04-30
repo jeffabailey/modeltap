@@ -1,6 +1,6 @@
 # modeltap — Project Guide for Claude
 
-This project is `modeltap`, a Rust TUI for managing local AI models across multiple tools (Ollama, llama-cli, Hugging Face cache, LM Studio) with UMR-style cross-tool unification via hardlinks.
+This project is `modeltap`, a Rust TUI for managing local AI models across multiple tools (Ollama, Hugging Face cache, LM Studio, Atomic Chat) with UMR-style cross-tool unification via hardlinks.
 
 ## Status
 
@@ -49,9 +49,9 @@ modeltap/
 │   └── modeltap-cli/          # optional non-TUI entrypoint (future)
 ├── plugins/
 │   ├── ollama/
-│   ├── llama-cli/
 │   ├── hf/
-│   └── lm-studio/
+│   ├── lm-studio/
+│   └── atomic-chat/
 └── docs/
     ├── feature/modeltap-tui/  # wave artifacts (intake, discuss, design, ...)
     └── adrs/                  # architectural decision records

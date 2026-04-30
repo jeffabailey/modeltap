@@ -48,7 +48,7 @@ fn modeltap_with_platform(platform: &str) -> (Command, TempDir, PathBuf) {
         // Quiet down all plugin search dirs so each scenario runs fast and
         // cannot accidentally pick up the test runner's $HOME.
         .env("MODELTAP_OLLAMA_DIR", "/nonexistent/no-such-ollama")
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama")
         .env("HF_HOME", "/nonexistent/no-such-hf")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
@@ -99,7 +99,7 @@ fn discovery_runs_on_platform(platform: &str) {
         .filter_map(|v| v.as_str().map(str::to_string))
         .collect();
 
-    for expected in ["hf", "llama-cli", "lm-studio", "ollama"] {
+    for expected in ["hf", "lm-studio", "ollama"] {
         assert!(
             names.iter().any(|n| n == expected),
             "AC-1 ({platform}): tools_registered must contain {expected}, got {names:?}"

@@ -50,7 +50,7 @@ fn modeltap_headless() -> (Command, TempDir) {
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "100")
         .env("MODELTAP_OLLAMA_DIR", "/nonexistent/no-such-ollama")
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf-cache")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")

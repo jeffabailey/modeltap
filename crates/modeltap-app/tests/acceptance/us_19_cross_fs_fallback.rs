@@ -61,10 +61,8 @@ use tempfile::TempDir;
 struct Fixture {
     _temp: TempDir,
     ollama_dir: PathBuf,
-    llama_cli_dir: PathBuf,
     hf_home: PathBuf,
     ollama_path: PathBuf,
-    llama_cli_path: PathBuf,
     hf_blob_path: PathBuf,
     payload: Vec<u8>,
 }
@@ -95,14 +93,6 @@ fn build_fixture() -> Fixture {
     );
     fs::write(manifest_dir.join("7b"), manifest).expect("write manifest");
 
-    // llama-cli layout.
-    let llama_cli_dir = root.join("llms");
-    fs::create_dir_all(&llama_cli_dir).expect("create llms");
-    let llama_cli_path = llama_cli_dir.join("us19-7b.gguf");
-    let mut bytes = b"GGUF".to_vec();
-    bytes.extend(&payload[..payload_size - 4]);
-    fs::write(&llama_cli_path, &bytes).expect("write llama-cli");
-
     // HF layout.
     let hf_home = root.join(".cache").join("huggingface");
     let hf_hub = hf_home.join("hub");
@@ -128,10 +118,8 @@ fn build_fixture() -> Fixture {
     Fixture {
         _temp: temp,
         ollama_dir,
-        llama_cli_dir,
         hf_home,
         ollama_path,
-        llama_cli_path,
         hf_blob_path,
         payload,
     }
@@ -148,7 +136,6 @@ fn modeltap_headless(fix: &Fixture) -> (Command, TempDir, PathBuf) {
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", &fix.llama_cli_dir)
         .env("HF_HOME", &fix.hf_home)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
@@ -170,9 +157,8 @@ fn detail_regs_json(fix: &Fixture) -> String {
     serde_json::json!({
         "id": "us19/Synthetic-7B",
         "regs": [
-            {"tool": "ollama",    "path": fix.ollama_path.display().to_string()},
-            {"tool": "llama-cli", "path": fix.llama_cli_path.display().to_string()},
-            {"tool": "hf",        "path": hf_snapshot.display().to_string()},
+            {"tool": "ollama", "path": fix.ollama_path.display().to_string()},
+            {"tool": "hf",     "path": hf_snapshot.display().to_string()},
         ]
     })
     .to_string()
@@ -226,8 +212,8 @@ fn all_same_filesystem_unify_proceeds_normally() {
 
     // Pre-condition: distinct inodes.
     let pre_ollama = ino_of(&fix.ollama_path);
-    let pre_llama = ino_of(&fix.llama_cli_path);
-    assert_ne!(pre_ollama, pre_llama, "fixture precondition");
+    let pre_hf = ino_of(&fix.hf_blob_path);
+    assert_ne!(pre_ollama, pre_hf, "fixture precondition");
 
     // No MODELTAP_FAKE_CROSS_FS_PATHS — pure same-fs case.
     let script = "<enter>u<enter>q";
@@ -237,14 +223,9 @@ fn all_same_filesystem_unify_proceeds_normally() {
         .assert()
         .success();
 
-    // Post-condition: all 3 paths share one inode (standard unify path).
+    // Post-condition: both paths share one inode (standard unify path).
     let post_ollama = ino_of(&fix.ollama_path);
-    let post_llama = ino_of(&fix.llama_cli_path);
     let post_hf = ino_of(&fix.hf_blob_path);
-    assert_eq!(
-        post_ollama, post_llama,
-        "AC-1: same-fs unify must hardlink ollama + llama-cli"
-    );
     assert_eq!(
         post_ollama, post_hf,
         "AC-1: same-fs unify must hardlink ollama + hf"
@@ -276,8 +257,9 @@ fn all_same_filesystem_unify_proceeds_normally() {
 
 // ---------------------------------------------------------------------------
 // Scenario 2: Skip option leaves cross-fs target untouched.
-// Fake-fs-probe flags llama-cli as cross-fs. User presses `s`. Same-fs
-// targets (ollama + hf) link; llama-cli inode + content unchanged.
+// Fake-fs-probe flags HF as cross-fs. User presses `s`. The cross-fs target
+// (hf) inode + content unchanged. With ollama as the canonical and hf as
+// the only target, "skip" means no hardlink is created at all.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -286,15 +268,15 @@ fn skip_option_leaves_cross_fs_target_untouched() {
     let (mut cmd, _log_temp, log_file) = modeltap_headless(&fix);
     let regs = detail_regs_json(&fix);
 
-    let pre_llama_ino = ino_of(&fix.llama_cli_path);
-    let pre_llama_bytes = fs::read(&fix.llama_cli_path).expect("read llama pre");
+    let pre_hf_ino = ino_of(&fix.hf_blob_path);
+    let pre_hf_bytes = fs::read(&fix.hf_blob_path).expect("read hf pre");
 
-    // Inject fake cross-fs for llama-cli only. The planner will flag it as
-    // cross_filesystem; ollama + hf remain same-fs.
-    let fake_cross_fs = canon(&fix.llama_cli_dir);
+    // Inject fake cross-fs for hf only. The planner will flag it as
+    // cross_filesystem.
+    let fake_cross_fs = canon(&fix.hf_home);
 
-    // Script: <enter> open detail; u opens cross-fs dialog (because mixed);
-    // s = skip; q quit.
+    // Script: <enter> open detail; u opens cross-fs dialog (all targets
+    // cross-fs, since hf is the only target); s = skip; q quit.
     let script = "<enter>us q";
     cmd.env("MODELTAP_HEADLESS_INPUT", script)
         .env("MODELTAP_HEADLESS_DETAIL_REGS", regs)
@@ -303,24 +285,16 @@ fn skip_option_leaves_cross_fs_target_untouched() {
         .assert()
         .success();
 
-    // llama-cli untouched: same inode, same bytes.
-    let post_llama_ino = ino_of(&fix.llama_cli_path);
-    let post_llama_bytes = fs::read(&fix.llama_cli_path).expect("read llama post");
+    // hf untouched: same inode, same bytes.
+    let post_hf_ino = ino_of(&fix.hf_blob_path);
+    let post_hf_bytes = fs::read(&fix.hf_blob_path).expect("read hf post");
     assert_eq!(
-        pre_llama_ino, post_llama_ino,
+        pre_hf_ino, post_hf_ino,
         "AC-2: skip must NOT change cross-fs target's inode"
     );
     assert_eq!(
-        pre_llama_bytes, post_llama_bytes,
+        pre_hf_bytes, post_hf_bytes,
         "AC-2: skip must NOT change cross-fs target's content"
-    );
-
-    // Same-fs targets (ollama + hf) ARE linked.
-    let post_ollama_ino = ino_of(&fix.ollama_path);
-    let post_hf_ino = ino_of(&fix.hf_blob_path);
-    assert_eq!(
-        post_ollama_ino, post_hf_ino,
-        "AC-2: same-fs targets must still hardlink when user skips cross-fs"
     );
 
     // JSONL: skipped=1, copied=0.
@@ -346,7 +320,7 @@ fn skip_option_leaves_cross_fs_target_untouched() {
 
 // ---------------------------------------------------------------------------
 // Scenario 3: Copy option duplicates bytes to cross-fs target.
-// Same fixture as scenario 2. User presses `c`. llama-cli now has the
+// Same fixture as scenario 2. User presses `c`. hf now has the
 // canonical's bytes (byte-for-byte) but at a different inode.
 // ---------------------------------------------------------------------------
 
@@ -358,7 +332,7 @@ fn copy_option_duplicates_bytes_to_cross_fs_target() {
 
     let pre_ollama_ino = ino_of(&fix.ollama_path);
 
-    let fake_cross_fs = canon(&fix.llama_cli_dir);
+    let fake_cross_fs = canon(&fix.hf_home);
 
     // Script: <enter>u opens dialog; c = copy; q quit.
     let script = "<enter>uc q";
@@ -369,15 +343,15 @@ fn copy_option_duplicates_bytes_to_cross_fs_target() {
         .assert()
         .success();
 
-    // llama-cli has the canonical's bytes (NOT the original GGUF prefix).
-    let post_llama_bytes = fs::read(&fix.llama_cli_path).expect("read llama post");
+    // hf has the canonical's bytes.
+    let post_hf_bytes = fs::read(&fix.hf_blob_path).expect("read hf post");
     assert_eq!(
-        post_llama_bytes, fix.payload,
+        post_hf_bytes, fix.payload,
         "AC-3: copy must duplicate canonical's bytes to cross-fs target"
     );
 
-    // llama-cli has DIFFERENT inode from canonical (byte-copy, not hardlink).
-    let post_llama_ino = ino_of(&fix.llama_cli_path);
+    // hf has DIFFERENT inode from canonical (byte-copy, not hardlink).
+    let post_hf_ino = ino_of(&fix.hf_blob_path);
     let post_ollama_ino = ino_of(&fix.ollama_path);
     // Sanity: ollama inode unchanged after operation.
     assert_eq!(
@@ -385,15 +359,8 @@ fn copy_option_duplicates_bytes_to_cross_fs_target() {
         "ollama inode should be stable across the action"
     );
     assert_ne!(
-        post_llama_ino, post_ollama_ino,
+        post_hf_ino, post_ollama_ino,
         "AC-3: copy must produce a DIFFERENT inode (not a hardlink)"
-    );
-
-    // Same-fs targets (ollama + hf) ARE linked.
-    let post_hf_ino = ino_of(&fix.hf_blob_path);
-    assert_eq!(
-        post_ollama_ino, post_hf_ino,
-        "AC-3: same-fs targets must still hardlink when user copies cross-fs"
     );
 
     // JSONL: skipped=0, copied=1.
@@ -430,14 +397,12 @@ fn all_cross_fs_unify_is_refused() {
     let regs = detail_regs_json(&fix);
 
     let pre_ollama_ino = ino_of(&fix.ollama_path);
-    let pre_llama_ino = ino_of(&fix.llama_cli_path);
     let pre_hf_ino = ino_of(&fix.hf_blob_path);
 
-    // Mark llama-cli + hf cross-fs (the two TARGETS — ollama is canonical).
-    // Ollama is selected as canonical via lexicographic tiebreak (smallest
-    // tool id); marking only the targets cross-fs makes every active target
-    // cross-fs and the dialog opens in AllCrossFs mode.
-    let fake_cross_fs = format!("{}:{}", canon(&fix.llama_cli_dir), canon(&fix.hf_home));
+    // Mark hf cross-fs (the only TARGET — ollama is canonical via
+    // lexicographic tiebreak on the smallest tool id). With every active
+    // target cross-fs the dialog opens in AllCrossFs mode.
+    let fake_cross_fs = canon(&fix.hf_home);
 
     // Script: <enter>u opens dialog; <enter> = refuse-default; q quit.
     let script = "<enter>u<enter>q";
@@ -453,11 +418,6 @@ fn all_cross_fs_unify_is_refused() {
         pre_ollama_ino,
         ino_of(&fix.ollama_path),
         "AC-4: all-cross-fs refusal must NOT mutate ollama inode"
-    );
-    assert_eq!(
-        pre_llama_ino,
-        ino_of(&fix.llama_cli_path),
-        "AC-4: all-cross-fs refusal must NOT mutate llama-cli inode"
     );
     assert_eq!(
         pre_hf_ino,
@@ -493,10 +453,9 @@ fn default_on_enter_is_refuse() {
     let regs = detail_regs_json(&fix);
 
     let pre_ollama_ino = ino_of(&fix.ollama_path);
-    let pre_llama_ino = ino_of(&fix.llama_cli_path);
     let pre_hf_ino = ino_of(&fix.hf_blob_path);
 
-    let fake_cross_fs = canon(&fix.llama_cli_dir);
+    let fake_cross_fs = canon(&fix.hf_home);
 
     // Script: <enter> open detail; u open cross-fs dialog; <enter> default-cancel; q.
     let script = "<enter>u<enter>q";
@@ -514,14 +473,9 @@ fn default_on_enter_is_refuse() {
         "AC-5: refuse-default must NOT mutate ollama inode"
     );
     assert_eq!(
-        pre_llama_ino,
-        ino_of(&fix.llama_cli_path),
-        "AC-5: refuse-default must NOT mutate llama-cli inode"
-    );
-    assert_eq!(
         pre_hf_ino,
         ino_of(&fix.hf_blob_path),
-        "AC-5: refuse-default must NOT mutate hf inode (the same-fs targets must NOT link either — transactional cancel)"
+        "AC-5: refuse-default must NOT mutate hf inode (transactional cancel)"
     );
 
     // Any emitted action.unify event must not show outcome=success — the

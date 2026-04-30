@@ -1,0 +1,21 @@
+--- crates/modeltap-core/src/logic/plan.rs
++++ delete ! in build_plan
+@@ -67,17 +67,17 @@
+ 
+ /// Construct a unify plan. `canonical` is the source; `targets` is the slice
+ /// of all candidates (the canonical may appear in `targets`; it will be
+ /// filtered out).
+ ///
+ /// Returns `None` if `canonical` does not exist on disk — the unify action
+ /// is not applicable in that case.
+ pub fn build_plan(canonical: &PlanCandidate, targets: &[PlanCandidate]) -> Option<UnifyPlan> {
+-    if !canonical.exists {
++    if  /* ~ changed by cargo-mutants ~ */canonical.exists {
+         return None;
+     }
+ 
+     let mut links: Vec<PlannedLink> = Vec::new();
+     let mut inodes_replaced: HashSet<(u64, u64)> = HashSet::new();
+ 
+     for t in targets {
+         if t.path == canonical.path {

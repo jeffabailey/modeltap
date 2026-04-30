@@ -55,7 +55,7 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "100")
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
@@ -206,7 +206,7 @@ fn refresh_failure_shows_degraded_indicator() {
 //   - "Disk:" drops by `bytes_reclaimed` (the duplicate-inode bytes the
 //     hardlinks reclaimed).
 //
-// Reuses the synthetic 2-tool fixture from us_06's unify scenarios.
+// Uses a synthetic 2-tool fixture (ollama + hf).
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -236,17 +236,31 @@ fn totals_update_after_unify_disk_down_model_count_steady() {
     );
     std::fs::write(manifest_dir.join("7b"), manifest).expect("manifest");
 
-    // llama-cli layout — same content, separate inode.
-    let llama_dir = root.join("llms");
-    std::fs::create_dir_all(&llama_dir).expect("llama dir");
-    let llama_path = llama_dir.join("us11-7b.gguf");
-    let mut gguf_bytes = b"GGUF".to_vec();
-    gguf_bytes.extend(&payload[..payload.len() - 4]);
-    std::fs::write(&llama_path, &gguf_bytes).expect("llama gguf");
+    // HF layout — same content, separate inode.
+    let hf_home = root.join(".cache").join("huggingface");
+    let hf_hub = hf_home.join("hub");
+    let hf_repo_dir = hf_hub.join("models--us11--Synthetic-7B");
+    let hf_rev = "abc123def4567890abc123def4567890abc12345";
+    let hf_blobs = hf_repo_dir.join("blobs");
+    let hf_snapshots = hf_repo_dir.join("snapshots").join(hf_rev);
+    let hf_refs = hf_repo_dir.join("refs");
+    std::fs::create_dir_all(&hf_blobs).expect("hf blobs");
+    std::fs::create_dir_all(&hf_snapshots).expect("hf snapshots");
+    std::fs::create_dir_all(&hf_refs).expect("hf refs");
+    let hf_blob_name = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+    let hf_blob_path = hf_blobs.join(hf_blob_name);
+    std::fs::write(&hf_blob_path, &payload).expect("hf blob");
+    let snapshot_link = hf_snapshots.join("model.safetensors");
+    let rel_target = PathBuf::from("..")
+        .join("..")
+        .join("blobs")
+        .join(hf_blob_name);
+    std::os::unix::fs::symlink(&rel_target, &snapshot_link).expect("hf symlink");
+    std::fs::write(hf_refs.join("main"), hf_rev).expect("hf ref");
 
     let pre_ollama_ino = std::fs::metadata(&ollama_path).unwrap().ino();
-    let pre_llama_ino = std::fs::metadata(&llama_path).unwrap().ino();
-    assert_ne!(pre_ollama_ino, pre_llama_ino, "fixture precondition");
+    let pre_hf_ino = std::fs::metadata(&hf_blob_path).unwrap().ino();
+    assert_ne!(pre_ollama_ino, pre_hf_ino, "fixture precondition");
 
     let log_dir_temp = tempfile::tempdir().expect("log temp");
     let log_dir = log_dir_temp.path().join(".modeltap");
@@ -255,8 +269,8 @@ fn totals_update_after_unify_disk_down_model_count_steady() {
     let regs = serde_json::json!({
         "id": "us11/synthetic-7b",
         "regs": [
-            {"tool": "ollama",    "path": ollama_path.display().to_string()},
-            {"tool": "llama-cli", "path": llama_path.display().to_string()},
+            {"tool": "ollama", "path": ollama_path.display().to_string()},
+            {"tool": "hf",     "path": snapshot_link.display().to_string()},
         ]
     })
     .to_string();
@@ -267,14 +281,13 @@ fn totals_update_after_unify_disk_down_model_count_steady() {
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", &llama_dir)
+        .env("HF_HOME", &hf_home)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
-        .env("HF_HOME", "/nonexistent/no-such-hf")
         // <enter> opens detail; u opens unify dialog; <enter> confirms unify;
         // <esc> returns from detail to main so the summary bar is visible
         // (the summary bar only renders on the main two-pane view); q quits.
@@ -287,17 +300,17 @@ fn totals_update_after_unify_disk_down_model_count_steady() {
     // Inodes match after unify (precondition for the model-count-steady
     // claim — the model is still registered with both tools).
     let post_ollama_ino = std::fs::metadata(&ollama_path).unwrap().ino();
-    let post_llama_ino = std::fs::metadata(&llama_path).unwrap().ino();
+    let post_hf_ino = std::fs::metadata(&hf_blob_path).unwrap().ino();
     assert_eq!(
-        post_ollama_ino, post_llama_ino,
+        post_ollama_ino, post_hf_ino,
         "post-condition: paths must share inode after unify"
     );
 
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
     let frame = frame_text(&stdout);
 
-    // Model count steady: 2 models pre-unify (1 ollama manifest + 1
-    // llama-cli .gguf); both still registered post-unify.
+    // Model count steady: 2 models pre-unify (1 ollama manifest + 1 hf
+    // snapshot); both still registered post-unify.
     assert!(
         frame.contains("Total: 2 models"),
         "unify-model-count-steady: 'Total: 2 models' must remain post-unify; got:\n{}",

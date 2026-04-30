@@ -1,0 +1,34 @@
+--- crates/modeltap-core/src/logic/canonical_selector.rs
++++ replace select_canonical -> Option<&CandidatePath> with Some(Box::leak(Box::new(Default::default())))
+@@ -51,30 +51,17 @@
+ 
+ /// Pick the canonical path from a slice of candidates. Returns `None` when
+ /// no candidate exists on disk (the unify action is then not applicable).
+ ///
+ /// See the module docstring for the full ranking rules. This function is
+ /// its own driving port — calling it directly in tests IS port-to-port
+ /// testing per the `nw-tdd-methodology` convention.
+ pub fn select_canonical(candidates: &[CandidatePath]) -> Option<&CandidatePath> {
+-    candidates.iter().filter(|c| c.exists).max_by(|a, b| {
+-        // Largest size_bytes first. `Ord::cmp` returns Greater when the
+-        // left is larger; we want the largest to be "max", so the natural
+-        // ordering works — but `max_by` needs a comparator that reflects
+-        // "a > b" by returning Greater. So compare a vs b directly.
+-        a.size_bytes
+-            .cmp(&b.size_bytes)
+-            // Prefer Ollama-blob paths (true > false).
+-            .then_with(|| a.is_ollama_blob.cmp(&b.is_ollama_blob))
+-            // Lexicographic — but inverted because `max_by` keeps the
+-            // greater. We want the *smaller* path lexicographically as
+-            // canonical for stability across runs ⇒ invert.
+-            .then_with(|| b.path.cmp(&a.path))
+-    })
++    Some(Box::leak(Box::new(Default::default()))) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+ 
+     fn cand(
+         tool: &'static str,

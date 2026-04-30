@@ -38,7 +38,7 @@ fn tool_view(name: &'static str, status: ToolStatus, model_count: usize) -> Tool
 fn state_with_only_ollama_installed() -> AppState {
     AppState::new_with_default_selection(vec![
         tool_view("hf", ToolStatus::NotInstalled, 0),
-        tool_view("llama-cli", ToolStatus::NotInstalled, 0),
+        tool_view("Loose GGUFs", ToolStatus::NotInstalled, 0),
         tool_view("lm-studio", ToolStatus::NotInstalled, 0),
         tool_view("ollama", ToolStatus::Ok, 4),
     ])

@@ -149,11 +149,11 @@ fn tool_view(name: &'static str, status: ToolStatus, sizes: &[u64]) -> ToolView 
 
 #[test]
 fn replace_tool_in_inventory_recomputes_total_and_preserves_other_slots() {
-    // Initial inventory: ollama with 3 blobs, hf with 1 blob, llama-cli not
+    // Initial inventory: ollama with 3 blobs, hf with 1 blob, Loose GGUFs not
     // installed.
     let inventory = vec![
         tool_view("hf", ToolStatus::Ok, &[1_000_000]),
-        tool_view("llama-cli", ToolStatus::NotInstalled, &[]),
+        tool_view("Loose GGUFs", ToolStatus::NotInstalled, &[]),
         tool_view(
             "ollama",
             ToolStatus::Ok,
@@ -179,11 +179,11 @@ fn replace_tool_in_inventory_recomputes_total_and_preserves_other_slots() {
         .find(|t| t.tool == ToolId("hf"))
         .expect("hf present");
     assert_eq!(hf.total_bytes(), 1_000_000);
-    let llama = next
+    let loose = next
         .iter()
-        .find(|t| t.tool == ToolId("llama-cli"))
-        .expect("llama-cli present");
-    assert_eq!(llama.status, ToolStatus::NotInstalled);
+        .find(|t| t.tool == ToolId("Loose GGUFs"))
+        .expect("Loose GGUFs present");
+    assert_eq!(loose.status, ToolStatus::NotInstalled);
 }
 
 #[test]

@@ -1,0 +1,27 @@
+--- crates/modeltap-core/src/logic/compatibility.rs
++++ replace is_dedup_key_match -> bool with false
+@@ -125,23 +125,17 @@
+ ///
+ /// HF id+quant fallback is intentionally not yet implemented; the
+ /// conservative path is the safe default until US-12 lands the parser. The
+ /// rule says "preserve data when uncertain": missing SHA256 + no parsed
+ /// id+quant = treat as not-shared. The behavior is monotonic — adding the
+ /// fallback later only flips additional pairs from `false` to `true`, never
+ /// the reverse.
+ pub fn is_dedup_key_match(a: &InventoryEntry, b: &InventoryEntry) -> bool {
+-    match (a.content_hash, b.content_hash) {
+-        (Some(ha), Some(hb)) => ha == hb,
+-        // ADR-002 conservative-when-uncertain rule: missing SHA256 means we
+-        // are not sure these two files are byte-identical. Returning `false`
+-        // ensures the indicator never overstates sharing.
+-        _ => false,
+-    }
++    false /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// True if some plugin OTHER than `target_tool` declares `format` in its
+ /// `accepted_formats()`. Plugins with empty `accepted_formats()` cannot
+ /// accept anything (vacuously) so they don't contribute to compatibility.
+ fn any_other_plugin_accepts(
+     target_tool: ToolId,
+     format: Format,

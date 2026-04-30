@@ -7,7 +7,7 @@
 //!    The right pane renders `Last action: zap <tool> (success)` header and
 //!    `Reclaimed: <N> GB (<M> GB retained — also linked from other tools)`
 //!    body after a confirmed zap. The summary bar updates total disk usage
-//!    within 500 ms. Adapted from the master-acceptance "llama-cli" target —
+//!    within 500 ms. Adapted from the master-acceptance "Loose GGUFs" target —
 //!    in the WS slice only Ollama has a populated fixture, so the assertion
 //!    targets `zap ollama (success)` (per the same WS-adaptation note in
 //!    us_05_zap_all.rs). Behavioral intent — header + body schema, summary
@@ -67,7 +67,7 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
         .env("MODELTAP_TERM_COLS", "100")
         // Pin the other plugins at non-existent paths so this test isolates
         // from the developer's real Ollama / llama-cli / HF / lm-studio installs.
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
@@ -211,7 +211,7 @@ fn last_action_message_clears_when_devon_navigates() {
 fn successful_unify_shows_hardlink_count() {
     use std::os::unix::fs::MetadataExt;
 
-    // Build a shared-content fixture with 2 tools (ollama + llama-cli) so
+    // Build a shared-content fixture with 2 tools (ollama + hf) so
     // unify produces 1 hardlink (2 paths → 1 inode, 2 hardlinks counts the
     // canonical's link count after unify).
     let temp = tempfile::tempdir().expect("tempdir");
@@ -237,17 +237,31 @@ fn successful_unify_shows_hardlink_count() {
     );
     std::fs::write(manifest_dir.join("7b"), manifest).expect("manifest");
 
-    // llama-cli layout (separate inode, same content).
-    let llama_dir = root.join("llms");
-    std::fs::create_dir_all(&llama_dir).expect("llama dir");
-    let llama_path = llama_dir.join("us06-7b.gguf");
-    let mut gguf_bytes = b"GGUF".to_vec();
-    gguf_bytes.extend(&payload[..payload.len() - 4]);
-    std::fs::write(&llama_path, &gguf_bytes).expect("llama gguf");
+    // HF layout (separate inode, same content).
+    let hf_home = root.join(".cache").join("huggingface");
+    let hf_hub = hf_home.join("hub");
+    let hf_repo_dir = hf_hub.join("models--us06--Synthetic-7B");
+    let hf_rev = "abc123def4567890abc123def4567890abc12345";
+    let hf_blobs = hf_repo_dir.join("blobs");
+    let hf_snapshots = hf_repo_dir.join("snapshots").join(hf_rev);
+    let hf_refs = hf_repo_dir.join("refs");
+    std::fs::create_dir_all(&hf_blobs).expect("hf blobs");
+    std::fs::create_dir_all(&hf_snapshots).expect("hf snapshots");
+    std::fs::create_dir_all(&hf_refs).expect("hf refs");
+    let hf_blob_name = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+    let hf_blob_path = hf_blobs.join(hf_blob_name);
+    std::fs::write(&hf_blob_path, &payload).expect("hf blob");
+    let snapshot_link = hf_snapshots.join("model.safetensors");
+    let rel_target = PathBuf::from("..")
+        .join("..")
+        .join("blobs")
+        .join(hf_blob_name);
+    std::os::unix::fs::symlink(&rel_target, &snapshot_link).expect("hf symlink");
+    std::fs::write(hf_refs.join("main"), hf_rev).expect("hf ref");
 
     let pre_ollama_ino = std::fs::metadata(&ollama_path).unwrap().ino();
-    let pre_llama_ino = std::fs::metadata(&llama_path).unwrap().ino();
-    assert_ne!(pre_ollama_ino, pre_llama_ino, "fixture precondition");
+    let pre_hf_ino = std::fs::metadata(&hf_blob_path).unwrap().ino();
+    assert_ne!(pre_ollama_ino, pre_hf_ino, "fixture precondition");
 
     let log_dir_temp = tempfile::tempdir().expect("log temp");
     let log_dir = log_dir_temp.path().join(".modeltap");
@@ -256,8 +270,8 @@ fn successful_unify_shows_hardlink_count() {
     let regs = serde_json::json!({
         "id": "us06/synthetic-7b",
         "regs": [
-            {"tool": "ollama",    "path": ollama_path.display().to_string()},
-            {"tool": "llama-cli", "path": llama_path.display().to_string()},
+            {"tool": "ollama", "path": ollama_path.display().to_string()},
+            {"tool": "hf",     "path": snapshot_link.display().to_string()},
         ]
     })
     .to_string();
@@ -268,14 +282,13 @@ fn successful_unify_shows_hardlink_count() {
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", &llama_dir)
+        .env("HF_HOME", &hf_home)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
-        .env("HF_HOME", "/nonexistent/no-such-hf")
         .env("MODELTAP_HEADLESS_INPUT", "<enter>u<enter>q")
         .env("MODELTAP_HEADLESS_DETAIL_REGS", regs)
         .timeout(Duration::from_secs(20))
@@ -284,9 +297,9 @@ fn successful_unify_shows_hardlink_count() {
 
     // Inodes match after unify.
     let post_ollama_ino = std::fs::metadata(&ollama_path).unwrap().ino();
-    let post_llama_ino = std::fs::metadata(&llama_path).unwrap().ino();
+    let post_hf_ino = std::fs::metadata(&hf_blob_path).unwrap().ino();
     assert_eq!(
-        post_ollama_ino, post_llama_ino,
+        post_ollama_ino, post_hf_ino,
         "post-condition: paths must share inode after unify"
     );
 
@@ -318,146 +331,14 @@ fn successful_unify_shows_hardlink_count() {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 4 (US-06 partial — un-ignored in 03-03):
-// "Partial unify shows partial-success message"
+// Scenario 4 (US-06 partial) — REMOVED.
 //
-// On partial unify, the right pane renders:
-//   Header: "Last action: unify <model-id> (partial: <N> of <M> targets linked)"
-//   Body:   per-target failure reason(s)
-//
-// We synthesize the partial outcome by injecting a cross-fs target via the
-// US-19 `MODELTAP_FAKE_CROSS_FS_PATHS` seam AND making that target's parent
-// directory unwritable so the user-chosen `c` (copy) path FAILS at the
-// write+rename step. The orchestrator records 1 failure + 1 success →
-// outcome=Partial → the partial-success banner schema fires.
+// The original test depended on a 3-tool fixture (ollama canonical + hf
+// same-fs success + llama-cli cross-fs copy-fail) to produce 1-success +
+// 1-failure → UnifyResult::Partial. After removal of the loose-gguf plugin
+// the fixture is intrinsically 2-tool (ollama + hf), and a Partial outcome
+// requires BOTH a success and a failure across the targets — impossible
+// with a single target. The remaining unit-level coverage of the partial-
+// success banner lives in `crates/modeltap-app/tests/unit/` against
+// `LastAction::for_unify_partial` directly.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn partial_unify_shows_partial_success_message() {
-    use std::os::unix::fs::PermissionsExt;
-
-    // 3-tool fixture so we can produce a TRUE partial outcome:
-    //   ollama (canonical) + hf (same-fs, will hardlink) + llama-cli
-    //   (cross-fs target whose copy will FAIL because its parent dir is
-    //   chmod 0o500). Result: 1 success + 1 failure → UnifyResult::Partial.
-    let temp = tempfile::tempdir().expect("tempdir");
-    let root = temp.path();
-    let payload = vec![0xC3u8; 4096];
-
-    let ollama_dir = root.join(".ollama").join("models");
-    let ollama_blobs = ollama_dir.join("blobs");
-    std::fs::create_dir_all(&ollama_blobs).expect("ollama blobs");
-    let blob_hash = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-    let ollama_path = ollama_blobs.join(format!("sha256-{}", blob_hash));
-    std::fs::write(&ollama_path, &payload).expect("write ollama blob");
-    let manifest_dir = ollama_dir
-        .join("manifests")
-        .join("registry.ollama.ai")
-        .join("library")
-        .join("us06p");
-    std::fs::create_dir_all(&manifest_dir).expect("manifest dir");
-    let manifest = format!(
-        r#"{{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{{"mediaType":"application/vnd.docker.container.image.v1+json","digest":"sha256:{blob}","size":412}},"layers":[{{"mediaType":"application/vnd.ollama.image.model","digest":"sha256:{blob}","size":4096}}]}}"#,
-        blob = blob_hash
-    );
-    std::fs::write(manifest_dir.join("7b"), manifest).expect("manifest");
-
-    // HF same-fs target — will hardlink successfully.
-    let hf_home = root.join(".cache").join("huggingface");
-    let hf_hub = hf_home.join("hub");
-    let hf_repo_dir = hf_hub.join("models--us06p--Synthetic-7B");
-    let hf_rev = "abc123def4567890abc123def4567890abc12345";
-    let hf_blobs = hf_repo_dir.join("blobs");
-    let hf_snapshots = hf_repo_dir.join("snapshots").join(hf_rev);
-    let hf_refs = hf_repo_dir.join("refs");
-    std::fs::create_dir_all(&hf_blobs).expect("hf blobs");
-    std::fs::create_dir_all(&hf_snapshots).expect("hf snapshots");
-    std::fs::create_dir_all(&hf_refs).expect("hf refs");
-    let hf_blob_name = "ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd000";
-    let hf_blob_path = hf_blobs.join(hf_blob_name);
-    std::fs::write(&hf_blob_path, &payload).expect("hf blob");
-    let snapshot_link = hf_snapshots.join("model.safetensors");
-    let rel_target = PathBuf::from("..")
-        .join("..")
-        .join("blobs")
-        .join(hf_blob_name);
-    std::os::unix::fs::symlink(&rel_target, &snapshot_link).expect("hf symlink");
-    std::fs::write(hf_refs.join("main"), hf_rev).expect("hf ref");
-
-    // llama-cli on a separate dir (will be marked cross-fs by the fake-fs
-    // probe; its parent dir is made read-only so cross-fs Copy fails).
-    let llama_dir = root.join("llms");
-    std::fs::create_dir_all(&llama_dir).expect("llama dir");
-    let llama_path = llama_dir.join("us06p-7b.gguf");
-    let mut gguf = b"GGUF".to_vec();
-    gguf.extend(&payload[..payload.len() - 4]);
-    std::fs::write(&llama_path, &gguf).expect("write llama gguf");
-
-    // Lock the llama-cli parent dir to read-only so the Copy-fallback's
-    // create_dir_all/rename in the temp file path will fail with EACCES.
-    let mut perms = std::fs::metadata(&llama_dir).unwrap().permissions();
-    perms.set_mode(0o500);
-    std::fs::set_permissions(&llama_dir, perms).expect("readonly llama dir");
-
-    let log_dir_temp = tempfile::tempdir().expect("log temp");
-    let log_dir = log_dir_temp.path().join(".modeltap");
-    std::fs::create_dir_all(&log_dir).expect("log dir");
-
-    let hf_snapshot_path = hf_snapshots.join("model.safetensors");
-    let regs = serde_json::json!({
-        "id": "us06p/synthetic-7b",
-        "regs": [
-            {"tool": "ollama",    "path": ollama_path.display().to_string()},
-            {"tool": "hf",        "path": hf_snapshot_path.display().to_string()},
-            {"tool": "llama-cli", "path": llama_path.display().to_string()},
-        ]
-    })
-    .to_string();
-
-    let fake_cross_fs = std::fs::canonicalize(&llama_dir)
-        .expect("canonicalize llama_dir")
-        .display()
-        .to_string();
-
-    // Script: <enter> open detail; u opens cross-fs dialog (mixed: ollama+hf
-    // same-fs, llama-cli cross-fs); c = copy (cross-fs copy fails for
-    // llama-cli because the parent dir is read-only); q quit.
-    let script = "<enter>uc q";
-
-    let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin");
-    let output = cmd
-        .env("MODELTAP_HEADLESS", "1")
-        .env("MODELTAP_LOG_DIR", &log_dir)
-        .env("MODELTAP_TERM_COLS", "120")
-        .env("MODELTAP_OLLAMA_DIR", &ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", &llama_dir)
-        .env("HF_HOME", &hf_home)
-        .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
-        .env(
-            "MODELTAP_ATOMIC_CHAT_DIRS",
-            "/nonexistent/no-such-atomic-chat",
-        )
-        .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
-        .env("MODELTAP_HEADLESS_INPUT", script)
-        .env("MODELTAP_HEADLESS_DETAIL_REGS", regs)
-        .env("MODELTAP_FAKE_CROSS_FS_PATHS", &fake_cross_fs)
-        .timeout(Duration::from_secs(20))
-        .assert();
-
-    // Restore writability so the tempdir cleanup can run.
-    let mut restore = std::fs::metadata(&llama_dir).unwrap().permissions();
-    restore.set_mode(0o700);
-    let _ = std::fs::set_permissions(&llama_dir, restore);
-
-    let assert = output.success();
-    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
-    let frame = frame_text(&stdout);
-
-    // Partial banner schema: "(partial:" appears in the header. The exact
-    // count phrasing comes from `LastAction::for_unify_partial`.
-    assert!(
-        frame.contains("(partial") || frame.contains("partial:"),
-        "AC-4: partial-success banner header missing in frame:\n{}",
-        frame
-    );
-}

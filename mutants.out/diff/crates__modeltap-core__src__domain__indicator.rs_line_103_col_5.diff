@@ -1,0 +1,21 @@
+--- crates/modeltap-core/src/domain/indicator.rs
++++ replace other_tools_for_model -> Vec<ToolId> with vec![]
+@@ -95,17 +95,17 @@
+ /// also have this model registered. Drives the `also in: <list>` annotation
+ /// for `Shared` rows. Empty when the model is single-tool or the home tool is
+ /// not represented in the inventory.
+ pub fn other_tools_for_model(
+     model: &DiscoveredModel,
+     home: ToolId,
+     inventory: &[ToolPresence],
+ ) -> Vec<ToolId> {
+-    other_tools_by_presence(&model.id_in_tool, home, inventory)
++    vec![] /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Presence-only variant — same as `other_tools_for_model` but takes an
+ /// id-string instead of a full `DiscoveredModel`. Used by the render layer
+ /// in 02-01.
+ pub fn other_tools_by_presence(
+     id_in_tool: &str,
+     home: ToolId,

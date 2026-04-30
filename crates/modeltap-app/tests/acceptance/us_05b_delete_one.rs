@@ -7,7 +7,7 @@
 //! expected layout) and asserts:
 //!
 //! 1. **Shared single-model delete uses [y/n] confirmation** — when the same
-//!    content lives under 2 tools (Ollama blob + llama-cli `.gguf` with
+//!    content lives under 2 tools (Ollama blob + HF snapshot with
 //!    identical bytes), pressing `[d]` opens the dialog in Shared mode; `y`
 //!    confirms; the targeted tool's file is removed AND the other tool's
 //!    copy is still readable; the JSONL `action.zap_one` event records
@@ -45,19 +45,20 @@ use tempfile::TempDir;
 //
 //   <root>/.ollama/models/blobs/sha256-<blob>            (Ollama blob)
 //   <root>/.ollama/models/manifests/.../<tag>            (Ollama manifest)
-//   <root>/llms/synthetic-7b.gguf                        (llama-cli — same bytes)
+//   <root>/.cache/huggingface/hub/.../snapshots/...      (HF — same bytes)
 //
 // The two files are written with the SAME payload but distinct inodes (no
 // hardlink). This mirrors the real-world "same model, two tool installs"
-// case: deleting the Ollama registration must NOT touch the llama-cli copy.
+// case: deleting the Ollama registration must NOT touch the HF copy.
 // ---------------------------------------------------------------------------
 
 struct SharedFixture {
     _temp: TempDir,
     ollama_dir: PathBuf,
-    llama_cli_dir: PathBuf,
+    hf_home: PathBuf,
     ollama_path: PathBuf,
-    llama_cli_path: PathBuf,
+    hf_snapshot_path: PathBuf,
+    hf_blob_path: PathBuf,
     payload_size: u64,
 }
 
@@ -105,20 +106,35 @@ fn build_shared_fixture(payload_size: u64) -> SharedFixture {
     );
     fs::write(&manifest_path, manifest_json).expect("write manifest");
 
-    // llama-cli: <root>/llms/synthetic-7b.gguf — same content, distinct inode.
-    let llama_cli_dir = root.join("llms");
-    fs::create_dir_all(&llama_cli_dir).expect("create llms dir");
-    let llama_cli_path = llama_cli_dir.join("synthetic-7b.gguf");
-    let mut bytes = b"GGUF".to_vec();
-    bytes.extend(&payload[..(payload_size as usize - 4)]);
-    fs::write(&llama_cli_path, &bytes).expect("write llama-cli gguf");
+    // HF: <root>/.cache/huggingface/hub/... — same content, distinct inode.
+    let hf_home = root.join(".cache").join("huggingface");
+    let hf_hub = hf_home.join("hub");
+    let hf_repo_dir = hf_hub.join("models--synthetic--Synthetic-7B");
+    let hf_rev = "abc123def4567890abc123def4567890abc12345";
+    let hf_blobs = hf_repo_dir.join("blobs");
+    let hf_snapshots = hf_repo_dir.join("snapshots").join(hf_rev);
+    let hf_refs = hf_repo_dir.join("refs");
+    fs::create_dir_all(&hf_blobs).expect("create hf blobs");
+    fs::create_dir_all(&hf_snapshots).expect("create hf snapshots");
+    fs::create_dir_all(&hf_refs).expect("create hf refs");
+    let hf_blob_name = "ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100";
+    let hf_blob_path = hf_blobs.join(hf_blob_name);
+    fs::write(&hf_blob_path, &payload).expect("write hf blob");
+    let hf_snapshot_path = hf_snapshots.join("model.safetensors");
+    let rel_target = PathBuf::from("..")
+        .join("..")
+        .join("blobs")
+        .join(hf_blob_name);
+    std::os::unix::fs::symlink(&rel_target, &hf_snapshot_path).expect("create hf symlink");
+    fs::write(hf_refs.join("main"), hf_rev).expect("write hf ref");
 
     SharedFixture {
         _temp: temp,
         ollama_dir,
-        llama_cli_dir,
+        hf_home,
         ollama_path,
-        llama_cli_path,
+        hf_snapshot_path,
+        hf_blob_path,
         payload_size,
     }
 }
@@ -176,14 +192,13 @@ fn modeltap_headless_shared(fix: &SharedFixture) -> (Command, TempDir, PathBuf) 
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", &fix.llama_cli_dir)
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
-        .env("HF_HOME", "/nonexistent/no-such-hf");
+        .env("HF_HOME", &fix.hf_home);
     (cmd, log_dir_temp, log_file)
 }
 
@@ -198,7 +213,6 @@ fn modeltap_headless_unique(fix: &UniqueFixture) -> (Command, TempDir, PathBuf) 
         .env("MODELTAP_LOG_DIR", &log_dir)
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
-        .env("MODELTAP_LLAMACLI_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
@@ -210,13 +224,13 @@ fn modeltap_headless_unique(fix: &UniqueFixture) -> (Command, TempDir, PathBuf) 
 }
 
 /// Build the JSON value for `MODELTAP_HEADLESS_DETAIL_REGS` from the shared
-/// fixture (Ollama + llama-cli registrations).
+/// fixture (Ollama + HF registrations).
 fn detail_regs_json_shared(fix: &SharedFixture) -> String {
     serde_json::json!({
         "id": "synthetic/Synthetic-7B",
         "regs": [
-            {"tool": "ollama",    "path": fix.ollama_path.display().to_string()},
-            {"tool": "llama-cli", "path": fix.llama_cli_path.display().to_string()},
+            {"tool": "ollama", "path": fix.ollama_path.display().to_string()},
+            {"tool": "hf",     "path": fix.hf_snapshot_path.display().to_string()},
         ]
     })
     .to_string()
@@ -256,16 +270,16 @@ fn find_zap_one_events(events: &[Value]) -> Vec<&Value> {
 #[test]
 fn shared_single_model_delete_uses_yn_confirmation() {
     let fix = build_shared_fixture(4096);
-    let llama_path = fix.llama_cli_path.clone();
+    let hf_blob_path = fix.hf_blob_path.clone();
     let ollama_path = fix.ollama_path.clone();
-    let llama_bytes_pre = fs::read(&llama_path).expect("pre-read llama-cli copy");
+    let hf_bytes_pre = fs::read(&hf_blob_path).expect("pre-read hf copy");
 
     let (mut cmd, _log_temp, log_file) = modeltap_headless_shared(&fix);
     let regs = detail_regs_json_shared(&fix);
 
     // Script: <enter> open detail; d open delete-one dialog (Shared mode
     // because regs.len() >= 2); y confirm; q quit. Target Ollama (default
-    // first registration), so the llama-cli copy must remain.
+    // first registration), so the hf copy must remain.
     let script = "<enter>dyq";
     cmd.env("MODELTAP_HEADLESS_INPUT", script)
         .env("MODELTAP_HEADLESS_DETAIL_REGS", regs)
@@ -282,16 +296,16 @@ fn shared_single_model_delete_uses_yn_confirmation() {
         ollama_path.display()
     );
 
-    // Other-tool-unaffected invariant: llama-cli copy still readable with
-    // identical bytes (this is the load-bearing single-model invariant per
-    // ADR-009 — distinguishes delete_one from delete_all).
+    // Other-tool-unaffected invariant: hf copy still readable with identical
+    // bytes (this is the load-bearing single-model invariant per ADR-009 —
+    // distinguishes delete_one from delete_all).
     assert!(
-        llama_path.exists(),
+        hf_blob_path.exists(),
         "AC-1: other tool's copy must be untouched after shared single-model delete"
     );
-    let llama_bytes_post = fs::read(&llama_path).expect("post-read llama-cli copy");
+    let hf_bytes_post = fs::read(&hf_blob_path).expect("post-read hf copy");
     assert_eq!(
-        llama_bytes_pre, llama_bytes_post,
+        hf_bytes_pre, hf_bytes_post,
         "AC-1: other tool's bytes must be unchanged after single-model delete"
     );
 

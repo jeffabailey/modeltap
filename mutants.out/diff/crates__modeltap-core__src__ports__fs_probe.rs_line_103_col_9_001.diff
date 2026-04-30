@@ -1,0 +1,21 @@
+--- crates/modeltap-core/src/ports/fs_probe.rs
++++ replace FsProbe::device_id -> Option<u64> with Some(0)
+@@ -95,17 +95,17 @@
+             _ => false,
+         }
+     }
+ 
+     /// The device id (`dev_t`) of `path`, or `None` if the path cannot be
+     /// statted. Useful for callers that need just the device part without the
+     /// inode (e.g., per-target cross-fs flagging in `build_plan`).
+     fn device_id(&self, path: &Path) -> Option<u64> {
+-        self.dev_and_inode(path).map(|(d, _)| d)
++        Some(0) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// The inode (`ino_t`) of `path`, or `None` if the path cannot be statted.
+     /// Useful for callers that need just the inode part without the device
+     /// (e.g., post-action invariant checks on inode equality).
+     fn inode(&self, path: &Path) -> Option<u64> {
+         self.dev_and_inode(path).map(|(_, i)| i)
+     }

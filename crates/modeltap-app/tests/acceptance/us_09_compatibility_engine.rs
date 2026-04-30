@@ -63,7 +63,7 @@ fn multi_tool_model_with_matching_sha256_gets_shared_indicator() {
         Some(HASH_A),
     );
     let other = entry(
-        "llama-cli",
+        "Loose GGUFs",
         model(
             "llama3-8b.gguf",
             Format::Gguf,
@@ -75,7 +75,7 @@ fn multi_tool_model_with_matching_sha256_gets_shared_indicator() {
     let inventory = Inventory {
         entries: vec![target.clone(), other],
     };
-    let plugin_caps = caps(&[("hf", &[Format::Gguf]), ("llama-cli", &[Format::Gguf])]);
+    let plugin_caps = caps(&[("hf", &[Format::Gguf]), ("Loose GGUFs", &[Format::Gguf])]);
 
     let result = compute_indicator(&target, &inventory, &plugin_caps);
 
@@ -102,7 +102,7 @@ fn single_tool_gguf_with_other_plugin_accepting_gguf_gets_compatible_indicator()
     };
     let plugin_caps = caps(&[
         ("hf", &[Format::Gguf, Format::Safetensors]),
-        ("llama-cli", &[Format::Gguf]), // accepts Gguf -> compatible
+        ("Loose GGUFs", &[Format::Gguf]), // accepts Gguf -> compatible
         ("ollama", &[Format::OllamaBlob]),
         ("lm-studio", &[Format::Gguf]),
     ]);
@@ -138,7 +138,7 @@ fn single_tool_awq_with_no_other_plugin_accepting_awq_gets_format_locked_indicat
     // Only HF accepts AWQ; nobody else does. The model is format-locked.
     let plugin_caps = caps(&[
         ("hf", &[Format::Awq, Format::Gguf, Format::Safetensors]),
-        ("llama-cli", &[Format::Gguf]),
+        ("Loose GGUFs", &[Format::Gguf]),
         ("ollama", &[Format::OllamaBlob]),
         ("lm-studio", &[Format::Gguf]),
     ]);
@@ -184,7 +184,7 @@ fn every_computed_indicator_is_one_of_o_star_bang_question() {
                 Format::Gptq,
             ],
         ),
-        ("llama-cli", &[Format::Gguf]),
+        ("Loose GGUFs", &[Format::Gguf]),
         ("ollama", &[Format::OllamaBlob]),
         ("lm-studio", &[Format::Gguf]),
     ]);
@@ -202,7 +202,7 @@ fn every_computed_indicator_is_one_of_o_star_bang_question() {
                 entries: vec![target.clone()],
             };
             let peer_diff = entry(
-                "llama-cli",
+                "Loose GGUFs",
                 model("peer", Format::Gguf, "/llms/peer", 1_000_000_000),
                 Some(HASH_B),
             );
@@ -210,7 +210,7 @@ fn every_computed_indicator_is_one_of_o_star_bang_question() {
                 entries: vec![target.clone(), peer_diff.clone()],
             };
             let peer_match = entry(
-                "llama-cli",
+                "Loose GGUFs",
                 model(
                     "peer-shared",
                     Format::Gguf,

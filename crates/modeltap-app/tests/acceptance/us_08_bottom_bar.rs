@@ -65,7 +65,7 @@ fn state_devon_multi_tool() -> AppState {
             &["mistralai/Mistral-7B-v0.3", "TheBloke/foo-AWQ"],
             &[4_400_000_000, 7_000_000_000],
         ),
-        tool_view("llama-cli", &["mistral-7b.gguf"], &[4_400_000_000]),
+        tool_view("Loose GGUFs", &["mistral-7b.gguf"], &[4_400_000_000]),
         tool_view("ollama", &["mistral:7b"], &[4_400_000_000]),
     ])
 }
