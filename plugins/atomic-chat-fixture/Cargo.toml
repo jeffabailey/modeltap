@@ -1,0 +1,26 @@
+[package]
+name = "modeltap-plugin-atomic-chat-fixture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "TEST-ONLY 5th-plugin fixture proving the ADR-001 plugin contract end-to-end (US-18). Not shipped in production builds."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# US-18 contract surface — the fixture's existence proves a 5th plugin can be
+# added with ZERO changes to modeltap-core. The only crate it imports from is
+# modeltap-core, exactly like the four production plugins.
+modeltap-core = { path = "../../crates/modeltap-core" }
+
+# ADR-001: object-safe async trait for `Tool`.
+async-trait = "0.1"
+
+# Plugin registration (per ADR-001 §"Plugin registration mechanism").
+inventory = "0.3"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

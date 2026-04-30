@@ -14,6 +14,14 @@ unsafe_code = "forbid"
 name = "modeltap_app"
 path = "src/lib.rs"
 
+[features]
+# Default-on so `cargo test --workspace` exercises the US-18 5th-plugin
+# certification scenarios end-to-end. Release builds disable it via
+# `cargo build --release --no-default-features` (see CI's release job + the
+# CONTRIBUTING.md "Adding a plugin" walk-through).
+default = ["test-fixtures"]
+test-fixtures = ["dep:modeltap-plugin-atomic-chat-fixture"]
+
 [[bin]]
 name = "modeltap"
 path = "src/main.rs"
@@ -29,6 +37,12 @@ modeltap-plugin-ollama = { path = "../../plugins/ollama" }
 modeltap-plugin-llama-cli = { path = "../../plugins/llama-cli" }
 modeltap-plugin-hf = { path = "../../plugins/hf" }
 modeltap-plugin-lm-studio = { path = "../../plugins/lm-studio" }
+
+# US-18 5th-plugin certification fixture. Linked behind the `test-fixtures`
+# Cargo feature so production binaries (built with `--release` and no
+# `--features` flag, or `cargo build`) do NOT include it. Tests enable the
+# feature via `default = ["test-fixtures"]` below.
+modeltap-plugin-atomic-chat-fixture = { path = "../../plugins/atomic-chat-fixture", optional = true }
 
 # Plugin discovery via `inventory::iter`.
 inventory = "0.3"

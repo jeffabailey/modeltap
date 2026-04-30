@@ -27,6 +27,12 @@ use modeltap_plugin_llama_cli as _;
 use modeltap_plugin_lm_studio as _;
 use modeltap_plugin_ollama as _;
 
+// US-18 5th-plugin certification fixture. Linked behind the `test-fixtures`
+// Cargo feature so production binaries (built with `--no-default-features`)
+// do NOT register the synthetic plugin.
+#[cfg(feature = "test-fixtures")]
+use modeltap_plugin_atomic_chat_fixture as _;
+
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
@@ -93,6 +99,20 @@ fn main() -> ExitCode {
     let plugins_for_discovery = registry::collect_plugins();
     let plugins_for_actions = registry::collect_plugins();
 
+    // US-18 AC-7: capture the registered plugin set BEFORE discovery so a
+    // panicking plugin still appears in `launch.inventory.tools_registered`.
+    // Riley's release dashboards consume this list as the canonical inventory
+    // of the deployed plugin set; it must be independent of per-plugin
+    // discovery success AND independent of the atomic-chat fixture's runtime
+    // opt-in env var. We therefore source this list directly from
+    // `inventory::iter::<PluginFactory>()` (every linked factory) rather than
+    // from `registry::collect_plugins()` (which filters the fixture out when
+    // the opt-in env var is unset, to keep prior acceptance tests stable).
+    let mut tools_registered: Vec<String> = inventory::iter::<modeltap_core::PluginFactory>()
+        .map(|f| (f.make)().name().to_string())
+        .collect();
+    tools_registered.sort();
+
     // Pre-discovery contract check: every plugin's `accepted_formats()` MUST
     // be non-empty (per US-16.AC-3). The compatibility engine's defensive
     // branch will already render any offender's models as `?` (Unknown), but
@@ -120,6 +140,7 @@ fn main() -> ExitCode {
         dedupable_count: summary.dedupable_count(),
         format_locked_count: summary.format_locked_count(),
         tool_errors: summary.tool_errors(),
+        tools_registered: tools_registered.clone(),
     });
     // Per-model JSONL entries (writes to models.log next to launch.log) so
     // acceptance tests can assert per-model metadata (display_label, format,

@@ -112,10 +112,14 @@ impl InventorySummary {
 /// into a synthetic `DiscoverError::Io` outcome — the orchestrator never
 /// propagates a panic upward.
 pub async fn run_discovery(plugins: Vec<Box<dyn Tool>>) -> InventorySummary {
+    // Capture each plugin's `ToolId` BEFORE moving the plugin into its task
+    // so a panicking discover() can still be attributed to its tool name on
+    // the outer JoinError branch (US-18 AC-4: tool_errors must include the
+    // panicking plugin's name, not "unknown").
     let mut handles = Vec::with_capacity(plugins.len());
     for plugin in plugins {
         let tool = plugin.name();
-        handles.push(tokio::spawn(async move {
+        let join_handle = tokio::spawn(async move {
             let start = Instant::now();
             let result = plugin.discover().await;
             let elapsed_ms = start.elapsed().as_millis();
@@ -124,25 +128,23 @@ pub async fn run_discovery(plugins: Vec<Box<dyn Tool>>) -> InventorySummary {
                 elapsed_ms,
                 result,
             }
-        }));
+        });
+        handles.push((tool, join_handle));
     }
 
     let mut outcomes = Vec::with_capacity(handles.len());
-    for handle in handles {
+    for (tool, handle) in handles {
         match handle.await {
             Ok(outcome) => outcomes.push(outcome),
             Err(join_err) => {
                 // Per US-18 AC-4: a plugin panic must not crash modeltap.
                 // Synthesize an Error outcome so the inventory still shows
-                // the tool with `(error)` annotation.
+                // the tool with `(error)` annotation. We preserve the
+                // panicking plugin's `ToolId` (captured before spawn) so
+                // `tool_errors()` lists it by name rather than "unknown".
                 let reason = format!("plugin task panicked: {join_err}");
                 outcomes.push(PluginOutcome {
-                    // Without the JoinHandle we lost the ToolId; emit a
-                    // synthetic name so the diagnostic still flags the
-                    // failure. In practice JoinError on a non-panicking
-                    // task is rare enough that this branch is mostly
-                    // defense in depth.
-                    tool: ToolId("unknown"),
+                    tool,
                     elapsed_ms: 0,
                     result: Err(DiscoverError::Io(std::io::Error::other(reason))),
                 });

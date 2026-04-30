@@ -8,6 +8,9 @@ members = [
     "plugins/llama-cli",
     "plugins/hf",
     "plugins/lm-studio",
+    # TEST-ONLY 5th-plugin fixture (US-18). Behind `[features] test-fixtures`
+    # in modeltap-app so production binaries do NOT link it.
+    "plugins/atomic-chat-fixture",
 ]
 
 [workspace.package]

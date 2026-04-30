@@ -693,6 +693,7 @@ dependencies = [
  "insta",
  "inventory",
  "modeltap-core",
+ "modeltap-plugin-atomic-chat-fixture",
  "modeltap-plugin-hf",
  "modeltap-plugin-llama-cli",
  "modeltap-plugin-lm-studio",
@@ -722,6 +723,16 @@ dependencies = [
  "proptest",
  "serde",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "modeltap-plugin-atomic-chat-fixture"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "inventory",
+ "modeltap-core",
+ "tokio",
 ]
 
 [[package]]

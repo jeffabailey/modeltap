@@ -12,5 +12,6 @@
 
 pub mod inventory_build;
 pub mod lsof_adapter;
+pub mod plugin_isolation;
 pub mod refresh;
 pub mod sha256_cache;

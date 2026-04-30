@@ -41,12 +41,18 @@ pub enum RecordKind {
     /// event is emitted EVEN when totals are zero and EVEN when one or more
     /// plugins errored. Schema is intentionally a superset of the v1 spec
     /// (see kpi-instrumentation.md §3) — extra fields are forward-compatible.
+    ///
+    /// `tools_registered` (US-18 AC-7) — alphabetically-sorted list of every
+    /// plugin's `Tool::name()`. Riley's release dashboards consume this field
+    /// to know which plugin set is deployed in a given build. Sorted so a
+    /// build-over-build diff is stable.
     LaunchInventory {
         total_models: u64,
         total_disk_usage_bytes: u64,
         dedupable_count: u64,
         format_locked_count: u64,
         tool_errors: Vec<String>,
+        tools_registered: Vec<String>,
     },
     /// Result of a confirmed zap-all action (US-05). Per the privacy rule
     /// (`kpi-instrumentation.md` §"Privacy"): NO model names, NO paths, NO
@@ -226,6 +232,7 @@ impl LaunchLogger {
                 dedupable_count,
                 format_locked_count,
                 tool_errors,
+                tools_registered,
             } => {
                 let mut env = self.base_envelope("launch.inventory");
                 env["total_models"] = json!(total_models);
@@ -233,6 +240,7 @@ impl LaunchLogger {
                 env["dedupable_count"] = json!(dedupable_count);
                 env["format_locked_count"] = json!(format_locked_count);
                 env["tool_errors"] = json!(tool_errors);
+                env["tools_registered"] = json!(tools_registered);
                 env
             }
             RecordKind::ActionZapAll {
