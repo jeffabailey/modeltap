@@ -35,19 +35,22 @@
 use std::io::{self, Stdout};
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyEvent, KeyEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{Tool, ToolId};
+use modeltap_tui::app_state::Screen;
+use modeltap_tui::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use modeltap_tui::{
     keymap, left_pane_body_rows, right_pane_body_rows, update, view, AppState, Msg, UpdateEffect,
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
+use crate::actions::delete_one::{self, DeleteOneOutcome, DeleteOneResult};
 use crate::actions::zap::{self, ZapOutcome, ZapResult};
 use crate::observability::{LaunchLogger, RecordKind};
 use crate::refresh;
@@ -201,16 +204,83 @@ fn is_press(key: &KeyEvent) -> bool {
 /// Translate a real `KeyEvent` into the appropriate `Msg`, accounting for
 /// whether a typed-input dialog is currently open. Mirrors the headless
 /// harness's `token_to_msg` but consumes a real `KeyEvent` instead of a
-/// scripted token. The dialog-open check is identical to headless.
+/// scripted token.
+///
+/// US-05b Shared mode: when `state.delete_one_dialog` is open in Shared mode,
+/// `[y]` / `[n]` resolve the dialog directly via `Msg::DeleteOneConfirmShared`
+/// / `Msg::DeleteOneCancelShared` instead of being buffered as typed input.
+/// Mirrors `headless::token_to_msg`'s `delete_one_shared_open` branch — without
+/// this, pressing `y` to confirm would just append `y` to the (unused) typed
+/// buffer and the dialog would never close.
+///
+/// Main-pane delete: outside any dialog, `Msg::DeleteFromOne` is lifted to
+/// `Msg::OpenDeleteOneDialog(...)` when on `Screen::Main`. The pure update
+/// treats `DeleteFromOne` as a no-op; the orchestrator owns dialog
+/// construction (it needs the highlighted row + cross-tool classification).
 fn translate_key(state: &AppState, key: KeyEvent) -> Msg {
+    // Ctrl+C must always interrupt regardless of dialog state.
+    if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+        return Msg::CtrlC;
+    }
+    let delete_one_shared_open = state
+        .delete_one_dialog
+        .as_ref()
+        .is_some_and(|d| d.is_shared());
+    if delete_one_shared_open {
+        return match key.code {
+            KeyCode::Esc => Msg::DialogCancel,
+            KeyCode::Char('y') => Msg::DeleteOneConfirmShared,
+            KeyCode::Char('n') => Msg::DeleteOneCancelShared,
+            _ => Msg::UnboundKey,
+        };
+    }
     let dialog_open = state.zap_dialog.is_some()
         || state.unify_dialog.is_some()
         || state.delete_one_dialog.is_some();
     if dialog_open {
-        keymap::dispatch_in_dialog(key)
-    } else {
-        keymap::dispatch(key)
+        return keymap::dispatch_in_dialog(key);
     }
+    let raw = keymap::dispatch(key);
+    lift_delete_one_in_main(state, raw)
+}
+
+/// On the main screen, lift `Msg::DeleteFromOne` (no-op in pure update) into
+/// `Msg::OpenDeleteOneDialog(state)` after building a `DeleteOneConfirmState`
+/// snapshot from the highlighted right-pane row. The targeted tool is the
+/// currently-selected tool; the targeted model id is `model_ids[selected_row]`.
+///
+/// `was_shared` is classified conservatively (per ADR-002): true iff the same
+/// `model_id` appears under another tool's `ToolView` (best-effort proxy for
+/// cross-tool registration without a content-hash dedup index). When true,
+/// the dialog opens in Shared mode (low-friction `[y/n]`); otherwise Unique
+/// (typed-id confirmation). Outside the main screen, the message passes
+/// through unchanged so the existing detail-screen [d] flow still works.
+fn lift_delete_one_in_main(state: &AppState, msg: Msg) -> Msg {
+    if !matches!(msg, Msg::DeleteFromOne) {
+        return msg;
+    }
+    if !matches!(state.current_screen, Screen::Main) {
+        return msg;
+    }
+    let Some(tool_view) = state.current_tool() else {
+        return msg;
+    };
+    let Some(model_id) = tool_view.model_ids.get(state.selected_row) else {
+        return msg;
+    };
+    let size_bytes = tool_view
+        .model_sizes_bytes
+        .get(state.selected_row)
+        .copied()
+        .unwrap_or(0);
+    let target_tool = tool_view.tool;
+    let target_id = model_id.clone();
+    let was_shared = state
+        .tools
+        .iter()
+        .any(|t| t.tool != target_tool && t.model_ids.iter().any(|id| id == &target_id));
+    let dialog = DeleteOneConfirmState::for_model(target_tool, target_id, size_bytes, was_shared);
+    Msg::OpenDeleteOneDialog(dialog)
 }
 
 /// Interpret an `UpdateEffect`. Mirrors the production-relevant subset of
@@ -275,13 +345,92 @@ fn apply_effect(
         }
     }
 
-    // Forward-compatibility: the remaining effects only fire from the
-    // Detail screen which is not yet reachable via real keypresses (see
-    // module docstring). If one of them ever fires from production input,
-    // log a warning so the gap is observable.
+    if let Some(trigger) = effect.trigger_delete_one.clone() {
+        // US-05b (ADR-009): user confirmed a single-model delete.
+        //
+        // Resolving on-disk path: ToolView intentionally carries only ids +
+        // sizes (the right-pane summary doesn't need paths). Re-walking
+        // discover() once per delete keystroke is the simplest way to recover
+        // the path without reshaping ToolView. Cost is one tool's discovery
+        // walk on a destructive-action keystroke — not a hot path.
+        if let Some(plugin) = find_plugin(plugins, trigger.tool) {
+            let path_opt = match runtime.block_on(plugin.discover()) {
+                Ok(models) => models
+                    .iter()
+                    .find(|m| m.id_in_tool == trigger.model_id)
+                    .map(|m| m.on_disk_path.clone()),
+                Err(e) => {
+                    tracing::warn!(
+                        target: "modeltap.action.delete_one",
+                        "discover failed during path resolution for {}: {e}",
+                        trigger.tool.0
+                    );
+                    None
+                }
+            };
+            if let Some(path) = path_opt {
+                let outcome: DeleteOneOutcome = runtime.block_on(delete_one::run(
+                    plugin,
+                    trigger.tool,
+                    trigger.model_id.clone(),
+                    path,
+                    trigger.size_bytes,
+                    trigger.was_shared,
+                    logger,
+                ));
+                let action = build_delete_one_last_action(&outcome);
+                let (next, _) = update(std::mem::take(state), Msg::SetLastAction(action));
+                *state = next;
+
+                // US-11.AC-1 — incremental refresh after delete so the summary
+                // total reflects the post-delete byte count.
+                let tool_id = trigger.tool;
+                match runtime.block_on(refresh::refresh_tool_incremental(plugin)) {
+                    Ok(view) => {
+                        let (next, _) =
+                            update(std::mem::take(state), Msg::RefreshSucceeded(view));
+                        *state = next;
+                    }
+                    Err(refresh::RefreshError::NotInstalled) => {
+                        tracing::info!(
+                            target: "modeltap.refresh",
+                            "refresh after delete_one: tool {} not installed",
+                            tool_id.0
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "modeltap.refresh",
+                            "refresh after delete_one failed for {}: {e}",
+                            tool_id.0
+                        );
+                        let (next, _) =
+                            update(std::mem::take(state), Msg::RefreshFailed(tool_id));
+                        *state = next;
+                    }
+                }
+            } else {
+                tracing::warn!(
+                    target: "modeltap.action.delete_one",
+                    "could not resolve on-disk path for {} in {}",
+                    trigger.model_id, trigger.tool.0
+                );
+            }
+        } else {
+            tracing::warn!(
+                target: "modeltap.action.delete_one",
+                "no plugin for {}",
+                trigger.tool.0
+            );
+        }
+    }
+
+    // Forward-compatibility: unify / dry-run / running-tool-retry are only
+    // dispatched from the detail screen, which is not yet reachable via real
+    // keypresses (see module docstring). If one of them ever fires from
+    // production input, log a warning so the gap is observable.
     if effect.trigger_unify.is_some()
         || effect.trigger_dry_run.is_some()
-        || effect.trigger_delete_one.is_some()
         || effect.trigger_running_tool_retry.is_some()
     {
         tracing::warn!(
@@ -289,6 +438,22 @@ fn apply_effect(
             "detail-screen effect dispatched from production loop \
              (no real-key path opens the Detail screen yet); skipping"
         );
+    }
+}
+
+/// Map a `DeleteOneOutcome` to a `LastAction` for the right-pane banner.
+/// Reuses the zap LastAction constructors because the single-model destructive
+/// path produces the same banner shape — the `action.zap_one` JSONL event is
+/// what distinguishes the two observability streams. Mirrors
+/// `headless::build_delete_one_last_action`.
+fn build_delete_one_last_action(outcome: &DeleteOneOutcome) -> LastAction {
+    match outcome.outcome {
+        DeleteOneResult::Success => {
+            LastAction::for_zap_success(outcome.tool, outcome.bytes_reclaimed, 0)
+        }
+        DeleteOneResult::NotFound | DeleteOneResult::Failed => {
+            LastAction::for_zap_failed(outcome.tool)
+        }
     }
 }
 

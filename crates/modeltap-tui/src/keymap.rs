@@ -128,7 +128,12 @@ pub const SHORTCUT_TABLE: &[Shortcut] = &[
         key: KeyEvent::new(KeyCode::Char('d'), KeyModifiers::NONE),
         label: "[d] delete-from-one",
         msg: Msg::DeleteFromOne,
-        sections: &[BarSection::Detail],
+        // Visible in BOTH Main and Detail. Main fires the dialog against the
+        // currently-highlighted right-pane row; Detail fires against the
+        // detail screen's first registration (or the env-overridden tool in
+        // headless tests). The orchestrator builds the DeleteOneConfirmState
+        // appropriately for each screen.
+        sections: &[BarSection::Main, BarSection::Detail],
     },
     // ----- Global ---------------------------------------------------------
     Shortcut {
