@@ -8,6 +8,7 @@
 mod actions;
 mod discovery;
 mod headless;
+mod interactive;
 mod observability;
 mod registry;
 
@@ -188,19 +189,19 @@ fn main() -> ExitCode {
         return ExitCode::from(exit as u8);
     }
 
-    // Production interactive event loop arrives in the next step (01-04 or
-    // an early sub-step of Phase 02 once a real keyboard polling integration
-    // test exists). For step 01-03 only headless mode is wired so the
-    // @walking-skeleton @us-03 scenarios run end-to-end without requiring a
-    // real PTY. The state is fully constructed (initial_state above) so the
-    // production loop will only need to add a CrosstermBackend + key polling
-    // shell when it lands.
-    let _ = initial_state;
-    eprintln!(
-        "modeltap: interactive mode lands in a follow-up step; \
-         use --headless or MODELTAP_HEADLESS=1 for the headless harness"
-    );
-    ExitCode::from(64)
+    // Production interactive event loop. Drives the same `update()` and
+    // `view()` as the headless harness — only the backend
+    // (CrosstermBackend on real stdout) and the input source (live
+    // keypress polling via crossterm::event) differ. The headless harness
+    // remains the deterministic acceptance-test driver; this is the path
+    // a user reaches by running `modeltap` with no flags on a real TTY.
+    match interactive::run(&runtime, initial_state, logger, plugins_for_actions) {
+        Ok(code) => ExitCode::from(code as u8),
+        Err(e) => {
+            eprintln!("modeltap: interactive loop failed: {e}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 fn resolve_terminal_cols(headless: bool) -> u16 {
