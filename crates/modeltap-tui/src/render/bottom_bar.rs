@@ -48,6 +48,10 @@ pub struct BarContext<'a> {
     /// `Some(state)` when on the detail screen — drives availability of
     /// `[u] unify` (dimmed for SINGLE TOOL).
     pub detail: Option<&'a DetailScreenState>,
+    /// True when `state.refresh_failed_tools` is non-empty (US-11.AC-2).
+    /// Drives visibility of the `[r] retry` shortcut: the bar omits the
+    /// entry entirely when this is false (no failure to retry).
+    pub has_refresh_failures: bool,
 }
 
 impl<'a> BarContext<'a> {
@@ -67,10 +71,12 @@ impl<'a> BarContext<'a> {
             .current_tool()
             .map(|t| !t.model_ids.is_empty())
             .unwrap_or(false);
+        let has_refresh_failures = !state.refresh_failed_tools.is_empty();
         Self {
             section,
             current_tool_has_models,
             detail,
+            has_refresh_failures,
         }
     }
 }
@@ -95,6 +101,11 @@ pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static>
     let mut first = true;
     for entry in SHORTCUT_TABLE {
         if !entry.sections.contains(&ctx.section) {
+            continue;
+        }
+        // [r] retry is conditionally visible — omit entirely when no
+        // refresh failures are pending (US-11.AC-2).
+        if is_retry_entry(entry) && !ctx.has_refresh_failures {
             continue;
         }
         if !first {
@@ -168,4 +179,13 @@ fn is_available_detail(entry: &Shortcut, ctx: &BarContext<'_>) -> bool {
 
 fn no_color_active() -> bool {
     crate::render::colors::no_color_active()
+}
+
+/// True when this entry is the `[r] retry` shortcut (US-11.AC-2). Identified
+/// by KeyCode rather than label-string-equality so a future label tweak
+/// (e.g. localization) cannot drift from the dispatch contract.
+fn is_retry_entry(entry: &Shortcut) -> bool {
+    use crossterm::event::KeyCode;
+    matches!(entry.key.code, KeyCode::Char('r'))
+        && entry.key.modifiers == crossterm::event::KeyModifiers::NONE
 }

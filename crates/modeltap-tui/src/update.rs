@@ -116,6 +116,23 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             UpdateEffect::default(),
         ),
         Msg::RefreshTool(view) => (replace_tool_slot(state, view), UpdateEffect::default()),
+        // US-11 Result-flavored refresh variants (step 03-04).
+        Msg::RefreshSucceeded(view) => {
+            let tool_id = view.tool;
+            let mut next = replace_tool_slot(state, view);
+            // The successful refresh resolves any prior failure marker.
+            next.refresh_failed_tools.remove(&tool_id);
+            (next, UpdateEffect::default())
+        }
+        Msg::RefreshFailed(tool_id) => {
+            let mut next = state;
+            next.refresh_failed_tools.insert(tool_id);
+            (next, UpdateEffect::default())
+        }
+        // RetryRefresh is a state-noop in the pure update; the composition
+        // root sees the message and re-spawns the refresh task. The failed
+        // marker stays in place until RefreshSucceeded arrives.
+        Msg::RetryRefresh(_) => (state, UpdateEffect::default()),
         Msg::OpenDetail(detail) => (
             AppState {
                 current_screen: Screen::Detail(detail),

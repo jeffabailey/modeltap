@@ -7,6 +7,7 @@
 
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::logic::plan::UnifyPlan;
+use modeltap_core::ToolId;
 
 use crate::app_state::ToolView;
 use crate::screens::detail::DetailScreenState;
@@ -64,6 +65,37 @@ pub enum Msg {
     /// under 500 ms by NOT re-running every plugin's discover()). `update()`
     /// replaces the matching `ToolView` slot in `AppState.tools`.
     RefreshTool(ToolView),
+
+    // -----------------------------------------------------------------------
+    // US-11 incremental refresh — Result-flavored variants (step 03-04).
+    //
+    // The composition root spawns `refresh_tool_incremental` after every
+    // mutating action (zap/unify/delete-from-one) and dispatches one of these
+    // three Msgs based on the outcome:
+    //   - Ok(view)  -> RefreshSucceeded(view): replace slot AND clear the
+    //                  tool from `state.refresh_failed_tools`.
+    //   - Err(_)    -> RefreshFailed(tool):    leave slot unchanged AND add
+    //                  the tool to `state.refresh_failed_tools` so the
+    //                  summary bar shows "(refresh failed)" + [r] retry.
+    //   - User [r]  -> RetryRefresh(tool):     state-noop in the pure
+    //                  update; the composition root re-spawns the refresh.
+    // -----------------------------------------------------------------------
+    /// Composition root dispatches this when `refresh_tool_incremental`
+    /// returns `Ok(view)`. `update()` replaces the matching slot AND clears
+    /// the tool from `state.refresh_failed_tools` (the prior failure has
+    /// resolved).
+    RefreshSucceeded(ToolView),
+    /// Composition root dispatches this when `refresh_tool_incremental`
+    /// returns `Err(_)`. `update()` adds the tool to
+    /// `state.refresh_failed_tools` and leaves `state.tools` unchanged so
+    /// the user keeps seeing the prior totals (degraded indicator path).
+    RefreshFailed(ToolId),
+    /// User pressed `[r]` to retry refresh for a tool currently in
+    /// `state.refresh_failed_tools`. State-noop in the pure update; the
+    /// composition root sees this Msg and re-spawns the refresh task. The
+    /// keymap dispatches `RetryRefresh(ToolId(""))` (sentinel) and the
+    /// composition root resolves the actual failed tool from state.
+    RetryRefresh(ToolId),
 
     // -----------------------------------------------------------------------
     // US-13 per-model detail screen.

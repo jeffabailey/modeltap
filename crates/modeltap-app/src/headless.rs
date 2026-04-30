@@ -176,19 +176,46 @@ fn apply_effect(
             // affected tool to keep the summary refresh under 500 ms (the
             // alternative — re-running every plugin's discover() — scales
             // O(N plugins) and would break the budget once HF/llama-cli
-            // populate). Failures here are logged but non-fatal: the
-            // existing slot stays in place so the UI doesn't go blank.
-            match rt.block_on(refresh::refresh_tool(plugin)) {
+            // populate). Failures dispatch `Msg::RefreshFailed(tool_id)` so
+            // the UI shows `(refresh failed)` + [r] retry per US-11.AC-2.
+            //
+            // Test-only seam: `MODELTAP_FORCE_REFRESH_FAIL=<tool_id>` forces
+            // refresh_tool_incremental to return Err(Unreadable) for the
+            // matching tool. Production paths never set this env-var.
+            let forced_fail = std::env::var("MODELTAP_FORCE_REFRESH_FAIL")
+                .ok()
+                .map(|s| s == tool_id.0)
+                .unwrap_or(false);
+            let result: Result<_, refresh::RefreshError> = if forced_fail {
+                Err(refresh::RefreshError::Unreadable {
+                    tool: tool_id.0.to_string(),
+                    reason: "MODELTAP_FORCE_REFRESH_FAIL test seam".to_string(),
+                })
+            } else {
+                rt.block_on(refresh::refresh_tool_incremental(plugin))
+            };
+            match result {
                 Ok(view) => {
-                    let (next, _) = update(std::mem::take(state), Msg::RefreshTool(view));
+                    let (next, _) = update(std::mem::take(state), Msg::RefreshSucceeded(view));
                     *state = next;
+                }
+                Err(refresh::RefreshError::NotInstalled) => {
+                    // NotInstalled is a non-failure terminal state — leave
+                    // the slot untouched, no degraded indicator.
+                    tracing::info!(
+                        target: "modeltap.refresh",
+                        "refresh_tool_incremental: tool {} not installed",
+                        tool_id.0
+                    );
                 }
                 Err(e) => {
                     tracing::warn!(
                         target: "modeltap.refresh",
-                        "refresh_tool failed for {}: {e}",
+                        "refresh_tool_incremental failed for {}: {e}",
                         tool_id.0
                     );
+                    let (next, _) = update(std::mem::take(state), Msg::RefreshFailed(tool_id));
+                    *state = next;
                 }
             }
         } else {
@@ -219,6 +246,54 @@ fn apply_effect(
         let last_action = build_unify_last_action(&outcome, target_name);
         let (next, _) = update(std::mem::take(state), Msg::SetLastAction(last_action));
         *state = next;
+
+        // US-11.AC-1 (model-count-steady scenario): re-run incremental
+        // refresh for every participating tool so the summary "Disk:" total
+        // reflects the post-link sizes. Model count stays the same because
+        // each tool still registers the model at its own path; only the
+        // backing inode is shared. Failures are routed through
+        // Msg::RefreshFailed (degraded indicator).
+        for link in &plan.links {
+            let tool_id = link.tool;
+            if let Some(plugin) = find_plugin(plugins, tool_id) {
+                let forced_fail = std::env::var("MODELTAP_FORCE_REFRESH_FAIL")
+                    .ok()
+                    .map(|s| s == tool_id.0)
+                    .unwrap_or(false);
+                let result: Result<_, refresh::RefreshError> = if forced_fail {
+                    Err(refresh::RefreshError::Unreadable {
+                        tool: tool_id.0.to_string(),
+                        reason: "MODELTAP_FORCE_REFRESH_FAIL test seam".to_string(),
+                    })
+                } else {
+                    rt.block_on(refresh::refresh_tool_incremental(plugin))
+                };
+                match result {
+                    Ok(view) => {
+                        let (next, _) = update(std::mem::take(state), Msg::RefreshSucceeded(view));
+                        *state = next;
+                    }
+                    Err(refresh::RefreshError::NotInstalled) => {}
+                    Err(_) => {
+                        let (next, _) = update(std::mem::take(state), Msg::RefreshFailed(tool_id));
+                        *state = next;
+                    }
+                }
+            }
+        }
+        // Also refresh the canonical's tool slot in case the canonical's
+        // own tool wasn't already in the link list (unify retains the
+        // canonical's bytes; the slot's count/bytes don't change but the
+        // refresh is the cheapest way to keep semantics consistent).
+        let canonical_tool = plan.canonical.tool;
+        if !plan.links.iter().any(|l| l.tool == canonical_tool) {
+            if let Some(plugin) = find_plugin(plugins, canonical_tool) {
+                if let Ok(view) = rt.block_on(refresh::refresh_tool_incremental(plugin)) {
+                    let (next, _) = update(std::mem::take(state), Msg::RefreshSucceeded(view));
+                    *state = next;
+                }
+            }
+        }
     }
 }
 
@@ -570,7 +645,10 @@ fn token_to_msg(token: &ScriptToken, dialog_open: bool, cross_fs_open: bool) -> 
             "down" => Msg::SelectNextRow,
             "up" => Msg::SelectPrevRow,
             "tab" => Msg::ToggleFocus,
-            "esc" => Msg::DialogCancel,
+            // Outside any dialog, Esc mirrors production keymap (`dispatch`):
+            // it pops Detail back to Main via `Msg::CloseDetail`. The dialog
+            // branch above intercepts Esc-during-dialog to `Msg::DialogCancel`.
+            "esc" => Msg::CloseDetail,
             "enter" => Msg::DialogConfirm,
             "backspace" => Msg::DialogBackspace,
             _ => Msg::UnboundKey,

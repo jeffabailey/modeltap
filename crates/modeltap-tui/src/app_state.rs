@@ -4,6 +4,8 @@
 //! `Inventory`; updated by `update::update()`. The view function in
 //! `render::*` reads `&AppState` and writes ratatui widgets.
 
+use std::collections::BTreeSet;
+
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{ToolId, ToolStatus};
 
@@ -136,6 +138,13 @@ pub struct AppState {
     /// `Screen::Detail(...)` by `Msg::OpenDetail` and reset to `Screen::Main`
     /// by `Msg::CloseDetail` (US-13).
     pub current_screen: Screen,
+
+    /// Tools whose most-recent `refresh_tool_incremental` returned Err
+    /// (US-11.AC-2). When non-empty, the summary bar appends a
+    /// `(refresh failed)` indicator and the bottom bar exposes the `[r] retry`
+    /// shortcut. Cleared per-tool on a successful `Msg::RefreshSucceeded`.
+    /// `BTreeSet` for deterministic iteration order in render code.
+    pub refresh_failed_tools: BTreeSet<ToolId>,
 }
 
 impl Default for AppState {
@@ -154,6 +163,7 @@ impl Default for AppState {
             cross_fs_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
+            refresh_failed_tools: BTreeSet::new(),
         }
     }
 }
@@ -181,6 +191,7 @@ impl AppState {
             cross_fs_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
+            refresh_failed_tools: BTreeSet::new(),
         }
     }
 

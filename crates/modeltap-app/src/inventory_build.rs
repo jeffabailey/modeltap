@@ -36,6 +36,7 @@
 
 use modeltap_core::logic::compatibility::PluginCapabilityMap;
 use modeltap_core::types::ToolId;
+use modeltap_tui::ToolView;
 
 /// Emit one `tracing::warn!` per plugin whose `accepted_formats()` is empty,
 /// and return the list of offending `ToolId`s in deterministic
@@ -58,6 +59,28 @@ pub fn warn_on_empty_capabilities(plugin_capabilities: &PluginCapabilityMap) -> 
         }
     }
     offenders
+}
+
+/// Pure data transform (US-11.AC-1, step 03-04): replace the slot for
+/// `tool_id` in the cross-tool inventory with `new_view`, leaving every
+/// other slot untouched. The aggregated total disk usage of the resulting
+/// inventory equals `sum(t.total_bytes() for t in next)` — the INT-5
+/// invariant `new_total = old_total - bytes_reclaimed (within 1 KB)` is the
+/// caller's contract; this fn just guarantees deterministic, in-place
+/// replacement.
+///
+/// If `tool_id` is not present in the inventory (pathological — refresh
+/// dispatched for a tool we don't track) the inventory is returned
+/// unchanged.
+pub fn replace_tool_in_inventory(
+    mut inventory: Vec<ToolView>,
+    tool_id: ToolId,
+    new_view: ToolView,
+) -> Vec<ToolView> {
+    if let Some(slot) = inventory.iter_mut().find(|t| t.tool == tool_id) {
+        *slot = new_view;
+    }
+    inventory
 }
 
 #[cfg(test)]

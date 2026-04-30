@@ -27,12 +27,21 @@ pub fn total_models(state: &AppState) -> u64 {
 }
 
 /// Format the summary line. Pure string; rendered by `summary_bar::render`.
+///
+/// Per US-11.AC-2: when `state.refresh_failed_tools` is non-empty, append a
+/// `(refresh failed)` indicator so the user sees that the displayed totals
+/// are stale and can press `[r]` to retry.
 pub fn summary_text(state: &AppState) -> String {
-    format!(
+    let base = format!(
         "Total: {} models | Disk: {} | Dedup-able: 0 B",
         total_models(state),
         format_size(total_disk_bytes(state)),
-    )
+    );
+    if state.refresh_failed_tools.is_empty() {
+        base
+    } else {
+        format!("{base} (refresh failed)")
+    }
 }
 
 /// Render the summary line into `area`. Single-row paragraph; the caller

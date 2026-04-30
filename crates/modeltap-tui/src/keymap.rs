@@ -23,6 +23,7 @@
 //!   currently-active section.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use modeltap_core::ToolId;
 
 use crate::msg::Msg;
 
@@ -104,6 +105,17 @@ pub const SHORTCUT_TABLE: &[Shortcut] = &[
         label: "[z] zap tool",
         msg: Msg::ZapTool,
         sections: &[BarSection::Main],
+    },
+    // US-11.AC-2: [r] retry — visible only when state.refresh_failed_tools is
+    // non-empty (the bottom bar's `is_available` predicate dims the entry
+    // otherwise; the bar render filter further omits it on Main with no
+    // failure). The keymap dispatches a sentinel ToolId(""); the composition
+    // root resolves the actual failed tool from state when re-spawning.
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
+        label: "[r] retry",
+        msg: Msg::RetryRefresh(ToolId("")),
+        sections: &[BarSection::Main, BarSection::Detail],
     },
     // ----- Detail view ----------------------------------------------------
     Shortcut {
