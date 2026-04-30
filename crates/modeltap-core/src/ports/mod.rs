@@ -50,26 +50,16 @@ pub trait Hasher: Send + Sync {
 }
 
 // ---------------------------------------------------------------------------
-// FsProbe (US-10 unify, ADR-008)
+// FsProbe (US-10 unify, US-19 cross-fs fallback, ADR-008)
+//
+// The trait was inlined here in step 03-02; step 03-03 extracted it into the
+// `fs_probe` sub-module and added `same_filesystem` / `device_id` / `inode`
+// helpers on top of `dev_and_inode` so the cross-fs choice dialog (US-19) can
+// probe per-target without copying the device-comparison logic. We re-export
+// the trait at the parent path so existing callers (`build_plan`,
+// `actions::unify`) keep their import line stable.
 // ---------------------------------------------------------------------------
 
-/// Driven port for filesystem-level inspection used by the unify planner.
-///
-/// `canonical_selector::select_canonical` needs to know whether two paths
-/// are already hardlinked (same inode) and whether they reside on the same
-/// filesystem (so a future hardlink would not fail with `EXDEV`). Real I/O
-/// lives behind this port so the pure logic in `modeltap-core::logic` can
-/// be tested with synthetic probes.
-///
-/// The real adapter is trivial (one `stat` call per path); a future home is
-/// `modeltap-app::fs_probe`. For now the trait alone lives here so the
-/// planner can compile and be unit-tested with a fake.
-pub trait FsProbe: Send + Sync {
-    /// Returns the device id + inode pair for `path`. Two paths share an
-    /// inode iff their `(dev, ino)` tuples are equal — that is the canonical
-    /// "already hardlinked" check on POSIX.
-    ///
-    /// `None` if the path does not exist or cannot be statted (the planner
-    /// treats this as "no information, proceed conservatively").
-    fn dev_and_inode(&self, path: &Path) -> Option<(u64, u64)>;
-}
+pub mod fs_probe;
+
+pub use fs_probe::FsProbe;

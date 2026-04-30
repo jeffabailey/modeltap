@@ -35,6 +35,7 @@ use modeltap_core::{
     DedupKey, DisplayLabel, Format, LinkError, LinkOutcome, LinkResult, ModelMeta, ModelStatus,
     Tool, ToolId,
 };
+use modeltap_tui::dialogs::cross_fs_choice::CrossFsChoice;
 
 use crate::observability::{LaunchLogger, RecordKind};
 
@@ -53,6 +54,14 @@ pub struct UnifyOutcome {
     /// Per-target failures (empty on full success). Used by the UI footer
     /// to show "the failed target's path and reason" per US-06.
     pub failures: Vec<UnifyFailure>,
+    /// US-19: count of cross-fs targets that were skipped (user pressed `s`).
+    /// These are NOT failures — they are an explicit user choice to leave the
+    /// target alone. Recorded separately in the JSONL event and the banner.
+    pub cross_fs_targets_skipped: u64,
+    /// US-19: count of cross-fs targets that were duplicated by byte-copy
+    /// (user pressed `c`). Counted as success for `tools_unified` but the
+    /// per-target reclaim is zero (the bytes were duplicated, not reclaimed).
+    pub cross_fs_targets_copied: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -90,10 +99,21 @@ impl UnifyResult {
 /// look up the matching plugin and call `Tool::link(canonical, model)`.
 /// Collect per-target outcomes, emit one `action.unify` JSONL event, and
 /// return a `UnifyOutcome` for the UI footer.
+///
+/// US-19 cross-fs handling (`cross_fs_choice`):
+/// - `None` — production path with no cross-fs targets. Cross-fs links (if
+///   any) flow into the underlying plugin's `link()`, which returns
+///   `LinkError::CrossFilesystem`; recorded as a failure as in step 03-02.
+/// - `Some(Skip)` — cross-fs targets are LEFT UNTOUCHED. Same-fs targets are
+///   linked normally. The orchestrator records `cross_fs_targets_skipped`.
+/// - `Some(Copy)` — cross-fs targets are duplicated byte-for-byte (atomic
+///   write+rename) by the orchestrator. Same-fs targets are linked normally.
+///   The orchestrator records `cross_fs_targets_copied`.
 pub async fn run(
     plan: UnifyPlan,
     plugins: &[Box<dyn Tool>],
     logger: &mut LaunchLogger,
+    cross_fs_choice: Option<CrossFsChoice>,
 ) -> UnifyOutcome {
     let canonical_src = plan.canonical.path.clone();
     let canonical_size = plan.canonical.size_bytes;
@@ -102,8 +122,43 @@ pub async fn run(
     let mut failures: Vec<UnifyFailure> = Vec::new();
     let mut already_linked_count: usize = 0;
     let mut newly_linked_count: usize = 0;
+    let mut cross_fs_targets_skipped: u64 = 0;
+    let mut cross_fs_targets_copied: u64 = 0;
 
     for link in &plan.links {
+        // US-19 — when the user chose Skip and this is a cross-fs target,
+        // we never call `Tool::link`. The target stays at its original path.
+        if link.cross_filesystem
+            && !link.already_linked
+            && matches!(cross_fs_choice, Some(CrossFsChoice::Skip))
+        {
+            cross_fs_targets_skipped += 1;
+            continue;
+        }
+        // US-19 — when the user chose Copy and this is a cross-fs target,
+        // duplicate the canonical's bytes to the target via atomic write+rename.
+        // We do NOT go through the plugin's `link()` because that would fail
+        // with `EXDEV`; the orchestrator owns the cross-fs copy semantics.
+        if link.cross_filesystem
+            && !link.already_linked
+            && matches!(cross_fs_choice, Some(CrossFsChoice::Copy))
+        {
+            match copy_cross_fs(&canonical_src, &link.target) {
+                Ok(()) => {
+                    succeeded.push(link.tool);
+                    cross_fs_targets_copied += 1;
+                }
+                Err(reason) => {
+                    failures.push(UnifyFailure {
+                        tool: link.tool,
+                        target: link.target.clone(),
+                        reason,
+                    });
+                }
+            }
+            continue;
+        }
+
         let Some(plugin) = find_plugin(plugins, link.tool) else {
             // Pathological — UI sent a plan referencing a tool the plugin
             // registry doesn't have. Surface as failed target so the user
@@ -173,10 +228,18 @@ pub async fn run(
     tools_unified.sort_by_key(|t| t.0);
     tools_unified.dedup_by_key(|t| t.0);
 
+    // US-19: when targets were skipped, they don't count as failures, but they
+    // also reduce the "effective" total for the all-cross-fs-skipped case
+    // (which classifies as Failed because nothing was done).
+    let effective_total = plan
+        .links
+        .len()
+        .saturating_sub(cross_fs_targets_skipped as usize);
+    let copied_count = cross_fs_targets_copied as usize;
     let outcome = classify(
-        plan.links.len(),
+        effective_total,
         already_linked_count,
-        newly_linked_count,
+        newly_linked_count + copied_count,
         failures.len(),
     );
 
@@ -186,8 +249,20 @@ pub async fn run(
         // The planner already deduped per inode; we conservatively credit
         // the reclaim only for newly-linked targets. If every plan target
         // succeeded, this matches `plan.bytes_reclaimed_estimate`.
+        // Cross-fs Copy does NOT reclaim — duplicating bytes wastes disk;
+        // the count is in `cross_fs_targets_copied` separately.
         if failures.is_empty() {
-            plan.bytes_reclaimed_estimate
+            // Every newly-linked target reclaims; copied targets do not.
+            let same_fs_inodes = newly_linked_count as u64;
+            let total_new = (newly_linked_count + copied_count) as u64;
+            if total_new == 0 {
+                0
+            } else {
+                plan.bytes_reclaimed_estimate
+                    .saturating_mul(same_fs_inodes)
+                    .checked_div(total_new)
+                    .unwrap_or(0)
+            }
         } else {
             // Partial: prorate by share of newly-linked targets vs the
             // total non-already-linked target count.
@@ -208,10 +283,41 @@ pub async fn run(
         bytes_reclaimed,
         outcome,
         failures,
+        cross_fs_targets_skipped,
+        cross_fs_targets_copied,
     };
 
     emit(logger, &unify_outcome);
     unify_outcome
+}
+
+/// US-19 byte-for-byte cross-fs duplication. Atomic write+rename: write to a
+/// temp file in the target's parent directory, fsync, then rename into place.
+/// Returns a short user-visible reason on failure.
+fn copy_cross_fs(canonical_src: &std::path::Path, target: &std::path::Path) -> Result<(), String> {
+    use std::io::Write;
+    let parent = target
+        .parent()
+        .ok_or_else(|| "cross-fs-copy: target has no parent dir".to_string())?;
+    if let Err(e) = std::fs::create_dir_all(parent) {
+        return Err(format!("cross-fs-copy: mkdir failed: {e}"));
+    }
+    let tmp = parent.join(format!(".modeltap-cross-fs-tmp.{}", std::process::id()));
+    let bytes = std::fs::read(canonical_src)
+        .map_err(|e| format!("cross-fs-copy: read canonical failed: {e}"))?;
+    {
+        let mut f = std::fs::File::create(&tmp)
+            .map_err(|e| format!("cross-fs-copy: create tmp failed: {e}"))?;
+        f.write_all(&bytes)
+            .map_err(|e| format!("cross-fs-copy: write tmp failed: {e}"))?;
+        f.sync_all()
+            .map_err(|e| format!("cross-fs-copy: fsync tmp failed: {e}"))?;
+    }
+    if let Err(e) = std::fs::rename(&tmp, target) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!("cross-fs-copy: rename failed: {e}"));
+    }
+    Ok(())
 }
 
 /// Classify the unify outcome from per-target counts.
@@ -302,6 +408,8 @@ fn emit(logger: &mut LaunchLogger, outcome: &UnifyOutcome) {
             .collect(),
         bytes_reclaimed: outcome.bytes_reclaimed,
         outcome: outcome.outcome.as_str(),
+        cross_fs_targets_skipped: outcome.cross_fs_targets_skipped,
+        cross_fs_targets_copied: outcome.cross_fs_targets_copied,
     });
 }
 

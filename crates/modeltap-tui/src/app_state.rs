@@ -7,6 +7,8 @@
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{ToolId, ToolStatus};
 
+use crate::dialogs::cross_fs_choice::CrossFsChoiceDialog;
+pub use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsDecision, CrossFsMode};
 use crate::dialogs::unify_confirm::UnifyDialogState;
 use crate::dialogs::zap_confirm::ZapConfirmState;
 use crate::screens::detail::DetailScreenState;
@@ -114,6 +116,13 @@ pub struct AppState {
     /// when set.
     pub unify_dialog: Option<UnifyDialogState>,
 
+    /// `Some(...)` when the US-19 cross-filesystem fallback dialog is open.
+    /// Opened by `Msg::OpenCrossFsDialog(plan)` and closed by any of
+    /// `Msg::CrossFsSkip` / `Msg::CrossFsCopy` / `Msg::CrossFsCancel`. Mutually
+    /// exclusive with `unify_dialog` — the orchestrator opens this dialog
+    /// INSTEAD of the regular unify dialog when the plan has 1+ cross-fs target.
+    pub cross_fs_dialog: Option<CrossFsChoiceDialog>,
+
     /// Structured last-action banner for the right pane (US-06). Set by
     /// `Msg::SetLastAction(...)` after an action effect completes; cleared
     /// on any navigation Msg (`SelectNextTool`, `SelectPrevTool`,
@@ -142,6 +151,7 @@ impl Default for AppState {
             exit_code: 0,
             zap_dialog: None,
             unify_dialog: None,
+            cross_fs_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
         }
@@ -168,6 +178,7 @@ impl AppState {
             exit_code: 0,
             zap_dialog: None,
             unify_dialog: None,
+            cross_fs_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
         }

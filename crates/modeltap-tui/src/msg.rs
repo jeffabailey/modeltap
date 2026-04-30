@@ -94,6 +94,29 @@ pub enum Msg {
     /// orchestrator built from the cross-tool registrations. `update()`
     /// writes `unify_dialog = Some(UnifyDialogState::from_plan(plan))`.
     OpenUnifyDialog(UnifyPlan),
+
+    // -----------------------------------------------------------------------
+    // US-19 cross-filesystem fallback dialog (ADR-008, step 03-03).
+    //
+    // When the unify planner detects 1+ cross-fs target, the orchestrator
+    // dispatches `OpenCrossFsDialog` instead of `OpenUnifyDialog`. The dialog
+    // accepts [s] / [c] / [x] keys (mapped to the three Msgs below) and
+    // Enter/Esc default to refuse (Cancel) per ADR-008's no-silent-copy rule.
+    // -----------------------------------------------------------------------
+    /// Composition root dispatches this when `u` is pressed and the plan has
+    /// 1+ cross-fs target. Carries the `UnifyPlan` so the orchestrator has
+    /// the per-target same-fs flags + canonical path on confirmation.
+    OpenCrossFsDialog(UnifyPlan),
+    /// User pressed `s` while the cross-fs dialog is open — proceed with
+    /// skip semantics (cross-fs targets untouched; same-fs targets linked).
+    CrossFsSkip,
+    /// User pressed `c` while the cross-fs dialog is open — proceed with
+    /// copy semantics (cross-fs targets duplicated; same-fs targets linked).
+    CrossFsCopy,
+    /// User pressed `x` (or Enter / Esc per ADR-008 refuse default) while
+    /// the cross-fs dialog is open — abort the unify entirely.
+    CrossFsCancel,
+
     /// User pressed `d` (delete-from-one). Bound here so the bottom-bar INT-6
     /// invariant holds. Wired to the delete-from-one effect in 03-06.
     DeleteFromOne,

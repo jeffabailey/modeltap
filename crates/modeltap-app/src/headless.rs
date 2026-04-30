@@ -83,7 +83,8 @@ pub fn run(
 
     for token in tokens {
         let dialog_open = state.zap_dialog.is_some() || state.unify_dialog.is_some();
-        let raw_msg = token_to_msg(&token, dialog_open);
+        let cross_fs_open = state.cross_fs_dialog.is_some();
+        let raw_msg = token_to_msg(&token, dialog_open, cross_fs_open);
         // Intercept Msg::Unify on the detail screen so we can build the
         // UnifyPlan from the registrations + plugins (the plan needs `stat`
         // results, which the pure update() can't compute). Outside the
@@ -209,7 +210,12 @@ fn apply_effect(
                 .unwrap_or("model")
                 .to_string(),
         };
-        let outcome: UnifyOutcome = rt.block_on(unify::run(plan.clone(), plugins, logger));
+        let outcome: UnifyOutcome = rt.block_on(unify::run(
+            plan.clone(),
+            plugins,
+            logger,
+            effect.cross_fs_choice,
+        ));
         let last_action = build_unify_last_action(&outcome, target_name);
         let (next, _) = update(std::mem::take(state), Msg::SetLastAction(last_action));
         *state = next;
@@ -221,6 +227,11 @@ fn apply_effect(
 /// detail screen's registrations + a `stat` of each path. On any other
 /// screen — or when the registrations don't form a valid multi-path unify —
 /// the original message passes through unchanged.
+///
+/// US-19 (step 03-03): when the constructed plan has 1+ cross-filesystem
+/// target, lift to `Msg::OpenCrossFsDialog(plan)` instead so the user gets
+/// the per-target [s] skip / [c] copy / [x] cancel choice per ADR-008's
+/// refuse-default policy.
 fn lift_unify_in_detail(state: &AppState, msg: Msg) -> Msg {
     if !matches!(msg, Msg::Unify) {
         return msg;
@@ -234,7 +245,16 @@ fn lift_unify_in_detail(state: &AppState, msg: Msg) -> Msg {
         // something to do.
         return msg;
     };
-    Msg::OpenUnifyDialog(plan)
+    // US-19 — any active cross-fs target routes to the choice dialog.
+    let has_cross_fs = plan
+        .links
+        .iter()
+        .any(|l| !l.already_linked && l.cross_filesystem);
+    if has_cross_fs {
+        Msg::OpenCrossFsDialog(plan)
+    } else {
+        Msg::OpenUnifyDialog(plan)
+    }
 }
 
 /// Build a `UnifyPlan` by stat-ing each registration's path. Used by the
@@ -247,6 +267,16 @@ fn build_plan_from_detail(detail: &DetailScreenState) -> Option<UnifyPlan> {
     if detail.registrations.is_empty() {
         return None;
     }
+    // US-19 fake-fs-probe injection (test seam only). The env var is a
+    // colon-separated list of canonicalized path prefixes; any registration
+    // whose canonicalized path starts with one of these prefixes has its
+    // `device` overridden to a synthetic non-canonical value so the
+    // `cross_filesystem` flag fires for that target. Production paths never
+    // match (the env var is unset), so this is zero-impact in real runs.
+    let fake_cross_fs: Vec<PathBuf> = std::env::var("MODELTAP_FAKE_CROSS_FS_PATHS")
+        .ok()
+        .map(|s| s.split(':').map(PathBuf::from).collect())
+        .unwrap_or_default();
     let mut candidates: Vec<CandidatePath> = Vec::new();
     let mut plan_candidates: Vec<PlanCandidate> = Vec::new();
     for reg in &detail.registrations {
@@ -257,10 +287,16 @@ fn build_plan_from_detail(detail: &DetailScreenState) -> Option<UnifyPlan> {
         // returns Err for non-existent paths, in which case we fall back to
         // the original path so the build_plan defensive branches still fire.
         let resolved_path = std::fs::canonicalize(&reg.path).unwrap_or_else(|_| reg.path.clone());
-        let (exists, device, inode, size_bytes) = match std::fs::metadata(&resolved_path) {
+        let (exists, mut device, inode, size_bytes) = match std::fs::metadata(&resolved_path) {
             Ok(m) => (true, m.dev(), m.ino(), m.len()),
             Err(_) => (false, 0, 0, 0),
         };
+        // Apply the fake-fs-probe override. We use a sentinel device id
+        // (`u64::MAX`) so it cannot collide with any real `dev_t`; per-path
+        // mismatch is enough for `build_plan` to flag `cross_filesystem`.
+        if path_matches_fake_cross_fs(&resolved_path, &fake_cross_fs) {
+            device = u64::MAX;
+        }
         candidates.push(CandidatePath {
             tool: reg.tool,
             path: resolved_path.clone(),
@@ -475,12 +511,45 @@ fn tokenize_script(raw: &str) -> Vec<ScriptToken> {
     out
 }
 
+/// True iff `path` (or any of its ancestors) appears in `fake_cross_fs`. The
+/// list of fake-cross-fs paths is treated as a prefix list — registering a
+/// directory marks every file beneath it as cross-fs from the canonical's
+/// perspective. Used by the US-19 acceptance harness; never set in production.
+fn path_matches_fake_cross_fs(path: &std::path::Path, fake_cross_fs: &[PathBuf]) -> bool {
+    if fake_cross_fs.is_empty() {
+        return false;
+    }
+    fake_cross_fs
+        .iter()
+        .any(|p| path.starts_with(p) || p == path)
+}
+
 /// Resolve a `ScriptToken` to an `Msg`, accounting for whether a typed-input
 /// dialog is currently open. Mirrors `keymap::dispatch_in_dialog` in spirit
 /// (printable chars go to the dialog buffer; only Esc/Enter/Backspace are
 /// dialog control). Outside a dialog, the script-token-to-Msg mapping
 /// matches the @us-03 acceptance contract.
-fn token_to_msg(token: &ScriptToken, dialog_open: bool) -> Msg {
+///
+/// US-19 cross-fs dialog: when `cross_fs_open` is true, `s` / `c` / `x`
+/// (and Esc / Enter, per the refuse-default policy) are interpreted as
+/// `Msg::CrossFsSkip` / `Msg::CrossFsCopy` / `Msg::CrossFsCancel`.
+fn token_to_msg(token: &ScriptToken, dialog_open: bool, cross_fs_open: bool) -> Msg {
+    if cross_fs_open {
+        return match token {
+            ScriptToken::CtrlC => Msg::CtrlC,
+            ScriptToken::Tag(t) => match t.as_str() {
+                // Esc and Enter both default to refuse per ADR-008 OQ-4.
+                "esc" | "enter" => Msg::CrossFsCancel,
+                _ => Msg::UnboundKey,
+            },
+            ScriptToken::Char(c) => match c {
+                's' => Msg::CrossFsSkip,
+                'c' => Msg::CrossFsCopy,
+                'x' => Msg::CrossFsCancel,
+                _ => Msg::UnboundKey,
+            },
+        };
+    }
     if dialog_open {
         return match token {
             ScriptToken::CtrlC => Msg::CtrlC,

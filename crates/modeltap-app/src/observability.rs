@@ -68,6 +68,13 @@ pub enum RecordKind {
         tools_unified: Vec<String>,
         bytes_reclaimed: u64,
         outcome: &'static str,
+        /// US-19: count of cross-fs targets the user chose to skip. NOT
+        /// failures — explicit user choice. Always present (0 in the
+        /// same-fs fast path); makes the JSONL schema stable for the K-set.
+        cross_fs_targets_skipped: u64,
+        /// US-19: count of cross-fs targets the user chose to byte-copy.
+        /// Counted as success in `tools_unified` but reclaim is zero.
+        cross_fs_targets_copied: u64,
     },
     /// One entry per discovered model. Written to a separate `models.log`
     /// file (NOT `launch.log`) so per-model metadata stays out of the
@@ -220,12 +227,16 @@ impl LaunchLogger {
                 tools_unified,
                 bytes_reclaimed,
                 outcome,
+                cross_fs_targets_skipped,
+                cross_fs_targets_copied,
             } => {
                 let mut env = self.base_envelope("action.unify");
                 env["model_dedup_key_kind"] = json!(model_dedup_key_kind);
                 env["tools_unified"] = json!(tools_unified);
                 env["bytes_reclaimed"] = json!(bytes_reclaimed);
                 env["outcome"] = json!(outcome);
+                env["cross_fs_targets_skipped"] = json!(cross_fs_targets_skipped);
+                env["cross_fs_targets_copied"] = json!(cross_fs_targets_copied);
                 env
             }
             RecordKind::DiscoveredModel { .. } => unreachable!("handled above"),

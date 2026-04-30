@@ -9,5 +9,6 @@
 //! add unify-confirm (US-06), help-overlay (US-07), and detail-screen
 //! (US-04) dialogs to this module.
 
+pub mod cross_fs_choice;
 pub mod unify_confirm;
 pub mod zap_confirm;

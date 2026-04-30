@@ -8,6 +8,7 @@ use modeltap_core::logic::plan::UnifyPlan;
 use modeltap_core::ToolId;
 
 use crate::app_state::{AppState, FocusPane, Screen};
+use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsChoiceDialog};
 use crate::dialogs::unify_confirm::{UnifyDecision, UnifyDialogState};
 use crate::dialogs::zap_confirm::{ZapConfirmState, ZapDecision};
 use crate::msg::Msg;
@@ -32,6 +33,13 @@ pub struct UpdateEffect {
     /// `Tool::link` per the plan, run the all-or-revert sequence (per
     /// ADR-008), and emit the `action.unify` JSONL event.
     pub trigger_unify: Option<UnifyPlan>,
+
+    /// When `Some(choice)` AND `trigger_unify.is_some()`, the user has chosen
+    /// the per-target cross-filesystem fallback semantics (US-19, ADR-008):
+    /// `Skip` leaves cross-fs targets untouched; `Copy` duplicates the
+    /// canonical's bytes to each cross-fs target. `None` means the orchestrator
+    /// uses the default link path (US-10, no cross-fs targets).
+    pub cross_fs_choice: Option<CrossFsChoice>,
 }
 
 /// Pure transition. Takes ownership of `state` and returns the next state.
@@ -45,8 +53,7 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             },
             UpdateEffect {
                 emit_launch_ended: true,
-                trigger_zap: None,
-                trigger_unify: None,
+                ..UpdateEffect::default()
             },
         ),
         Msg::CtrlC => (
@@ -124,6 +131,17 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             UpdateEffect::default(),
         ),
         Msg::ToggleHelp => (toggle_help(state), UpdateEffect::default()),
+        // ----- US-19 cross-filesystem fallback dialog (ADR-008, step 03-03) ---
+        Msg::OpenCrossFsDialog(plan) => (
+            AppState {
+                cross_fs_dialog: Some(CrossFsChoiceDialog::from_plan(plan)),
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        Msg::CrossFsSkip => decide_cross_fs(state, CrossFsKey::Skip),
+        Msg::CrossFsCopy => decide_cross_fs(state, CrossFsKey::Copy),
+        Msg::CrossFsCancel => decide_cross_fs(state, CrossFsKey::Cancel),
         // Unify and DeleteFromOne are wired in subsequent steps (03-02, 03-06).
         // Here they are bound to non-noop Msg variants so the INT-6
         // invariant holds — every visible shortcut maps to a real Msg —
@@ -302,9 +320,8 @@ fn decide_zap_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffect
     (
         next_state,
         UpdateEffect {
-            emit_launch_ended: false,
             trigger_zap,
-            trigger_unify: None,
+            ..UpdateEffect::default()
         },
     )
 }
@@ -328,9 +345,43 @@ fn decide_unify_dialog(state: AppState, key: DialogKey) -> (AppState, UpdateEffe
     (
         next_state,
         UpdateEffect {
-            emit_launch_ended: false,
-            trigger_zap: None,
             trigger_unify,
+            ..UpdateEffect::default()
+        },
+    )
+}
+
+/// Which key drove the cross-fs dialog decision (US-19).
+enum CrossFsKey {
+    Skip,
+    Copy,
+    Cancel,
+}
+
+/// Resolve a cross-fs choice (Skip/Copy/Cancel). On Skip or Copy, close the
+/// dialog and emit `trigger_unify = Some(plan)` plus `cross_fs_choice =
+/// Some(...)` so the orchestrator routes through the cross-fs aware path. On
+/// Cancel, close the dialog with no destructive side-effect (refuse default).
+fn decide_cross_fs(state: AppState, key: CrossFsKey) -> (AppState, UpdateEffect) {
+    let Some(dialog) = &state.cross_fs_dialog else {
+        return (state, UpdateEffect::default());
+    };
+    let plan = dialog.plan.clone();
+    let (trigger_unify, cross_fs_choice) = match key {
+        CrossFsKey::Skip => (Some(plan), Some(CrossFsChoice::Skip)),
+        CrossFsKey::Copy => (Some(plan), Some(CrossFsChoice::Copy)),
+        CrossFsKey::Cancel => (None, None),
+    };
+    let next_state = AppState {
+        cross_fs_dialog: None,
+        ..state
+    };
+    (
+        next_state,
+        UpdateEffect {
+            trigger_unify,
+            cross_fs_choice,
+            ..UpdateEffect::default()
         },
     )
 }
