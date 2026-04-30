@@ -96,9 +96,26 @@ pub struct AppState {
     /// would otherwise scroll off the bottom of the visible window.
     pub scroll_offset: usize,
 
-    /// Number of right-pane rows visible at once. Set by the renderer based
-    /// on terminal height; defaults to 28 (the @us-03 scenario value).
+    /// Number of right-pane rows visible at once. Set by the production
+    /// interactive event loop on every tick from the actual terminal layout
+    /// (see `modeltap_tui::right_pane_body_rows`); defaults to 28 (the
+    /// @us-03 scenario value used by headless tests where there is no real
+    /// terminal). On terminals shorter than the default, the live sync
+    /// shrinks this value so `compute_scroll_offset` keeps the highlighted
+    /// row inside the rendered window.
     pub visible_rows: usize,
+
+    /// First visible row in the LEFT pane. Symmetric to `scroll_offset` but
+    /// over `tools` instead of the current tool's model rows. Advances when
+    /// `selected_tool` would otherwise scroll off the visible window.
+    pub left_scroll_offset: usize,
+
+    /// Number of left-pane rows visible at once. Set by the production
+    /// interactive event loop on every tick from
+    /// `modeltap_tui::left_pane_body_rows`. Defaults to 28 to match the
+    /// right pane's headless-test default; the live sync overwrites it on
+    /// real terminals.
+    pub left_visible_rows: usize,
 
     /// Which pane has keyboard focus. Tab toggles.
     pub focus: FocusPane,
@@ -176,6 +193,8 @@ impl Default for AppState {
             selected_row: 0,
             scroll_offset: 0,
             visible_rows: 28,
+            left_scroll_offset: 0,
+            left_visible_rows: 28,
             focus: FocusPane::Left,
             should_quit: false,
             exit_code: 0,
@@ -206,6 +225,8 @@ impl AppState {
             selected_row: 0,
             scroll_offset: 0,
             visible_rows: 28,
+            left_scroll_offset: 0,
+            left_visible_rows: 28,
             focus: FocusPane::Left,
             should_quit: false,
             exit_code: 0,

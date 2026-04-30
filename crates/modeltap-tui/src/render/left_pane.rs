@@ -15,34 +15,47 @@ use crate::app_state::{AppState, FocusPane};
 ///
 /// Status annotation is shown only when the tool is not installed or in
 /// error state.
+///
+/// Renders only the [left_scroll_offset, left_scroll_offset +
+/// left_visible_rows) window so on small terminals or with many plugins the
+/// highlighted row stays visible (the `update` path keeps the offset in
+/// sync via `compute_scroll_offset`). Today the registry has 4 tools so
+/// the window is the full list; this keeps the invariant ready for plugin
+/// growth.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let items: Vec<ListItem<'_>> = state
-        .tools
-        .iter()
-        .enumerate()
-        .map(|(idx, tool)| {
-            let status = match &tool.status {
-                modeltap_core::ToolStatus::Ok => String::new(),
-                modeltap_core::ToolStatus::NotInstalled => " (not installed)".to_string(),
-                modeltap_core::ToolStatus::Error { .. } => " (error)".to_string(),
-            };
-            let row = format!(
-                "{}  {}  {}{}",
-                tool.tool.0,
-                tool.model_ids.len(),
-                format_size(tool.total_bytes()),
-                status,
-            );
-            let mut style = Style::default();
-            if idx == state.selected_tool {
-                style = style.add_modifier(Modifier::REVERSED);
-                if state.focus == FocusPane::Left {
-                    style = style.add_modifier(Modifier::BOLD);
+    let total_tools = state.tools.len();
+    let visible = state.left_visible_rows.max(1);
+    let start = state.left_scroll_offset.min(total_tools.saturating_sub(1));
+    let end = (start + visible).min(total_tools);
+    let items: Vec<ListItem<'_>> = if total_tools == 0 {
+        Vec::new()
+    } else {
+        (start..end)
+            .map(|idx| {
+                let tool = &state.tools[idx];
+                let status = match &tool.status {
+                    modeltap_core::ToolStatus::Ok => String::new(),
+                    modeltap_core::ToolStatus::NotInstalled => " (not installed)".to_string(),
+                    modeltap_core::ToolStatus::Error { .. } => " (error)".to_string(),
+                };
+                let row = format!(
+                    "{}  {}  {}{}",
+                    tool.tool.0,
+                    tool.model_ids.len(),
+                    format_size(tool.total_bytes()),
+                    status,
+                );
+                let mut style = Style::default();
+                if idx == state.selected_tool {
+                    style = style.add_modifier(Modifier::REVERSED);
+                    if state.focus == FocusPane::Left {
+                        style = style.add_modifier(Modifier::BOLD);
+                    }
                 }
-            }
-            ListItem::new(Line::styled(row, style))
-        })
-        .collect();
+                ListItem::new(Line::styled(row, style))
+            })
+            .collect()
+    };
 
     let title = match state.focus {
         FocusPane::Left => "Tools (focused)",

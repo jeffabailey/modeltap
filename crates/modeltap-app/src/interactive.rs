@@ -42,7 +42,9 @@ use crossterm::terminal::{
 };
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{Tool, ToolId};
-use modeltap_tui::{keymap, update, view, AppState, Msg, UpdateEffect};
+use modeltap_tui::{
+    keymap, left_pane_body_rows, right_pane_body_rows, update, view, AppState, Msg, UpdateEffect,
+};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 
@@ -102,6 +104,11 @@ fn event_loop(
 ) -> io::Result<i32> {
     let mut state = initial_state;
 
+    // Sync viewport sizes from the real terminal BEFORE the first paint so
+    // the initial render and any pre-input scroll math use the actual
+    // pane heights instead of the AppState defaults (28 rows).
+    sync_viewport_sizes(terminal, &mut state)?;
+
     // Initial paint — required by US-01 AC-1 (cold start to first paint).
     terminal.draw(|f| view(&state, f))?;
 
@@ -128,6 +135,13 @@ fn event_loop(
                     continue;
                 }
 
+                // Sync viewport sizes BEFORE update() so compute_scroll_offset
+                // sees the real terminal layout. Without this, AppState's
+                // hardcoded default (28 rows) would over-estimate the visible
+                // window on small terminals and the highlighted row could
+                // scroll off-screen.
+                sync_viewport_sizes(terminal, &mut state)?;
+
                 let msg = translate_key(&state, key);
                 let (next, effect) = update(state, msg);
                 state = next;
@@ -136,6 +150,9 @@ fn event_loop(
                 terminal.draw(|f| view(&state, f))?;
             }
             Event::Resize(_, _) => {
+                // Update viewport sizes on resize so subsequent keypresses
+                // (and the redraw below) see the new pane heights.
+                sync_viewport_sizes(terminal, &mut state)?;
                 // ratatui's `terminal.draw` recomputes the frame's `Rect`
                 // from the current backend size, so the cheapest correct
                 // resize handler is just to redraw.
@@ -149,6 +166,27 @@ fn event_loop(
     }
 
     Ok(state.exit_code)
+}
+
+/// Sync `state.visible_rows` and `state.left_visible_rows` from the real
+/// terminal layout. Call this before every `update()` dispatch (and on
+/// resize / before the initial paint) so `compute_scroll_offset` sees the
+/// actual rendered window heights instead of the AppState defaults. Without
+/// this, on terminals shorter than 28 rows pressing Down scrolls the
+/// highlighted row off-screen.
+///
+/// `terminal.size()` is the cheapest backend call we can make per tick;
+/// it returns the cached size from the last `draw` (or queries the backend
+/// on the first call). The layout helpers are pure fns over a `Rect`.
+fn sync_viewport_sizes(
+    terminal: &Terminal<CrosstermBackend<Stdout>>,
+    state: &mut AppState,
+) -> io::Result<()> {
+    let size = terminal.size()?;
+    let area = ratatui::layout::Rect::new(0, 0, size.width, size.height);
+    state.visible_rows = right_pane_body_rows(area);
+    state.left_visible_rows = left_pane_body_rows(area);
+    Ok(())
 }
 
 /// True iff this `KeyEvent` should drive an `update()`. Modern crossterm

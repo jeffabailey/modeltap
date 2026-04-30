@@ -24,7 +24,9 @@ pub mod screens;
 pub mod update;
 
 pub use app_state::{AppState, FocusPane, Screen, ToolView};
-pub use layout::{check_terminal_width, view, TerminalSizeError};
+pub use layout::{
+    check_terminal_width, left_pane_body_rows, right_pane_body_rows, view, TerminalSizeError,
+};
 pub use msg::Msg;
 pub use panic_hook::install_panic_hook;
 pub use update::{update, UpdateEffect};

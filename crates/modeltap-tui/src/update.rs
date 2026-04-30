@@ -294,7 +294,11 @@ fn replace_tool_slot(mut state: AppState, view: crate::app_state::ToolView) -> A
 }
 
 /// Move the tool selection forward or backward (cyclic). Resets the row
-/// selection and scroll offset because the new tool has its own row list.
+/// selection and right-pane scroll offset because the new tool has its own
+/// row list. Updates the LEFT-pane scroll offset so the freshly-selected
+/// tool stays inside the rendered window — matters when the registry has
+/// more tools than the left pane's visible_rows (small terminal or future
+/// plugin growth).
 fn advance_tool(state: AppState, delta: i32) -> AppState {
     let n = state.tools.len();
     if n == 0 {
@@ -302,10 +306,13 @@ fn advance_tool(state: AppState, delta: i32) -> AppState {
     }
     let current = state.selected_tool as i32;
     let next = ((current + delta).rem_euclid(n as i32)) as usize;
+    let left_scroll_offset =
+        compute_scroll_offset(next, state.left_scroll_offset, state.left_visible_rows);
     AppState {
         selected_tool: next,
         selected_row: 0,
         scroll_offset: 0,
+        left_scroll_offset,
         ..state
     }
 }
@@ -330,11 +337,16 @@ fn advance_row(state: AppState, delta: i32) -> AppState {
 }
 
 /// Keep the cursor inside the visible window:
-/// - if `selected_row < scroll_offset`, scroll up so cursor is at the top.
-/// - if `selected_row >= scroll_offset + visible_rows`, scroll down so
-///   cursor is at the bottom.
+/// - if `selected < scroll_offset`, scroll up so cursor is at the top.
+/// - if `selected >= scroll_offset + visible`, scroll down so cursor is at
+///   the bottom.
 /// - otherwise leave scroll_offset unchanged.
-fn compute_scroll_offset(selected: usize, current_offset: usize, visible: usize) -> usize {
+///
+/// Used for both the right pane (rows of the selected tool) and the left
+/// pane (tool list) — the math is identical because both panes render a
+/// vertical window of items. Public so the scroll-invariant unit tests can
+/// drive the same pure fn the production update path uses.
+pub fn compute_scroll_offset(selected: usize, current_offset: usize, visible: usize) -> usize {
     if visible == 0 {
         return current_offset;
     }

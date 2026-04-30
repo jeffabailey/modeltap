@@ -6,7 +6,7 @@
 //! and the terminal-size guard.
 
 use modeltap_core::MIN_TERMINAL_COLUMNS;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::Frame;
 
 use crate::app_state::{AppState, Screen};
@@ -47,6 +47,56 @@ pub fn check_terminal_width(actual: u16) -> Result<(), TerminalSizeError> {
         });
     }
     Ok(())
+}
+
+/// Compute the outer Main-screen layout for a given terminal `size`. Mirrors
+/// `view_main`'s vertical and horizontal split exactly so the production
+/// interactive loop can read the same per-pane `Rect`s used by render.
+///
+/// Returned chunks: `[left_pane, right_pane, summary_bar, bottom_bar]`.
+/// When the terminal is too small for the constraints (e.g. height < 3),
+/// ratatui shrinks the rects but does not panic; the helper returns whatever
+/// ratatui produces.
+fn outer_chunks(size: Rect) -> [Rect; 4] {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(size);
+    let panes = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
+        .split(chunks[0]);
+    [panes[0], panes[1], chunks[1], chunks[2]]
+}
+
+/// Number of right-pane content rows visible in a terminal of size `size`.
+///
+/// Mirrors the right-pane render's effective body height: the right pane is
+/// the wider 70% horizontal split of the top "Min(1)" vertical chunk; the
+/// outer block consumes 1 row at the top and 1 row at the bottom for the
+/// border. This matches `state.visible_rows`'s semantics — the count of
+/// model rows the user can see at once.
+///
+/// Always returns at least 1 so the production event loop never writes a
+/// degenerate `visible_rows = 0` (which would freeze scrolling).
+pub fn right_pane_body_rows(size: Rect) -> usize {
+    let [_, right, _, _] = outer_chunks(size);
+    let h = right.height as usize;
+    h.saturating_sub(2).max(1)
+}
+
+/// Number of left-pane content rows visible in a terminal of size `size`.
+///
+/// Same semantics as `right_pane_body_rows` but for the 30% horizontal
+/// split. Returns at least 1.
+pub fn left_pane_body_rows(size: Rect) -> usize {
+    let [left, _, _, _] = outer_chunks(size);
+    let h = left.height as usize;
+    h.saturating_sub(2).max(1)
 }
 
 /// Top-level pure view function. Dispatches on `state.current_screen`:
@@ -102,24 +152,14 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
 
 fn view_main(state: &AppState, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
     // Vertical split: main panes (Min 1) | summary bar (1 row) | shortcut bar (1 row).
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .split(area);
+    // Identical rects as `outer_chunks` — the helper exists so the production
+    // event loop can compute pane heights without re-rendering.
+    let [left, right, summary, bottom] = outer_chunks(area);
 
-    let panes = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(30), Constraint::Percentage(70)])
-        .split(chunks[0]);
-
-    left_pane::render(frame, panes[0], state);
-    right_pane::render(frame, panes[1], state);
-    summary_bar::render(frame, chunks[1], state);
-    bottom_bar::render(frame, chunks[2], state);
+    left_pane::render(frame, left, state);
+    right_pane::render(frame, right, state);
+    summary_bar::render(frame, summary, state);
+    bottom_bar::render(frame, bottom, state);
 
     // Modal dialogs render LAST so they overlay the panes (US-05/US-10). Each
     // dialog reads its `Option` field on `state` — when None, the call is a
