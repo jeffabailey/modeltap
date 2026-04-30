@@ -12,6 +12,7 @@ mod observability;
 mod registry;
 
 use modeltap_app::inventory_build;
+use modeltap_app::platform::{current_platform, Platform};
 
 // `refresh` lives in the library half (src/lib.rs) so integration tests
 // can call `modeltap_app::refresh::refresh_tool` without re-compiling the
@@ -64,6 +65,19 @@ struct Cli {
 
 fn main() -> ExitCode {
     install_panic_hook();
+
+    // US-20 AC-3: native Windows is not a supported target. Refuse to start
+    // with the documented WSL guidance before we touch the runtime, the
+    // logger, or the TUI. The check honors `MODELTAP_FORCE_PLATFORM` so CI
+    // can simulate a Windows host from a macOS / Linux runner.
+    if current_platform() == Platform::Windows {
+        eprintln!(
+            "Windows is supported only via WSL — see \
+             https://learn.microsoft.com/windows/wsl/install"
+        );
+        return ExitCode::from(64);
+    }
+
     let cli = Cli::parse();
 
     let headless_env = std::env::var("MODELTAP_HEADLESS").ok().as_deref() == Some("1");

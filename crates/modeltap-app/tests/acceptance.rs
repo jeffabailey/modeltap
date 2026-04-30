@@ -26,4 +26,5 @@ mod acceptance {
     pub mod us_17_running_tool_detect;
     pub mod us_18_plugin_trait;
     pub mod us_19_cross_fs_fallback;
+    pub mod us_20_cross_platform;
 }

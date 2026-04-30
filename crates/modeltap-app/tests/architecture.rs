@@ -177,3 +177,181 @@ fn r1_tui_no_concrete_plugins() {
          — violates ADR-001 §Enforcement (R1.3) / ADR-006"
     );
 }
+
+// ---------------------------------------------------------------------------
+// US-20: cross-platform hygiene lint. Production source must not bake in
+// absolute Unix paths (`/Users/...`, `/home/...`, `/etc/...`, etc.) —
+// those would silently break on Windows and undermine the platform
+// abstraction. The platform module itself is exempt, as is any line that
+// lives under a `#[cfg(test)]` block (tests use synthetic absolute paths
+// for fixture clarity).
+// ---------------------------------------------------------------------------
+
+/// Walk the workspace source tree and return every `*.rs` file under
+/// `crates/` and `plugins/`. Skips `target/` and `tests/` directories
+/// (tests are allowed to use absolute paths in fixtures).
+fn workspace_source_files() -> Vec<PathBuf> {
+    let root = workspace_root();
+    let mut files = Vec::new();
+    for top in ["crates", "plugins"] {
+        collect_rs_files(&root.join(top), &mut files);
+    }
+    files
+}
+
+fn collect_rs_files(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if path.is_dir() {
+            // Skip cargo build output and per-crate `tests/` directories
+            // (integration tests are allowed to use absolute literal paths
+            // in fixture builders).
+            if matches!(name, "target" | "tests") {
+                continue;
+            }
+            collect_rs_files(&path, out);
+        } else if name.ends_with(".rs") {
+            out.push(path);
+        }
+    }
+}
+
+/// Forbidden absolute-path prefixes — Unix-only locations that have no
+/// meaning on Windows. We intentionally do NOT flag the bare slash `"/"`
+/// because path joins like `home.join(".cache")` are platform-portable;
+/// only fully-qualified absolute path literals are an issue.
+const FORBIDDEN_PREFIXES: &[&str] = &[
+    "\"/Users/",
+    "\"/home/",
+    "\"/etc/",
+    "\"/usr/",
+    "\"/var/",
+    "\"/proc/",
+    "\"/sys/",
+    "\"/opt/",
+    "\"/tmp/",
+];
+
+/// Module path (relative-to-crate-root) that is exempt from the lint
+/// because its job is to encode platform differences.
+fn is_exempt_path(path: &Path) -> bool {
+    let s = path.to_string_lossy();
+    // The platform abstraction itself.
+    s.ends_with("modeltap-app/src/platform.rs")
+        // The architecture-lint test source itself (this file lists the
+        // forbidden prefixes as string literals).
+        || s.ends_with("modeltap-app/tests/architecture.rs")
+        || s.ends_with("modeltap-tui/tests/architecture.rs")
+}
+
+/// Strip Rust line comments (`// ...`) so a comment containing an
+/// absolute path is not falsely flagged. Approximate but adequate —
+/// we don't track string-literal context across `//` because no
+/// Rust string literal that we ship contains `//`.
+fn strip_line_comment(line: &str) -> &str {
+    match line.find("//") {
+        Some(i) => &line[..i],
+        None => line,
+    }
+}
+
+/// Scan production code for hardcoded Unix absolute paths. Lines under a
+/// `#[cfg(test)]` mod block are skipped via a depth counter, NOT a regex,
+/// because `#[cfg(test)]` modules can be nested or inline. The counter
+/// increments on each `#[cfg(test)]` attribute followed by a `mod ` or a
+/// brace block, and decrements when the block's outer `}` is consumed.
+///
+/// This is approximate but correct for every case in this codebase: every
+/// test-only literal lives inside a `#[cfg(test)] mod tests { ... }` block.
+fn scan_for_hardcoded_unix_paths(path: &Path) -> Vec<(usize, String)> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let mut violations = Vec::new();
+    let mut in_test_block = false;
+    let mut test_block_depth: i32 = 0;
+    let mut pending_cfg_test = false;
+
+    for (lineno, raw) in content.lines().enumerate() {
+        let line = strip_line_comment(raw).trim_start();
+
+        // Track whether we just saw `#[cfg(test)]`.
+        if line.starts_with("#[cfg(test)]") {
+            pending_cfg_test = true;
+            continue;
+        }
+
+        // If `mod tests {` (or any `mod <name> {`) follows a pending
+        // `#[cfg(test)]`, enter a test block.
+        if pending_cfg_test {
+            if line.contains('{') {
+                in_test_block = true;
+                test_block_depth = count_braces(line);
+            }
+            pending_cfg_test = false;
+            continue;
+        }
+
+        // Inside a test block: count braces to find the matching close.
+        if in_test_block {
+            test_block_depth += count_braces(line);
+            if test_block_depth <= 0 {
+                in_test_block = false;
+                test_block_depth = 0;
+            }
+            continue;
+        }
+
+        // Production line — check for forbidden prefixes.
+        for prefix in FORBIDDEN_PREFIXES {
+            if line.contains(prefix) {
+                violations.push((lineno + 1, raw.to_string()));
+                break;
+            }
+        }
+    }
+
+    violations
+}
+
+/// Net brace delta: opens minus closes. Used to track when a
+/// `#[cfg(test)]` mod block ends.
+fn count_braces(line: &str) -> i32 {
+    let mut delta: i32 = 0;
+    for c in line.chars() {
+        match c {
+            '{' => delta += 1,
+            '}' => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
+}
+
+/// US-20 AC-5 — production source MUST NOT hardcode Unix absolute paths
+/// outside the `platform.rs` module. Such literals would silently break on
+/// Windows and undermine the platform abstraction installed in this step.
+#[test]
+fn no_hardcoded_unix_paths_outside_platform_module() {
+    let mut all_violations: Vec<String> = Vec::new();
+    for file in workspace_source_files() {
+        if is_exempt_path(&file) {
+            continue;
+        }
+        for (line, text) in scan_for_hardcoded_unix_paths(&file) {
+            all_violations.push(format!("{}:{}: {}", file.display(), line, text.trim()));
+        }
+    }
+    assert!(
+        all_violations.is_empty(),
+        "production source must not hardcode Unix absolute paths \
+         (use platform.rs or join from $HOME). Offenders:\n{}",
+        all_violations.join("\n")
+    );
+}
