@@ -12,6 +12,7 @@ use modeltap_core::{ToolId, ToolStatus};
 use crate::dialogs::cross_fs_choice::CrossFsChoiceDialog;
 pub use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsDecision, CrossFsMode};
 use crate::dialogs::delete_one_confirm::DeleteOneConfirmState;
+use crate::dialogs::running_tool_prompt::RunningToolDialog;
 use crate::dialogs::unify_confirm::UnifyDialogState;
 use crate::dialogs::zap_confirm::ZapConfirmState;
 use crate::screens::detail::DetailScreenState;
@@ -135,6 +136,16 @@ pub struct AppState {
     /// dialog slots.
     pub delete_one_dialog: Option<DeleteOneConfirmState>,
 
+    /// `Some(...)` when the US-17 running-tool prompt is open (intake Q5).
+    /// Opened by the composition root after `FsProbe::detect_running_tools`
+    /// returns either `Ok(non_empty)` (Detected mode) or `Err(LsofUnavailable)`
+    /// (LsofUnavailable mode). The prompt REFUSES the gated unify/delete-one
+    /// action and offers `[r] retry / [Esc] cancel`. NO filesystem mutation
+    /// may occur while this dialog is open. Closed by
+    /// `Msg::RunningToolRetry` / `Msg::RunningToolCancel` /
+    /// `Msg::RunningToolProceedAnyway` (LsofUnavailable mode only).
+    pub running_tool_dialog: Option<RunningToolDialog>,
+
     /// Structured last-action banner for the right pane (US-06). Set by
     /// `Msg::SetLastAction(...)` after an action effect completes; cleared
     /// on any navigation Msg (`SelectNextTool`, `SelectPrevTool`,
@@ -172,6 +183,7 @@ impl Default for AppState {
             unify_dialog: None,
             cross_fs_dialog: None,
             delete_one_dialog: None,
+            running_tool_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
             refresh_failed_tools: BTreeSet::new(),
@@ -201,6 +213,7 @@ impl AppState {
             unify_dialog: None,
             cross_fs_dialog: None,
             delete_one_dialog: None,
+            running_tool_dialog: None,
             last_action: None,
             current_screen: Screen::Main,
             refresh_failed_tools: BTreeSet::new(),

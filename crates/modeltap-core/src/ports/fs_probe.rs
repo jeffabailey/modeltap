@@ -19,7 +19,53 @@
 //! ADR-008 cites: refuse-default fallback. The probe is the seam that drives
 //! the whole user-choice flow.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use thiserror::Error;
+
+/// One running tool process holding an in-scope file open. Surfaced by
+/// `FsProbe::detect_running_tools` to the running-tool dialog (US-17,
+/// intake Q5). The adapter parses `lsof` output into one of these per match.
+///
+/// The dialog renders `tool_name` (the `COMMAND` column from lsof) so the
+/// user knows which app to close. `pid` is shown in parentheses for
+/// disambiguation when multiple instances of the same tool are running. The
+/// `path` is the resolved path that triggered the match — used by tests to
+/// assert which file was identified, but NOT shown in the user-facing dialog
+/// (per the kpi-instrumentation §"Privacy" rule, paths can leak username).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunningProcess {
+    /// Process command name as reported by lsof's `COMMAND` column.
+    pub tool_name: String,
+    /// Process id as reported by lsof's `PID` column.
+    pub pid: u32,
+    /// Resolved path the process holds open (the lsof `NAME` column).
+    pub path: PathBuf,
+}
+
+/// Errors produced by `FsProbe::detect_running_tools`. Per ADR-007 this is a
+/// typed enum (`thiserror`) so the running-tool gate can pattern-match
+/// `LsofUnavailable` to surface the explicit "detection unavailable on this
+/// system" dialog (US-17 AC-3) without string matching.
+#[derive(Debug, Error)]
+pub enum ProbeError {
+    /// `lsof` binary not available on this system (stripped container,
+    /// native Windows, etc.). The running-tool gate surfaces an explicit
+    /// dialog and lets the user proceed at their own risk per US-17 AC-3.
+    #[error("lsof unavailable: {reason}")]
+    LsofUnavailable { reason: String },
+
+    /// `lsof` was invoked successfully but its output could not be parsed.
+    /// Surfaced as a non-fatal warning; treated as "no running tools" so
+    /// the user is not blocked by an unrelated parser bug.
+    #[error("lsof output parse error: {reason}")]
+    ParseError { reason: String },
+
+    /// Underlying I/O error from spawning the subprocess (other than
+    /// "binary not found", which maps to `LsofUnavailable`).
+    #[error("lsof I/O error: {0}")]
+    Io(#[from] std::io::Error),
+}
 
 /// Driven port for filesystem-level inspection used by the unify planner and
 /// the US-19 cross-fs choice dialog.
@@ -62,6 +108,32 @@ pub trait FsProbe: Send + Sync {
     /// (e.g., post-action invariant checks on inode equality).
     fn inode(&self, path: &Path) -> Option<u64> {
         self.dev_and_inode(path).map(|(_, i)| i)
+    }
+
+    /// Detect any running tool processes that hold one or more of
+    /// `target_paths` open. Used by the unify and delete-one orchestrators
+    /// (US-17, intake Q5) to refuse mutating actions while a registered
+    /// tool's process has a file in scope. The action is gated:
+    /// when this returns `Ok(non_empty)`, the orchestrator MUST raise the
+    /// running-tool dialog and refuse the action until the user closes the
+    /// tool and presses [r] retry.
+    ///
+    /// Real adapter (`modeltap_app::lsof_adapter::LsofAdapter`) shells out to
+    /// `lsof` on macOS/Linux (gated by `cfg!(unix)`). On Windows native, the
+    /// adapter returns `Err(ProbeError::LsofUnavailable)` so the user sees
+    /// the explicit message and can proceed at own risk. A fake-output env
+    /// var (`MODELTAP_FAKE_LSOF_OUTPUT`) lets tests inject synthetic lsof
+    /// output without spawning a real subprocess.
+    ///
+    /// Default impl returns empty (no running tools detected) so existing
+    /// fakes that only need `dev_and_inode` continue to compile. The real
+    /// production path overrides this; tests that exercise the running-tool
+    /// gate use a dedicated `FakeRunningToolProbe`.
+    fn detect_running_tools(
+        &self,
+        _target_paths: &[PathBuf],
+    ) -> Result<Vec<RunningProcess>, ProbeError> {
+        Ok(Vec::new())
     }
 }
 

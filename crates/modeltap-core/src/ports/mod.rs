@@ -62,4 +62,4 @@ pub trait Hasher: Send + Sync {
 
 pub mod fs_probe;
 
-pub use fs_probe::FsProbe;
+pub use fs_probe::{FsProbe, ProbeError, RunningProcess};

@@ -11,5 +11,6 @@
 #![forbid(unsafe_code)]
 
 pub mod inventory_build;
+pub mod lsof_adapter;
 pub mod refresh;
 pub mod sha256_cache;

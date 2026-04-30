@@ -12,6 +12,7 @@ pub mod last_action;
 pub mod left_pane;
 pub mod right_pane;
 pub mod row;
+pub mod running_tool_dialog;
 pub mod summary_bar;
 pub mod unify_dialog;
 pub mod zap_dialog;

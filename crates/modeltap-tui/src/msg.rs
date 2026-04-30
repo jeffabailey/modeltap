@@ -11,6 +11,7 @@ use modeltap_core::ToolId;
 
 use crate::app_state::ToolView;
 use crate::dialogs::delete_one_confirm::DeleteOneConfirmState;
+use crate::dialogs::running_tool_prompt::RunningToolDialog;
 use crate::screens::detail::DetailScreenState;
 
 /// All the messages that can drive `update()`. Step 01-03 covers keyboard
@@ -204,6 +205,37 @@ pub enum Msg {
     /// returns. Carries the formatted "(dry-run) Would..." lines; `update()`
     /// transitions the dialog to `UnifyMode::DryRunPreview { lines }`.
     UnifyDryRunCompleted(Vec<String>),
+
+    // -----------------------------------------------------------------------
+    // US-17 running-tool detect-and-prompt-then-retry (intake Q5; step 03-07).
+    //
+    // The composition root opens this dialog when, after the user attempts
+    // a unify or delete_one action, `FsProbe::detect_running_tools` returns
+    // either `Ok(non_empty)` (Detected mode) or `Err(LsofUnavailable)`
+    // (LsofUnavailable mode). The dialog REFUSES the action and prompts
+    // close-and-retry — NOT a soft-warning. NO filesystem mutation may
+    // occur while the dialog is open.
+    // -----------------------------------------------------------------------
+    /// Composition root dispatches this after `detect_running_tools` returns
+    /// `Ok(non_empty)` OR `Err(LsofUnavailable)` and the user was attempting
+    /// a unify or delete_one. `update()` writes
+    /// `running_tool_dialog = Some(state)` and ensures no other dialog slot
+    /// is also occupied (mutual exclusion).
+    OpenRunningToolPrompt(RunningToolDialog),
+    /// User pressed `[r]` while the running-tool prompt is open. In Detected
+    /// mode, the composition root re-runs `detect_running_tools`; if it now
+    /// returns empty, the original gated action proceeds. In LsofUnavailable
+    /// mode, this Msg is dispatched as `Msg::RunningToolProceedAnyway` by
+    /// the keymap (the dialog's `decide_on_retry` returns `ProceedAnyway`).
+    RunningToolRetry,
+    /// User pressed `[Esc]` while the running-tool prompt is open. Always
+    /// cancels — closes the dialog with no destructive side-effect.
+    RunningToolCancel,
+    /// User pressed `[r]` while the running-tool prompt is open in
+    /// LsofUnavailable mode. The orchestrator bypasses the gate and runs
+    /// the original action despite the missing safety check (the user has
+    /// acknowledged it).
+    RunningToolProceedAnyway,
 
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,

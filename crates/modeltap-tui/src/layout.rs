@@ -10,7 +10,9 @@ use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::Frame;
 
 use crate::app_state::{AppState, Screen};
-use crate::render::{bottom_bar, left_pane, right_pane, summary_bar, unify_dialog, zap_dialog};
+use crate::render::{
+    bottom_bar, left_pane, right_pane, running_tool_dialog, summary_bar, unify_dialog, zap_dialog,
+};
 use crate::screens::detail::render_detail;
 use crate::screens::help_overlay;
 
@@ -69,6 +71,13 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
             if let Some(dialog) = state.unify_dialog.as_ref() {
                 unify_dialog::render(frame, area, dialog);
             }
+            // US-17 running-tool prompt overlays both unify and delete-one
+            // gates on the detail screen. Render LAST so it wins over any
+            // simultaneously-open dialog (defense-in-depth — well-formed
+            // workflow only opens one at a time).
+            if let Some(dialog) = state.running_tool_dialog.as_ref() {
+                running_tool_dialog::render(frame, area, dialog);
+            }
         }
         Screen::Help { previous } => {
             // Render the underlying screen first so the help-close transition
@@ -122,5 +131,11 @@ fn view_main(state: &AppState, frame: &mut Frame<'_>, area: ratatui::layout::Rec
     }
     if let Some(dialog) = state.unify_dialog.as_ref() {
         unify_dialog::render(frame, area, dialog);
+    }
+    // US-17 running-tool prompt — overlays unify/delete-one and zap-all gates
+    // on the main screen. Render LAST so it wins over any simultaneously-open
+    // dialog.
+    if let Some(dialog) = state.running_tool_dialog.as_ref() {
+        running_tool_dialog::render(frame, area, dialog);
     }
 }

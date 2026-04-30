@@ -15,12 +15,16 @@ use std::path::PathBuf;
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::logic::canonical_selector::{select_canonical, CandidatePath};
 use modeltap_core::logic::plan::{build_plan, PlanCandidate, UnifyPlan};
+use modeltap_core::ports::fs_probe::{FsProbe, ProbeError};
 use modeltap_core::{Tool, ToolId};
 use modeltap_tui::app_state::Screen;
 use modeltap_tui::dialogs::delete_one_confirm::DeleteOneConfirmState;
+use modeltap_tui::dialogs::running_tool_prompt::{PendingGatedAction, RunningToolDialog};
 use modeltap_tui::dialogs::unify_confirm::UnifyMode;
 use modeltap_tui::screens::detail::DetailScreenState;
 use modeltap_tui::{update, view, AppState, Msg, UpdateEffect};
+
+use modeltap_app::lsof_adapter::LsofAdapter;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
@@ -143,6 +147,20 @@ pub fn run(
         if dry_run_visible {
             if let Err(e) = terminal.draw(|f| view(&state, f)) {
                 eprintln!("modeltap: dry-run preview redraw failed: {e}");
+                return 1;
+            }
+            print_frame(&terminal);
+        }
+        // US-17 (intake Q5; step 03-07) running-tool dialog frame-capture
+        // seam. The dialog is OPENED transiently between the user's gated
+        // keystroke (u/d) and their dismissal (<esc> / [r] retry). Without
+        // this capture, the final frame would never show the dialog text and
+        // the AC-2 / AC-3 assertions ("running"/"close"/"retry" /
+        // "Running-tool detection unavailable") would fail. Same pattern as
+        // the dry-run capture above.
+        if state.running_tool_dialog.is_some() {
+            if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                eprintln!("modeltap: running-tool dialog redraw failed: {e}");
                 return 1;
             }
             print_frame(&terminal);
@@ -463,6 +481,23 @@ fn lift_unify_in_detail(state: &AppState, msg: Msg, next_is_dry_run: bool) -> Ms
         // something to do.
         return msg;
     };
+    // US-17 (intake Q5; step 03-07) — detect-and-prompt-then-retry. Before
+    // ANY further dialog, probe the in-scope paths via lsof; if a registered
+    // tool process holds them open, REFUSE the action by routing to the
+    // running-tool prompt. Dry-run preview is read-only and bypasses the
+    // gate (the user is just looking at the plan; no fs mutation).
+    if !next_is_dry_run {
+        let target_paths: Vec<PathBuf> = plan
+            .links
+            .iter()
+            .filter(|l| !l.already_linked)
+            .map(|l| l.target.clone())
+            .chain(std::iter::once(plan.canonical.path.clone()))
+            .collect();
+        if let Some(running_msg) = check_running_tools(&target_paths, PendingGatedAction::Unify) {
+            return running_msg;
+        }
+    }
     // US-19 — any active cross-fs target routes to the choice dialog,
     // EXCEPT when the next script token is `n` (US-14 dry-run preview);
     // dry-run is read-only so it must be reachable even when the
@@ -475,6 +510,34 @@ fn lift_unify_in_detail(state: &AppState, msg: Msg, next_is_dry_run: bool) -> Ms
         Msg::OpenCrossFsDialog(plan)
     } else {
         Msg::OpenUnifyDialog(plan)
+    }
+}
+
+/// US-17 (step 03-07; intake Q5): probe `target_paths` via the lsof adapter.
+/// Returns `Some(Msg::OpenRunningToolPrompt(_))` when the gate should fire —
+/// either a running tool was detected (`Detected` mode) or lsof is missing
+/// (`LsofUnavailable` mode). Returns `None` when the probe returned an empty
+/// list (no running tools — the action proceeds normally).
+///
+/// The IO error case (probe returned `Err(Io(_))`) is treated as "no
+/// detection available, do not block" per the conservative-when-uncertain
+/// rule (ADR-002): we'd rather let the user proceed than break unify on a
+/// transient lsof glitch. Only the explicit `LsofUnavailable` (binary
+/// missing) raises the unavailability dialog.
+fn check_running_tools(target_paths: &[PathBuf], action: PendingGatedAction) -> Option<Msg> {
+    if target_paths.is_empty() {
+        return None;
+    }
+    let adapter = LsofAdapter::new();
+    match adapter.detect_running_tools(target_paths) {
+        Ok(processes) if !processes.is_empty() => Some(Msg::OpenRunningToolPrompt(
+            RunningToolDialog::detected(processes, action),
+        )),
+        Ok(_) => None,
+        Err(ProbeError::LsofUnavailable { .. }) => Some(Msg::OpenRunningToolPrompt(
+            RunningToolDialog::lsof_unavailable(action),
+        )),
+        Err(_) => None,
     }
 }
 
@@ -575,6 +638,14 @@ fn lift_delete_one_in_detail(state: &AppState, msg: Msg) -> Msg {
     let Some(reg) = target_reg else {
         return msg;
     };
+    // US-17 (step 03-07; intake Q5): detect-and-prompt-then-retry gate. The
+    // delete-one path scopes the probe to the targeted registration's path
+    // (the only file we'd remove). If a registered tool process holds it
+    // open, refuse with the running-tool prompt — NO destructive side-effect.
+    let target_paths = vec![reg.path.clone()];
+    if let Some(running_msg) = check_running_tools(&target_paths, PendingGatedAction::DeleteOne) {
+        return running_msg;
+    }
     let was_shared = detail.registrations.len() >= 2;
     let size_bytes = std::fs::metadata(&reg.path)
         .map(|m| m.len())

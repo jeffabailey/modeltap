@@ -10,6 +10,7 @@ use modeltap_core::ToolId;
 use crate::app_state::{AppState, FocusPane, Screen};
 use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsChoiceDialog};
 use crate::dialogs::delete_one_confirm::{DeleteOneConfirmState, DeleteOneDecision};
+use crate::dialogs::running_tool_prompt::{PendingGatedAction, RunningToolDialog};
 use crate::dialogs::unify_confirm::{UnifyDecision, UnifyDialogState};
 use crate::dialogs::zap_confirm::{ZapConfirmState, ZapDecision};
 use crate::msg::Msg;
@@ -59,6 +60,27 @@ pub struct UpdateEffect {
     /// `delete_all` per ADR-009) and emit the `action.zap_one` JSONL event
     /// with `was_shared` recorded.
     pub trigger_delete_one: Option<DeleteOneTrigger>,
+
+    /// US-17 (step 03-07; intake Q5): when `Some(pending_action)`, the user
+    /// pressed `[r]` on the running-tool prompt. The composition root
+    /// re-runs `FsProbe::detect_running_tools` against the in-scope paths;
+    /// if it now returns empty, the orchestrator re-dispatches the gated
+    /// action. If it still returns non-empty, the running-tool dialog is
+    /// reopened (still gated). In LsofUnavailable mode, this effect is
+    /// emitted with the same payload but the orchestrator BYPASSES the
+    /// re-probe (the user proceeded anyway).
+    pub trigger_running_tool_retry: Option<RunningToolRetry>,
+}
+
+/// Payload for `UpdateEffect::trigger_running_tool_retry`. Carries the
+/// gated action so the orchestrator knows what to re-dispatch on a clean
+/// re-probe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunningToolRetry {
+    pub action: PendingGatedAction,
+    /// True iff the dialog was in LsofUnavailable mode and the user pressed
+    /// `[r]` (proceed anyway). The orchestrator bypasses the re-probe.
+    pub proceed_anyway: bool,
 }
 
 /// Payload for `UpdateEffect::trigger_delete_one`. Carries the data the
@@ -213,6 +235,24 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // ----- US-14 dry-run preview (step 03-05) -----------------------
         Msg::UnifyDryRun => decide_dry_run(state),
         Msg::UnifyDryRunCompleted(lines) => apply_dry_run_lines(state, lines),
+        // ----- US-17 running-tool detect-and-prompt-then-retry (step 03-07) -
+        // Per intake Q5: detect-and-prompt-then-retry. The composition root
+        // dispatches OpenRunningToolPrompt(dialog) when, after the user
+        // attempts unify or delete_one, FsProbe::detect_running_tools returns
+        // either Ok(non_empty) (Detected mode) or Err(LsofUnavailable). The
+        // dialog REFUSES the action; NO filesystem mutation may occur while
+        // the dialog is open. [r] retries (or proceeds-anyway in
+        // LsofUnavailable mode); [Esc] cancels.
+        Msg::OpenRunningToolPrompt(dialog) => (
+            AppState {
+                running_tool_dialog: Some(dialog),
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        Msg::RunningToolRetry => decide_running_tool(state, RunningToolKey::Retry),
+        Msg::RunningToolCancel => decide_running_tool(state, RunningToolKey::Cancel),
+        Msg::RunningToolProceedAnyway => decide_running_tool(state, RunningToolKey::ProceedAnyway),
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
 }
@@ -627,4 +667,53 @@ fn decide_cross_fs(state: AppState, key: CrossFsKey) -> (AppState, UpdateEffect)
             ..UpdateEffect::default()
         },
     )
+}
+
+/// Which key drove the running-tool dialog decision (US-17, step 03-07).
+/// `Retry` and `ProceedAnyway` close the dialog and emit
+/// `trigger_running_tool_retry` so the orchestrator re-runs the gate (or
+/// bypasses it for the lsof-unavailable case). `Cancel` just closes the
+/// dialog with no side-effect (refuse default per intake Q5).
+enum RunningToolKey {
+    Retry,
+    ProceedAnyway,
+    Cancel,
+}
+
+/// Resolve a running-tool dialog decision. The pure update closes the
+/// dialog and (for Retry / ProceedAnyway) emits a `RunningToolRetry`
+/// effect carrying the pending action so the composition root re-runs the
+/// gate (Retry) or bypasses it (ProceedAnyway). On Cancel, no effect is
+/// emitted — the gated action is dropped, no filesystem mutation occurs.
+fn decide_running_tool(state: AppState, key: RunningToolKey) -> (AppState, UpdateEffect) {
+    let Some(dialog) = &state.running_tool_dialog else {
+        return (state, UpdateEffect::default());
+    };
+    let trigger = match key {
+        RunningToolKey::Retry => Some(retry_from_dialog(dialog, false)),
+        RunningToolKey::ProceedAnyway => Some(retry_from_dialog(dialog, true)),
+        RunningToolKey::Cancel => None,
+    };
+    let next_state = AppState {
+        running_tool_dialog: None,
+        ..state
+    };
+    (
+        next_state,
+        UpdateEffect {
+            trigger_running_tool_retry: trigger,
+            ..UpdateEffect::default()
+        },
+    )
+}
+
+/// Build the `RunningToolRetry` payload from the dialog's snapshot. The
+/// `proceed_anyway` flag tells the orchestrator whether to BYPASS the
+/// re-probe (true — user has acknowledged the missing safety check) or
+/// re-RUN it (false — user closed the tool and wants to retry the gate).
+fn retry_from_dialog(dialog: &RunningToolDialog, proceed_anyway: bool) -> RunningToolRetry {
+    RunningToolRetry {
+        action: dialog.pending_action.clone(),
+        proceed_anyway,
+    }
 }
