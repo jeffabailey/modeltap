@@ -19,12 +19,15 @@
 //! same-content-different-paths as shared, but that change is purely additive
 //! — the safety property holds.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::types::{DisplayLabel, Format, ModelStatus, ToolId};
+use crate::domain::dedup_glyph::DedupGlyph;
+use crate::domain::dedup_summary::DedupSummary;
+use crate::logic::compatibility::{Inventory, InventoryEntry};
+use crate::types::{ContentHash, DisplayLabel, Format, ModelStatus, ToolId};
 
 /// Per-tool projection of one discovered model — the cross-plugin view the
 /// classifier consumes. Identical fields to `ModelMeta` minus the dedup_key
@@ -97,4 +100,216 @@ pub fn classify_unique_vs_shared(
     }
 
     report
+}
+
+// ---------------------------------------------------------------------------
+// Step 01-02: per-row dedup-glyph classifier + dedup summary
+// ---------------------------------------------------------------------------
+//
+// Per `docs/feature/cross-tool-model-unify/design/architecture-design.md` §6.2
+// the row glyph is one of `{?, ~, -, =, #}` plus a `!` decorator on hash
+// failure. The classifier is a pure function — all its inputs (in_progress,
+// failed, inode map) are passed in by the orchestrator. Per the §6.2
+// implementation note: do NOT re-stat in the classifier.
+
+/// Identity of a row in the cross-plugin inventory: `(tool, id_in_tool)`.
+/// Mirrors the access pattern already used elsewhere (a `String` keyed within
+/// the owning tool, namespaced by `ToolId`). A dedicated `ModelId` newtype
+/// may emerge later when cross-tool identity becomes load-bearing.
+pub type ModelKey = (ToolId, String);
+
+/// `(device, inode)` pair for each inventory entry, supplied by the
+/// orchestrator from a prior `stat()` call. Per architecture-design.md §6.2:
+/// the classifier MUST NOT re-stat — pass it in.
+pub type InodeMap = HashMap<ModelKey, (u64, u64)>;
+
+/// Compute the per-row dedup glyph for `target` given the cross-plugin
+/// inventory and the live hash-pool state.
+///
+/// Per the §6.2 derivation table, evaluation order is:
+///
+/// 1. `in_progress` contains the target → `Hashing` (overrides everything).
+/// 2. `failed` contains the target → `Failed` (BR-3 conservative-when-uncertain
+///    sentinel; renderer maps to `-` with `!` decorator).
+/// 3. Target's `content_hash` is `None` → `Pending`.
+/// 4. Target's hash matches at least one OTHER-tool peer:
+///    - all matching peers (incl. target) share the SAME `(device, inode)` AND
+///      no separate-inode peer exists → `AlreadyUnified`
+///    - at least one matching peer has a DIFFERENT `(device, inode)` → `DedupAble`
+/// 5. Otherwise → `Unique`.
+///
+/// All inputs are by-reference; the function is O(N) over the inventory size.
+/// No I/O, no panics.
+pub fn compute_dedup_glyph(
+    target: &InventoryEntry,
+    inventory: &Inventory,
+    inodes: &InodeMap,
+    in_progress: &BTreeSet<ModelKey>,
+    failed: &BTreeSet<ModelKey>,
+) -> DedupGlyph {
+    let target_key: ModelKey = (target.tool, target.model.id_in_tool.clone());
+
+    // 1. Hashing wins over any classification — even a stale hash. Renderer
+    //    surfaces `~` until the (re-)hash completes.
+    if in_progress.contains(&target_key) {
+        return DedupGlyph::Hashing;
+    }
+
+    // 2. Hash-failure sentinel (BR-3): conservative, never overstate sharing.
+    if failed.contains(&target_key) {
+        return DedupGlyph::Failed;
+    }
+
+    // 3. No hash yet (and no worker assigned): Pending.
+    let Some(target_hash) = target.content_hash else {
+        return DedupGlyph::Pending;
+    };
+
+    // 4. Classify against OTHER-tool peers with matching SHA256.
+    let target_inode = inodes.get(&target_key).copied();
+    let mut has_separate_inode_peer = false;
+    let mut has_shared_inode_peer = false;
+
+    for peer in &inventory.entries {
+        if peer.tool == target.tool && peer.model.id_in_tool == target.model.id_in_tool {
+            continue; // skip self
+        }
+        if peer.tool == target.tool {
+            continue; // same-tool peers don't drive cross-tool dedup classification
+        }
+        if !content_hash_matches(target_hash, peer.content_hash) {
+            continue;
+        }
+        let peer_key: ModelKey = (peer.tool, peer.model.id_in_tool.clone());
+        let peer_inode = inodes.get(&peer_key).copied();
+        match (target_inode, peer_inode) {
+            (Some(t), Some(p)) if t == p => has_shared_inode_peer = true,
+            _ => has_separate_inode_peer = true,
+        }
+    }
+
+    if has_separate_inode_peer {
+        // §6.2 row #3: ≥2 separate inodes have same SHA256 → DedupAble.
+        // This outranks AlreadyUnified per row #4: AlreadyUnified requires
+        // that NO other-tool path holds a separate copy. If even one separate
+        // copy exists, the user can still unify it in.
+        DedupGlyph::DedupAble
+    } else if has_shared_inode_peer {
+        // §6.2 row #4: ≥2 paths share one inode AND no separate copy.
+        DedupGlyph::AlreadyUnified
+    } else {
+        // §6.2 row #5: otherwise → Unique.
+        DedupGlyph::Unique
+    }
+}
+
+/// Equal-when-both-known content hash comparison. Mirrors the conservative
+/// rule in `compatibility::is_dedup_key_match`: `None` on either side means
+/// "we are not sure" → not a match. Used by `compute_dedup_glyph` to decide
+/// whether a peer participates in the classification.
+fn content_hash_matches(target: ContentHash, peer: Option<ContentHash>) -> bool {
+    matches!(peer, Some(h) if h == target)
+}
+
+/// Compute the top-level dedup aggregates carried on `AppState` for the
+/// summary bar and the `[All Unified]` slot badge.
+///
+/// Per `data-models.md` §dedup_summary the three Option<u64> fields use the
+/// convention:
+///   - `None` → `computing...` should be displayed
+///   - `Some(n)` → real value, render the number
+///
+/// While `hashing_done` is `false` we honestly cannot report — a not-yet-hashed
+/// file might still turn out to be dedup-able. Once `hashing_done` is `true`
+/// the function aggregates over the inventory:
+///
+/// - `dedup_able_bytes` = sum of `size_bytes` over distinct hashes that have
+///   at least two cross-tool entries living on DIFFERENT inodes. Counted
+///   ONCE per hash-group (the canonical's size; reclaimable bytes ≈ that).
+/// - `unified_count` = number of distinct hash-groups whose cross-tool
+///   entries already share a single `(device, inode)` AND have no
+///   separate-inode peer.
+/// - `total_saved_by_unification` = sum over those unified groups of
+///   `(N - 1) * size_bytes` where N is the number of paths sharing the inode.
+///
+/// Pure function, no I/O.
+pub fn dedup_summary(inventory: &Inventory, inodes: &InodeMap, hashing_done: bool) -> DedupSummary {
+    if !hashing_done {
+        return DedupSummary::default();
+    }
+
+    // Group entries by SHA256. Entries without a hash do not contribute (they
+    // also indicate hashing isn't truly done; but we trust the caller's
+    // boolean and conservatively skip them).
+    let mut groups: HashMap<ContentHash, Vec<&InventoryEntry>> = HashMap::new();
+    for entry in &inventory.entries {
+        if let Some(hash) = entry.content_hash {
+            groups.entry(hash).or_default().push(entry);
+        }
+    }
+
+    let mut dedup_able_bytes: u64 = 0;
+    let mut unified_count: u64 = 0;
+    let mut total_saved_by_unification: u64 = 0;
+
+    for members in groups.values() {
+        // Need at least two members to dedup or unify.
+        if members.len() < 2 {
+            continue;
+        }
+        // Deduplicate by tool: a single tool listing twice doesn't count as
+        // cross-tool sharing for the purposes of the summary bar.
+        let cross_tool: Vec<&&InventoryEntry> = {
+            let mut tools_seen: BTreeSet<ToolId> = BTreeSet::new();
+            members
+                .iter()
+                .filter(|e| tools_seen.insert(e.tool))
+                .collect()
+        };
+        if cross_tool.len() < 2 {
+            continue;
+        }
+
+        // Compute distinct (device, inode) pairs across the group.
+        let mut inodes_seen: BTreeSet<(u64, u64)> = BTreeSet::new();
+        let mut entries_with_inode: u64 = 0;
+        for m in &cross_tool {
+            let mkey: ModelKey = (m.tool, m.model.id_in_tool.clone());
+            if let Some(devino) = inodes.get(&mkey) {
+                inodes_seen.insert(*devino);
+                entries_with_inode = entries_with_inode.saturating_add(1);
+            }
+        }
+
+        // Use the size of the first member as the representative size.
+        // (All members of a hash-group should have the same size_bytes; we
+        // pick one rather than averaging.)
+        let size_bytes = cross_tool[0].model.size_bytes;
+
+        if inodes_seen.len() >= 2 {
+            // Separate inodes exist → reclaimable. Count this hash-group's
+            // size once toward the dedup-able total. (One inode worth of
+            // bytes can be reclaimed by hardlinking the others into it.)
+            dedup_able_bytes = dedup_able_bytes.saturating_add(size_bytes);
+        } else if inodes_seen.len() == 1 && entries_with_inode >= 2 {
+            // All cross-tool entries share a single inode AND we have inode
+            // data for at least two of them → already unified.
+            unified_count = unified_count.saturating_add(1);
+            // Saves = (N - 1) * size, where N is the number of cross-tool
+            // entries sharing the inode.
+            let saves = entries_with_inode
+                .saturating_sub(1)
+                .saturating_mul(size_bytes);
+            total_saved_by_unification = total_saved_by_unification.saturating_add(saves);
+        }
+        // If `inodes_seen.is_empty()`, we have no inode data — the group is
+        // not classifiable. With `hashing_done == true` this is unusual but
+        // we conservatively skip rather than misreport.
+    }
+
+    DedupSummary {
+        dedup_able_bytes: Some(dedup_able_bytes),
+        unified_count: Some(unified_count),
+        total_saved_by_unification: Some(total_saved_by_unification),
+    }
 }
