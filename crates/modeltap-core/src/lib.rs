@@ -20,6 +20,7 @@ pub mod ports;
 pub mod tool;
 pub mod types;
 
+pub use domain::{DedupGlyph, DedupSummary, LeftPaneSlot, SyntheticSlot, UnifiedRow};
 pub use plugin_factory::PluginFactory;
 pub use tool::Tool;
 pub use types::{
