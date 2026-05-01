@@ -1,0 +1,88 @@
+journey:
+  name: "See What Is Already Unified"
+  goal: "Confirm at a glance which models share one inode across multiple tools, with their tool count and bytes saved."
+  persona: "Devon"
+  trigger: "Curiosity / audit / post-unify validation"
+  success_criteria:
+    - "Single navigation step (left-pane select) reveals the full unified list"
+    - "Each row shows: name, size, tool count, bytes saved by unification"
+    - "Counts and totals match the summary bar"
+
+  ux_mechanism:
+    chosen: "Pseudo-tool slot [All Unified] in left pane"
+    rejected:
+      - mechanism: "Separate screen behind hotkey"
+        reason: "Adds new mental location and keybinding"
+      - mechanism: "Filter toggle on main view"
+        reason: "Modal; user can forget toggle is active"
+      - mechanism: "Right-pane re-group by dedup-key"
+        reason: "Changes pane semantics based on selection"
+
+  emotional_arc:
+    pattern: "Discovery Joy"
+    start: "Curious / auditor energy"
+    middle: "Engaged (scanning concrete data)"
+    end: "Confident (everything that should be unified IS unified)"
+
+  steps:
+
+    - id: 1
+      name: "Navigate to [All Unified]"
+      command: "j/k arrows in left pane"
+      shared_artifacts:
+        - name: "unified_count"
+          source: "modeltap-core::logic::dedup classifier"
+          displayed_as: "${unified_count}"
+          consumers: ["left-pane badge", "summary bar 'Unified: N models'"]
+      emotional_state:
+        entry: "Curious"
+        exit: "Engaged"
+      integration_checkpoint: "Selecting [All Unified] populates right pane with rows whose dedup-glyph would be #"
+
+    - id: 2
+      name: "Scan the unified list"
+      command: "(passive)"
+      shared_artifacts:
+        - name: "tool_share_list"
+          source: "per-tool discovery + inode equality"
+          displayed_as: "'N tools' column per row"
+          consumers: ["row rendering", "detail screen"]
+        - name: "total_saved_by_unification"
+          source: "modeltap-core derived: sum((N-1) * size) over unified models"
+          displayed_as: "${total_saved}"
+          consumers: ["right-pane footer"]
+      emotional_state:
+        entry: "Engaged"
+        exit: "Confident"
+      integration_checkpoint: "Footer total = sum of per-row 'saves' column"
+
+    - id: 3
+      name: "(Optional) Press Enter for detail"
+      command: "Enter"
+      shared_artifacts:
+        - name: "tool_share_list"
+          source: "per-tool discovery + inode equality"
+          displayed_as: "list of paths under one inode"
+          consumers: ["detail screen"]
+        - name: "shared_inode"
+          source: "filesystem stat() result"
+          displayed_as: "inode number on detail screen"
+          consumers: ["detail screen"]
+      emotional_state:
+        entry: "Confident"
+        exit: "Validated"
+      integration_checkpoint: "All paths shown share the same inode (filesystem-level proof)"
+
+  empty_state:
+    when: "No models are currently unified"
+    behavior: "Right pane shows guidance: navigate to a tool, find = row, press u"
+    rationale: "Onboarding: explain what will appear and how to make it appear"
+
+  integration_validation:
+    shared_artifact_consistency:
+      - artifact: "unified_count"
+        must_match_across: ["left-pane [All Unified] badge", "summary bar 'Unified: N models'", "footer of right pane when [All Unified] selected"]
+        failure_message: "Three places display unified count and they disagree."
+      - artifact: "tool_share_list"
+        must_match_across: ["row 'N tools' column", "detail screen path list"]
+        failure_message: "Row says N tools but detail shows different number of paths."

@@ -1,0 +1,852 @@
+{
+  "feature_id": "cross-tool-model-unify",
+  "created_at": "2026-04-30T00:00:00Z",
+  "paradigm": "object-oriented",
+  "mutation_strategy": "per-feature",
+  "phases": [
+    {
+      "name": "Phase 01 \u2014 Walking Skeleton (US-U1..U6 vertical slice)",
+      "description": "Minimum end-to-end slice that unignores us_u1_walking_skeleton::devon_reclaims_disk_by_unifying_a_duplicated_model_from_the_main_view. Builds the core types, AppState refactor, summary-bar wiring, dedup-glyph computation, hash pool scaffold, u-from-main-view dispatch, and post-unify reclassification. Each step is atomic; the LAST step removes #[ignore] after all foundational infra is in place.",
+      "steps": [
+        {
+          "step_id": "01-01",
+          "name": "Add core dedup-glyph and synthetic-slot domain types",
+          "description": "Create the new pure data types in modeltap-core: DedupGlyph enum, SyntheticSlot enum, LeftPaneSlot enum, DedupSummary struct. Type-only step; no behavior, no I/O. Lays the foundation for every later step.",
+          "acceptance_criteria": [
+            "AC-U3.2",
+            "AC-U7.1"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u3_row_dedup_glyphs.rs",
+          "scenario_line": 164,
+          "acceptance_test_scenario": "(no Gherkin scenario yet \u2014 pure type addition; first behavioral consumer is step 01-04)",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "cargo build green for modeltap-core"
+          ],
+          "implementation_notes": "Pure data only. Add #[derive(Debug, Clone, Eq, PartialEq, Hash, serde::Serialize)] per data-models.md. Place in new modules domain::dedup_glyph and domain::synthetic_slot. Re-export at crate root. UnifiedRow struct also defined here. NO logic yet \u2014 that lands in 01-02.",
+          "dependencies": [],
+          "estimated_hours": 1.5,
+          "deliverables": [
+            "crates/modeltap-core/src/domain/dedup_glyph.rs",
+            "crates/modeltap-core/src/domain/synthetic_slot.rs",
+            "crates/modeltap-core/src/domain/dedup_summary.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-core/src/domain/mod.rs",
+            "crates/modeltap-core/src/lib.rs"
+          ]
+        },
+        {
+          "step_id": "01-02",
+          "name": "Implement compute_dedup_glyph and dedup_summary pure functions",
+          "description": "Add core::logic::dedup::compute_dedup_glyph(target, inventory, in_progress, failed) -> DedupGlyph and core::logic::dedup::dedup_summary(inventory, hashing_done) -> DedupSummary. Pure functions, fully unit-tested. Glyph derivation table in architecture-design.md \u00a76.2 is the contract.",
+          "acceptance_criteria": [
+            "AC-U3.2",
+            "AC-U3.3",
+            "AC-U3.5",
+            "AC-NFR-5"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u3_row_dedup_glyphs.rs",
+          "scenario_line": 164,
+          "acceptance_test_scenario": "A dedup-able model shows the \"=\" glyph in the right pane",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "unit tests cover all 6 DedupGlyph variants + Failed sentinel"
+          ],
+          "implementation_notes": "Inputs are passed in (no re-stat). The inode-equality test distinguishes = from #. Use existing PlanCandidate's (device, inode) data; do NOT re-stat in classifier. Conservative-when-uncertain (BR-3): hash failure -> Unique with sentinel. Add unit tests in modeltap-core/tests/dedup_glyph_test.rs covering Pending, Hashing, Unique, DedupAble, AlreadyUnified, Failed.",
+          "dependencies": [
+            "01-01"
+          ],
+          "estimated_hours": 2.5,
+          "deliverables": [
+            "crates/modeltap-core/tests/dedup_glyph_test.rs",
+            "crates/modeltap-core/tests/dedup_summary_test.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-core/src/logic/dedup.rs"
+          ]
+        },
+        {
+          "step_id": "01-03",
+          "name": "Refactor AppState.tools to AppState.left_pane_slots",
+          "description": "Mechanical refactor of AppState per ADR-014: replace tools: Vec<ToolView> with left_pane_slots: Vec<LeftPaneSlot>. Add hash_state: HashPoolState, dedup_summary: DedupSummary, summary_delta: Option<SummaryDelta> fields. Selection navigation continues to operate on length unchanged. All v1 tests must continue passing.",
+          "acceptance_criteria": [
+            "AC-U7.1",
+            "AC-NFR-7"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u7_all_unified_pseudo_slot.rs",
+          "scenario_line": 338,
+          "acceptance_test_scenario": "The \"[All Unified]\" slot appears below the real tool slots in the left pane",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "every v1 acceptance test (us_01..us_20, us_05b, us_atomic_chat_discovery) continues to pass"
+          ],
+          "implementation_notes": "Per ADR-014: synthetic slot does NOT round-trip through Box<dyn Tool>. Only LeftPaneSlot::Real arms invoke action orchestrators. Existing tests that hardcode tools[0] indices need to access LeftPaneSlot::Real(...) destructure. Synthetic slot sorts last (real tools first). HashPoolState/SummaryDelta types live in modeltap-tui app_state module per data-models.md.",
+          "dependencies": [
+            "01-01"
+          ],
+          "estimated_hours": 3.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/app_state.rs",
+            "crates/modeltap-tui/src/update.rs",
+            "crates/modeltap-tui/src/render/left_pane.rs",
+            "crates/modeltap-app/src/headless.rs",
+            "crates/modeltap-app/src/interactive.rs"
+          ]
+        },
+        {
+          "step_id": "01-04",
+          "name": "Wire summary_bar to dedup_summary; remove hardcoded \"0 B\" literal",
+          "description": "Fix the v1 bug at crates/modeltap-tui/src/render/summary_bar.rs:36. Read from state.dedup_summary.dedup_able_bytes. When state.hash_state.is_hashing() is true, render \"Dedup-able: computing...\". When dedup_summary is None or hashing not yet started, also render computing. Final value rendered when hashing complete.",
+          "acceptance_criteria": [
+            "AC-U2.1",
+            "AC-U2.2",
+            "AC-U2.3",
+            "AC-U2.5",
+            "AC-NFR-5"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u2_dedup_able_bytes_wired.rs",
+          "scenario_line": 137,
+          "acceptance_test_scenario": "Summary bar shows \"computing...\" while any hash is pending",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "grep -n 'Dedup-able: 0 B' summary_bar.rs returns no string-literal match"
+          ],
+          "implementation_notes": "Single source of truth (NFR-5): the bar reads dedup_summary, NOT a separate computation. Use AppState.hash_state.is_hashing() / is_complete() to choose render branch. Test snapshot: TestBackend with state where hashing_done=false -> 'computing...'; hashing_done=true with empty inventory -> '0 B'.",
+          "dependencies": [
+            "01-02",
+            "01-03"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/render/summary_bar.rs"
+          ]
+        },
+        {
+          "step_id": "01-05",
+          "name": "Add dedup-glyph column to render::row",
+          "description": "Insert a new fixed-width dedup-glyph column (1 char + 1 space) between the existing compatibility-glyph column and the size column. Reads DedupGlyph from per-row data computed via core::logic::dedup::compute_dedup_glyph during render-data assembly. The existing RowIndicator (o/*/!/?) compatibility column stays untouched.",
+          "acceptance_criteria": [
+            "AC-U3.1",
+            "AC-U3.2",
+            "AC-U3.4"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u3_row_dedup_glyphs.rs",
+          "scenario_line": 164,
+          "acceptance_test_scenario": "A dedup-able model shows the \"=\" glyph in the right pane",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "snapshot tests for all 5 glyphs (?/~/-/=/#) plus Failed (-!) decorator"
+          ],
+          "implementation_notes": "Color: = and # benefit from accent color BUT must be distinguishable by glyph alone (NFR-6, NO_COLOR respect). Two enums (RowIndicator + DedupGlyph) avoid one overloaded enum. Per-row glyph is computed in render-data assembly path, not in render::row itself (purity).",
+          "dependencies": [
+            "01-02",
+            "01-03"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/render/row.rs",
+            "crates/modeltap-tui/src/render/right_pane.rs"
+          ]
+        },
+        {
+          "step_id": "01-06",
+          "name": "Add hash pool Msg variants and pure update handlers",
+          "description": "Add Msg::HashComputed, Msg::HashFailed, Msg::HashProgressTick, Msg::UnifyApplied, Msg::SummaryDeltaExpired, Msg::UnifyHighlighted to the existing Msg enum. Implement pure update::handle_hash handlers that increment counters in HashPoolState and re-classify affected rows by calling core::logic::dedup pure functions.",
+          "acceptance_criteria": [
+            "AC-U1.2",
+            "AC-U3.4",
+            "AC-U6.1"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u3_row_dedup_glyphs.rs",
+          "scenario_line": 179,
+          "acceptance_test_scenario": "A model currently being hashed shows the \"~\" glyph",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "unit tests for each Msg variant verifying pure state transition"
+          ],
+          "implementation_notes": "Pure handlers \u2014 no I/O, no async. Each handler takes (state, msg) -> state. HashFailureReason enum lives next to Msg. UnifyOutcome carried on Msg::UnifyApplied is the existing actions::unify::run output. Reclassification on HashComputed should be scoped to the affected dedup-key (perf), but full-pass is acceptable for v1.",
+          "dependencies": [
+            "01-03"
+          ],
+          "estimated_hours": 2.5,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/update.rs",
+            "crates/modeltap-tui/src/msg.rs"
+          ]
+        },
+        {
+          "step_id": "01-07",
+          "name": "Implement modeltap-app::hash_pool module (workers + queue + cancellation)",
+          "description": "Create the new hash_pool module per ADR-013: spawn(plugins, cache, msg_tx, cancel_token) -> HashPoolHandle, worker tasks via tokio::spawn_blocking, bounded mpsc<HashJob> queue, AtomicU64 progress counters, 250ms throttle task posting Msg::HashProgressTick. Workers compute SHA256 via existing Sha2Hasher and call cache.get_or_compute. Pool size = min(num_cpus, 4). Cancellation via tokio_util::sync::CancellationToken with 200ms join timeout on shutdown.",
+          "acceptance_criteria": [
+            "AC-U1.1",
+            "AC-U1.2",
+            "AC-U1.3",
+            "AC-U1.4",
+            "AC-U1.5",
+            "AC-NFR-2",
+            "AC-NFR-3",
+            "AC-NFR-4",
+            "AC-NFR-7"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u1_walking_skeleton.rs",
+          "scenario_line": 65,
+          "acceptance_test_scenario": "Devon reclaims disk by unifying a duplicated model from the main view",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "tokio-util added to modeltap-app Cargo.toml only",
+            "modeltap-core has no new tokio dependency (architecture-lint test)"
+          ],
+          "implementation_notes": "JUSTIFICATION FOR >5 files: this is a single cohesive new module split into idiomatic submodules (queue/worker/throttle/handle). Per ADR-013: SHA256 is CPU-bound -> spawn_blocking is correct primitive. JoinSet for worker tasks. On panic, surface via JoinError; failed file's row stays Pending with optional ! decorator. File-changed-mid-hash: cache key (path, mtime, size) at job-start time; next launch re-hashes. Worker concurrency cap is essential \u2014 see ADR-013 alternative B rejection.",
+          "dependencies": [
+            "01-06"
+          ],
+          "estimated_hours": 5.0,
+          "deliverables": [
+            "crates/modeltap-app/src/hash_pool/mod.rs",
+            "crates/modeltap-app/src/hash_pool/queue.rs",
+            "crates/modeltap-app/src/hash_pool/worker.rs",
+            "crates/modeltap-app/src/hash_pool/throttle.rs",
+            "crates/modeltap-app/src/hash_pool/handle.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-app/Cargo.toml",
+            "crates/modeltap-app/src/lib.rs"
+          ]
+        },
+        {
+          "step_id": "01-08",
+          "name": "Wire hash_pool into composition root (post first paint, clean shutdown)",
+          "description": "From headless.rs and interactive.rs, after first paint completes call hash_pool::spawn(...) with discovered models. Drain Msg::Hash* from the existing event channel (no new channel). On Msg::Quit, signal cancellation token and await join with 200ms timeout. Populate HashPoolState.total at spawn time.",
+          "acceptance_criteria": [
+            "AC-U1.1",
+            "AC-U1.5",
+            "AC-NFR-1"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u1_walking_skeleton.rs",
+          "scenario_line": 65,
+          "acceptance_test_scenario": "Devon reclaims disk by unifying a duplicated model from the main view",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "K3 first-paint <1s preserved (NFR-1)"
+          ],
+          "implementation_notes": "First paint MUST complete before hash pool spawn (NFR-1 / AC-U1.1). Reuse existing mpsc::UnboundedSender<Msg> \u2014 no second integration point. interactive.rs and headless.rs share the same shutdown idiom. Quit handler: signal_cancel() then join_set.join_next() with 200ms deadline.",
+          "dependencies": [
+            "01-07"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/src/headless.rs",
+            "crates/modeltap-app/src/interactive.rs"
+          ]
+        },
+        {
+          "step_id": "01-09",
+          "name": "Extend headless script tokenizer with <hash-complete> sentinel",
+          "description": "One-line tokenizer addition: the headless script grammar gets a new <hash-complete> token that blocks the script driver until HashPoolState.is_complete() is true. Required for deterministic acceptance-test sync without sleep-based polling. NOT a new env-var seam.",
+          "acceptance_criteria": [
+            "AC-NFR-4"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u1_walking_skeleton.rs",
+          "scenario_line": 65,
+          "acceptance_test_scenario": "Devon reclaims disk by unifying a duplicated model from the main view",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "no new env-var seam introduced"
+          ],
+          "implementation_notes": "Per walking-skeleton.md checklist line 81-85: this is a one-line tokenizer addition, NOT a new env var. Token blocks script execution until is_complete() returns true. Add to existing tokenizer's match statement. Used by walking-skeleton scenario between 'When background hashing completes' and the next step.",
+          "dependencies": [
+            "01-07"
+          ],
+          "estimated_hours": 0.75,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/src/headless.rs"
+          ]
+        },
+        {
+          "step_id": "01-10",
+          "name": "Route u-keypress from main view to Msg::UnifyHighlighted dispatch",
+          "description": "In keymap::dispatch, route u from main view (currently a no-op) to Msg::UnifyHighlighted. The update handler dispatches based on the highlighted row's DedupGlyph: '=' opens dialog with mates pre-populated via core::logic::canonical_selector + plan::build_plan; '#' opens informational dialog; '-'/'?'/'~' shows status hint without opening dialog. Existing u-from-Detail path UNTOUCHED.",
+          "acceptance_criteria": [
+            "AC-U4.1",
+            "AC-U4.2",
+            "AC-U4.3",
+            "AC-U4.4",
+            "AC-U4.5",
+            "AC-U4.6"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u4_unify_from_main_view.rs",
+          "scenario_line": 213,
+          "acceptance_test_scenario": "Pressing \"u\" on a \"=\" row opens the dialog with mates pre-populated",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "v1 us_18_unify_from_detail acceptance test continues to pass"
+          ],
+          "implementation_notes": "Reuses existing Msg::OpenUnifyDialog(plan) \u2014 DESIGN added a main-view u-keypress producer only. Pre-population calls existing canonical_selector::select_canonical and plan::build_plan with highlighted row's mates. Status-line hints for -/?/~ are pure render via update handler returning a transient AppState.status_line message.",
+          "dependencies": [
+            "01-04",
+            "01-05"
+          ],
+          "estimated_hours": 2.5,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/keymap.rs",
+            "crates/modeltap-tui/src/update.rs"
+          ]
+        },
+        {
+          "step_id": "01-11",
+          "name": "Implement actions::reclassify::reclassify_after_unify in modeltap-app",
+          "description": "New small module actions::reclassify with pure function reclassify_after_unify(state, unify_outcome) -> AppState' that recomputes affected rows' DedupGlyphs by calling core::logic::dedup::compute_dedup_glyph and updates dedup_summary aggregates. Triggered by Msg::UnifyApplied after actions::unify::run completes. Sets summary_delta with previous dedup_able_bytes and 5s expiry.",
+          "acceptance_criteria": [
+            "AC-U6.1",
+            "AC-U6.2",
+            "AC-U6.3",
+            "AC-U6.4",
+            "AC-U6.6",
+            "AC-U6.7"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u6_post_unify_no_restart.rs",
+          "scenario_line": 305,
+          "acceptance_test_scenario": "Successful full unify flips glyph \"=\" to \"#\" and updates the summary bar",
+          "quality_gates": [
+            "all tests green",
+            "no clippy warnings",
+            "200ms re-classification budget verified by timing assertion"
+          ],
+          "implementation_notes": "Lives in modeltap-app (not core) because it consumes UnifyOutcome from the orchestrator; the actual recomputation calls core pure functions. Full-pass reclassification acceptable for v1. Partial-success path: glyph stays =, Unified count does NOT increment, dedup_able decreases by successful targets only. AC-U6.5 (transient delta + 5s collapse) is wired here via summary_delta field; SummaryDeltaExpired msg arrives via tokio sleep timer.",
+          "dependencies": [
+            "01-06",
+            "01-08"
+          ],
+          "estimated_hours": 2.5,
+          "deliverables": [
+            "crates/modeltap-app/src/actions/reclassify.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-app/src/actions/mod.rs",
+            "crates/modeltap-app/src/headless.rs",
+            "crates/modeltap-app/src/interactive.rs"
+          ]
+        },
+        {
+          "step_id": "01-12",
+          "name": "Unignore us_u1_walking_skeleton \u2014 make it green",
+          "description": "Remove #[ignore] from us_u1_walking_skeleton::devon_reclaims_disk_by_unifying_a_duplicated_model_from_the_main_view. The scenario should pass on the back of all foundational infrastructure built in 01-01..01-11. If it fails, fix forward \u2014 do not weaken the test. Run full v1 regression suite to confirm zero regressions.",
+          "acceptance_criteria": [
+            "AC-U1.1",
+            "AC-U2.1",
+            "AC-U2.3",
+            "AC-U3.1",
+            "AC-U3.2",
+            "AC-U4.1",
+            "AC-U4.2",
+            "AC-U5.1",
+            "AC-U5.4",
+            "AC-U6.1",
+            "AC-U6.2",
+            "AC-U6.4",
+            "AC-U6.7",
+            "AC-CONS-1",
+            "AC-CONS-4"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u1_walking_skeleton.rs",
+          "scenario_line": 65,
+          "acceptance_test_scenario": "Devon reclaims disk by unifying a duplicated model from the main view",
+          "quality_gates": [
+            "walking-skeleton scenario green",
+            "every v1 acceptance test (us_01..us_20, us_05b, us_atomic_chat_discovery) continues to pass",
+            "no clippy warnings",
+            "no new env-var seam"
+          ],
+          "implementation_notes": "This is the activation step: all the wiring in 01-01..01-11 should make this scenario green by construction. If it fails, the failure points to a gap in earlier steps \u2014 fix forward, do not weaken the assertion. Per walking-skeleton.md checklist: production code, test green, no regression, no new env-var seam.",
+          "dependencies": [
+            "01-04",
+            "01-05",
+            "01-08",
+            "01-09",
+            "01-10",
+            "01-11"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/us_u1_walking_skeleton.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 02 \u2014 Dedup-able totals + glyphs (US-U2 + US-U3 full coverage)",
+      "description": "Unignore the per-AC focused tests for US-U2 (dedup-able wiring) and US-U3 (row glyphs). The walking skeleton already exercised the happy path; this phase covers the full glyph matrix (?, ~, -, =, #, -!) and edge cases (no-duplicates honest zero, hash failure decorator).",
+      "steps": [
+        {
+          "step_id": "02-01",
+          "name": "Unignore US-U2 per-AC tests (computing, no-hardcoded-zero, source-parity, honest-zero)",
+          "description": "Remove #[ignore] from the four us_u2_dedup_able_bytes_wired test functions. They should pass on the back of step 01-04 (summary_bar wiring). Verify AC-CONS-1 cross-artifact invariant: summary_bar.dedup_able_bytes == sum(row.size for row in rows if row.glyph == '=').",
+          "acceptance_criteria": [
+            "AC-U2.1",
+            "AC-U2.2",
+            "AC-U2.3",
+            "AC-U2.4",
+            "AC-U2.5",
+            "AC-CONS-1"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u2_dedup_able_bytes_wired.rs",
+          "scenario_line": 137,
+          "acceptance_test_scenario": "Summary bar shows \"computing...\" while any hash is pending",
+          "quality_gates": [
+            "all 4 us_u2 tests green",
+            "AC-CONS-1 invariant holds across fixture variations",
+            "no clippy warnings"
+          ],
+          "implementation_notes": "If any test fails, fix forward in summary_bar.rs or dedup_summary computation \u2014 do not weaken assertions. The honest-zero test (Riley fixture) verifies the bar shows 0 B only AFTER hashing completes, not as a default during computing.",
+          "dependencies": [
+            "01-12"
+          ],
+          "estimated_hours": 1.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/us_u2_dedup_able_bytes_wired.rs"
+          ]
+        },
+        {
+          "step_id": "02-02",
+          "name": "Unignore US-U3 glyph tests (=, #, ?, -, hash-fail-with-bang)",
+          "description": "Remove #[ignore] from us_u3_row_dedup_glyphs five test functions covering the =, #, ?, - glyphs plus the hash-failure -! decorator. Should pass on the back of 01-02 (compute_dedup_glyph) and 01-05 (render::row column).",
+          "acceptance_criteria": [
+            "AC-U3.1",
+            "AC-U3.2",
+            "AC-U3.3",
+            "AC-U3.4",
+            "AC-U3.5"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u3_row_dedup_glyphs.rs",
+          "scenario_line": 164,
+          "acceptance_test_scenario": "A dedup-able model shows the \"=\" glyph in the right pane",
+          "quality_gates": [
+            "all 5 us_u3 tests green",
+            "no clippy warnings",
+            "snapshot tests stable across reruns"
+          ],
+          "implementation_notes": "The hash-failure test asserts both the - glyph AND a ! decorator. If render::row currently lacks the decorator render path, add it as part of this step. Fail-failure path injects an io::Error in the test fixture's hasher port.",
+          "dependencies": [
+            "01-12"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/us_u3_row_dedup_glyphs.rs",
+            "crates/modeltap-tui/src/render/row.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 03 \u2014 Unify-from-main-view UX (US-U4 + US-U5)",
+      "description": "Unignore the full u-key flow tests: dialog opens with mates pre-populated, informational mode for # rows, status hints for unique/pending/hashing rows, the full reclaim-preview dialog with toggle, Enter applies plan, Esc cancels.",
+      "steps": [
+        {
+          "step_id": "03-01",
+          "name": "Unignore US-U4 u-from-main-view tests (= mates / # info / - hint / ? hint / Detail no-regression)",
+          "description": "Remove #[ignore] from the five us_u4_unify_from_main_view test functions. Should pass on the back of step 01-10 (keymap routing). Verify that AC-U4.6 (u still works from Detail) does NOT regress \u2014 this is the v1 behavior preservation requirement.",
+          "acceptance_criteria": [
+            "AC-U4.1",
+            "AC-U4.2",
+            "AC-U4.3",
+            "AC-U4.4",
+            "AC-U4.5",
+            "AC-U4.6"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u4_unify_from_main_view.rs",
+          "scenario_line": 213,
+          "acceptance_test_scenario": "Pressing \"u\" on a \"=\" row opens the dialog with mates pre-populated",
+          "quality_gates": [
+            "all 5 us_u4 tests green",
+            "v1 us_18 (u-from-Detail) continues to pass",
+            "no clippy warnings"
+          ],
+          "implementation_notes": "If informational mode (# row) is missing, add it to update::handle_unify_highlighted \u2014 render an existing Msg::OpenUnifyDialog with a flag/mode marker. Status-line hints for - / ? / ~ are pure render via transient AppState.status_line.",
+          "dependencies": [
+            "02-01",
+            "02-02"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/us_u4_unify_from_main_view.rs",
+            "crates/modeltap-tui/src/update.rs"
+          ]
+        },
+        {
+          "step_id": "03-02",
+          "name": "Implement unify dialog reclaim preview body (canonical, targets, savings, total)",
+          "description": "Extend the existing unify dialog renderer to show: model name + SHA256 prefix (8 chars), canonical tool's full path, per-target rows with checkbox + tool + path + 'X GB -> 0 B (saves X GB)', bold Total reclaim line, action footer '[Enter] Apply  [space] Toggle  [Esc] Cancel'. Total recomputes live as targets toggle.",
+          "acceptance_criteria": [
+            "AC-U5.1",
+            "AC-U5.2",
+            "AC-U5.3"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u5_unify_dialog_preview_and_apply.rs",
+          "scenario_line": 257,
+          "acceptance_test_scenario": "Dialog body shows canonical, per-target rows with savings, and total reclaim",
+          "quality_gates": [
+            "us_u5 dialog-body and toggle tests green",
+            "no clippy warnings",
+            "snapshot test stable"
+          ],
+          "implementation_notes": "Live total recomputation lives in pure update handler \u2014 toggling a target updates a dialog-state checkbox vec; the render reads it. Use existing dialog state machinery; this is render-layer richness.",
+          "dependencies": [
+            "03-01"
+          ],
+          "estimated_hours": 2.5,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/render/unify_dialog.rs",
+            "crates/modeltap-tui/src/update.rs"
+          ]
+        },
+        {
+          "step_id": "03-03",
+          "name": "Unignore US-U5 apply-plan and Esc-cancel tests",
+          "description": "Remove #[ignore] from us_u5_unify_dialog_preview_and_apply::pressing_enter_applies_the_plan_and_creates_hardlink and pressing_esc_cancels_dialog_with_no_filesystem_change. The Enter path reuses the existing actions::unify::run; Esc path is pure dialog close. Verify cross-fs ADR-008 fallback still fires when applicable (existing v1 us_19 covers).",
+          "acceptance_criteria": [
+            "AC-U5.4",
+            "AC-U5.5",
+            "AC-U5.6",
+            "AC-U5.7"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u5_unify_dialog_preview_and_apply.rs",
+          "scenario_line": 277,
+          "acceptance_test_scenario": "Pressing Enter applies the plan and produces a hardlink",
+          "quality_gates": [
+            "us_u5 apply + esc tests green",
+            "v1 us_19 cross-fs fallback continues to pass",
+            "v1 us_17 lsof/running-tool detect continues to pass",
+            "no clippy warnings"
+          ],
+          "implementation_notes": "Enter path is already wired through walking skeleton (01-12). This step verifies the per-AC focused assertions (per-target progress lines appear in order; launch.log records exactly one action.unify event with outcome success). Esc path: dialog close, no fs effect, glyph stays =.",
+          "dependencies": [
+            "03-02"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/us_u5_unify_dialog_preview_and_apply.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 04 \u2014 [All Unified] pseudo-slot (US-U7)",
+      "description": "Render the new synthetic left-pane slot per ADR-014, the right-pane filtered view, the per-row format, and the footer aggregates. Slot count badge agrees with summary-bar Unified count and right-pane row count (AC-CONS-2).",
+      "steps": [
+        {
+          "step_id": "04-01",
+          "name": "Implement collect_unified_rows pure function in modeltap-core",
+          "description": "Add core::logic::dedup::collect_unified_rows(inventory) -> Vec<UnifiedRow>. Each row carries (model_id, display_label, size_bytes, tools_sharing, saves_bytes) where saves_bytes = (tools_sharing.len() - 1) * size_bytes. Single source of truth for the All-Unified right-pane view and footer aggregates.",
+          "acceptance_criteria": [
+            "AC-U7.4",
+            "AC-U7.5",
+            "AC-NFR-5"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u7_all_unified_pseudo_slot.rs",
+          "scenario_line": 354,
+          "acceptance_test_scenario": "\"[All Unified]\" row format includes name, size, tool count, and savings",
+          "quality_gates": [
+            "unit tests green for collect_unified_rows",
+            "no clippy warnings",
+            "saves_bytes formula verified for N=2, 3, 4 tools"
+          ],
+          "implementation_notes": "Pure function. Inventory entries with shared inodes (# glyph) become a single UnifiedRow grouping the paths' tool ids. NOT an action \u2014 purely a render-data assembly.",
+          "dependencies": [
+            "03-03"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [
+            "crates/modeltap-core/tests/collect_unified_rows_test.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-core/src/logic/dedup.rs"
+          ]
+        },
+        {
+          "step_id": "04-02",
+          "name": "Render [All Unified] slot in left pane and filtered right pane",
+          "description": "Extend render::left_pane to render LeftPaneSlot::Synthetic(SyntheticSlot::AllUnified) with the '[All Unified] (N)' label below real tool slots. Add render::all_unified module for the right-pane filtered view: list collect_unified_rows output with name + size + N tools + saves columns, plus footer 'Unified: N models | Total reclaimed by unification: X.Y GB'.",
+          "acceptance_criteria": [
+            "AC-U7.1",
+            "AC-U7.2",
+            "AC-U7.3",
+            "AC-U7.4",
+            "AC-U7.5",
+            "AC-U7.6",
+            "AC-CONS-2"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u7_all_unified_pseudo_slot.rs",
+          "scenario_line": 338,
+          "acceptance_test_scenario": "The \"[All Unified]\" slot appears below the real tool slots in the left pane",
+          "quality_gates": [
+            "all 4 us_u7 tests green",
+            "AC-CONS-2 invariant holds (badge == summary-bar count == row count)",
+            "no clippy warnings"
+          ],
+          "implementation_notes": "Per ADR-014: render dispatches on LeftPaneSlot variant. Real -> existing right-pane renderer. Synthetic(AllUnified) -> new render::all_unified module. Badge shows '(?)' while hashing in progress (US-U8 will refine empty-state copy in Phase 06). Slot is ALWAYS visible per design decision (discoverability over conditional hiding).",
+          "dependencies": [
+            "04-01"
+          ],
+          "estimated_hours": 3.0,
+          "deliverables": [
+            "crates/modeltap-tui/src/render/all_unified.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/render/mod.rs",
+            "crates/modeltap-tui/src/render/left_pane.rs"
+          ]
+        },
+        {
+          "step_id": "04-03",
+          "name": "Unignore US-U7 four acceptance tests",
+          "description": "Remove #[ignore] from the four us_u7_all_unified_pseudo_slot test functions. Should pass on the back of 04-01 (collect_unified_rows) and 04-02 (renderers). Verify cross-artifact consistency invariant AC-CONS-2.",
+          "acceptance_criteria": [
+            "AC-U7.1",
+            "AC-U7.2",
+            "AC-U7.3",
+            "AC-U7.4",
+            "AC-U7.5",
+            "AC-U7.6",
+            "AC-CONS-2"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u7_all_unified_pseudo_slot.rs",
+          "scenario_line": 372,
+          "acceptance_test_scenario": "\"[All Unified]\" badge, summary-bar count, and right-pane row count all agree",
+          "quality_gates": [
+            "all 4 us_u7 tests green",
+            "no clippy warnings"
+          ],
+          "implementation_notes": "If the badge-parity test fails, the bug is likely in dedup_summary.unified_count vs collect_unified_rows.len() \u2014 both must read from the same classifier output. AC-CONS-2 is the regression net.",
+          "dependencies": [
+            "04-02"
+          ],
+          "estimated_hours": 1.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/us_u7_all_unified_pseudo_slot.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 05 \u2014 Post-unify reactivity full coverage (US-U6)",
+      "description": "Finalize the post-unify update path: full-success glyph flip + summary update, transient (was X) delta with 5s collapse, partial-success glyph stays = with non-incremented Unified count. Walking skeleton already exercised the full-success happy path; this phase covers AC-U6.5 (transient delta) and AC-U6.3/AC-U6.6 (partial success).",
+      "steps": [
+        {
+          "step_id": "05-01",
+          "name": "Implement transient (was X GB) summary delta with 5s expiry timer",
+          "description": "On Msg::UnifyApplied success, set AppState.summary_delta = Some(SummaryDelta { previous_dedup_able_bytes, expires_at: now + 5s }). Render::summary_bar shows '<new> (was <previous>)' while delta is Some and not expired. Spawn a tokio::time::sleep(5s) -> Msg::SummaryDeltaExpired that clears the field. Pure update on expire.",
+          "acceptance_criteria": [
+            "AC-U6.5"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u6_post_unify_no_restart.rs",
+          "scenario_line": 315,
+          "acceptance_test_scenario": "Summary bar shows transient \"(was X)\" delta then collapses after five seconds",
+          "quality_gates": [
+            "us_u6 transient-delta test green",
+            "no clippy warnings",
+            "5s timer is cancellable (no leak on quit)"
+          ],
+          "implementation_notes": "Timer task spawned in composition root; sends Msg::SummaryDeltaExpired through existing event channel. On Msg::Quit, the cancellation token fires; timer task aborts cleanly. Render reads Instant::now() vs expires_at to gate delta display (avoids race with msg arrival).",
+          "dependencies": [
+            "04-03"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/src/actions/reclassify.rs",
+            "crates/modeltap-tui/src/render/summary_bar.rs",
+            "crates/modeltap-app/src/headless.rs",
+            "crates/modeltap-app/src/interactive.rs"
+          ]
+        },
+        {
+          "step_id": "05-02",
+          "name": "Implement partial-success path in reclassify_after_unify",
+          "description": "When UnifyOutcome contains some failed targets, reclassify_after_unify must: keep the affected row's glyph as = (NOT flip to #), NOT increment dedup_summary.unified_count, decrease dedup_able_bytes ONLY by the bytes of successful targets (not all targets). The glyph derivation happens naturally because partial-success means at least one tool still has its own copy on a separate inode.",
+          "acceptance_criteria": [
+            "AC-U6.3",
+            "AC-U6.6"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u6_post_unify_no_restart.rs",
+          "scenario_line": 324,
+          "acceptance_test_scenario": "Partial-success unify leaves the row glyph as \"=\"",
+          "quality_gates": [
+            "us_u6 partial-unify test green",
+            "no clippy warnings",
+            "AC-CONS-4 invariant verified (delta == toast.reclaimed_bytes)"
+          ],
+          "implementation_notes": "UnifyOutcome carries per-target results. compute_dedup_glyph naturally returns DedupAble (=) when \u22652 separate inodes still hold the same hash \u2014 partial success means one inode collapsed but another remains separate. Test fixture must inject a permission-denied error on one target only.",
+          "dependencies": [
+            "05-01"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/src/actions/reclassify.rs",
+            "crates/modeltap-app/tests/acceptance/us_u6_post_unify_no_restart.rs"
+          ]
+        },
+        {
+          "step_id": "05-03",
+          "name": "Unignore US-U6 three tests (full unify / transient delta / partial)",
+          "description": "Remove #[ignore] from the three us_u6_post_unify_no_restart test functions. Should pass on the back of 01-11 (reclassify) + 05-01 (transient delta) + 05-02 (partial-success). Verify AC-U6.7 (no-restart) by asserting the test does not call any process restart helper.",
+          "acceptance_criteria": [
+            "AC-U6.1",
+            "AC-U6.2",
+            "AC-U6.3",
+            "AC-U6.4",
+            "AC-U6.5",
+            "AC-U6.6",
+            "AC-U6.7"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u6_post_unify_no_restart.rs",
+          "scenario_line": 305,
+          "acceptance_test_scenario": "Successful full unify flips glyph \"=\" to \"#\" and updates the summary bar",
+          "quality_gates": [
+            "all 3 us_u6 tests green",
+            "no clippy warnings",
+            "no process-restart calls in test bodies"
+          ],
+          "implementation_notes": "If 200ms reclassification budget (AC-U6.1) is missed, profile the reclassify_after_unify call \u2014 full-pass over inventory should be sub-millisecond for typical sizes; the budget is generous. If failing, scope the reclassification to affected dedup-keys only.",
+          "dependencies": [
+            "05-02"
+          ],
+          "estimated_hours": 1.0,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/us_u6_post_unify_no_restart.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Phase 06 \u2014 P2 Polish (US-U8 + US-U9 + US-U10)",
+      "description": "Polish release: All Unified empty-state guidance, Detail-screen inode proof, partial-success toast with retry. All P2 stories are @skip in Gherkin per Luna's prioritization; Rust scaffolds are added at the start of this phase.",
+      "steps": [
+        {
+          "step_id": "06-01",
+          "name": "Implement [All Unified] empty-state guidance (US-U8)",
+          "description": "Extend render::all_unified to show onboarding text when collect_unified_rows returns empty AND hashing is complete: 'No models are unified yet. Navigate to a tool, find a row marked \"=\", and press [u] to unify it.' When hashing is in progress and count is unknown, show a different message: 'Hashing in progress. Unified models will appear here as soon as hashing completes.' Add Rust scaffolds for the two @skip Gherkin scenarios.",
+          "acceptance_criteria": [
+            "AC-U8.1",
+            "AC-U8.2",
+            "AC-U8.3"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u8_all_unified_empty_state.rs",
+          "scenario_line": 383,
+          "acceptance_test_scenario": "Empty-state guidance is shown when no models are unified yet",
+          "quality_gates": [
+            "us_u8 tests green",
+            "no clippy warnings"
+          ],
+          "implementation_notes": "P2 story \u2014 pure rendering, no core logic changes. Two states: hashing-in-progress vs truly-empty. Read AppState.hash_state.is_complete() to disambiguate. Scaffold the new us_u8 acceptance test file under tests/acceptance/.",
+          "dependencies": [
+            "05-03"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [
+            "crates/modeltap-app/tests/acceptance/us_u8_all_unified_empty_state.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/render/all_unified.rs"
+          ]
+        },
+        {
+          "step_id": "06-02",
+          "name": "Implement Detail-screen inode display (US-U9)",
+          "description": "Extend the existing Detail screen renderer: for # models show the shared inode number and group all paths under it; for = models group paths by inode (one group per separate copy). Footer offers [d] delete_one and [u] unify (existing handlers). Handle missing-inode case with informational text 'inode: <not available on this filesystem>'. Add Rust scaffold for the three @skip Gherkin scenarios.",
+          "acceptance_criteria": [
+            "AC-U9.1",
+            "AC-U9.2",
+            "AC-U9.3",
+            "AC-U9.4"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u9_detail_inode_proof.rs",
+          "scenario_line": 401,
+          "acceptance_test_scenario": "Detail for a \"#\" model shows the shared inode and grouped paths",
+          "quality_gates": [
+            "us_u9 tests green",
+            "no clippy warnings",
+            "missing-inode case does not panic"
+          ],
+          "implementation_notes": "P2 story \u2014 Tool trait already exposes path metadata; inode is read via std::os::unix::fs::MetadataExt::ino(). On filesystems where stat doesn't return useful inode info, display the missing-inode informational text without crash. Scaffold us_u9 acceptance test file.",
+          "dependencies": [
+            "05-03"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [
+            "crates/modeltap-app/tests/acceptance/us_u9_detail_inode_proof.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/render/detail.rs"
+          ]
+        },
+        {
+          "step_id": "06-03",
+          "name": "Implement partial-success toast with retry-failed-only (US-U10)",
+          "description": "Replace the v1 non-specific success toast with a per-target outcome toast: 'Unified <model> into <K> of <N>' with per-target lines showing OK/FAIL+reason+bytes, total reclaim, [r] Retry-failed-only / [Enter] Continue. Pressing [r] re-runs actions::unify::run with a plan filtered to only the failed targets. Total-failure case: 'Unified into 0 of N. Reclaimed 0 GB.' Add Rust scaffold for the three @skip Gherkin scenarios.",
+          "acceptance_criteria": [
+            "AC-U10.1",
+            "AC-U10.2",
+            "AC-U10.3",
+            "AC-U10.4",
+            "AC-U10.5"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_u10_partial_success_toast.rs",
+          "scenario_line": 430,
+          "acceptance_test_scenario": "Partial-success toast lists each target's outcome inline",
+          "quality_gates": [
+            "us_u10 tests green",
+            "no clippy warnings",
+            "retry-failed-only does not re-touch successful targets"
+          ],
+          "implementation_notes": "P2 story \u2014 reuses existing JSONL events from actions::unify::run; per-target events already exist in v1. Toast is a TUI rendering concern. Retry path: filter the original plan to failed targets only and re-invoke actions::unify::run. Successful targets stay untouched. Scaffold us_u10 acceptance test file.",
+          "dependencies": [
+            "05-03"
+          ],
+          "estimated_hours": 2.5,
+          "deliverables": [
+            "crates/modeltap-app/tests/acceptance/us_u10_partial_success_toast.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-tui/src/render/toast.rs",
+            "crates/modeltap-tui/src/keymap.rs"
+          ]
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "status": "approved",
+    "reviewed_at": "2026-05-01T00:00:00Z",
+    "reviewer": "nw-software-crafter-reviewer",
+    "verdict": "APPROVED",
+    "confidence": "high"
+  }
+}

@@ -1,0 +1,153 @@
+journey:
+  name: "Unify a Model Across All Tools"
+  goal: "Take a model that exists as N separate copies across N tools and make all N share one inode; see disk reclaimed in the summary bar."
+  persona: "Devon"
+  trigger: "Launches modeltap, sees a row with dedup-able indicator (=), presses [u]"
+  success_criteria:
+    - "Summary bar shows accurate Dedup-able value before action (not hardcoded 0)"
+    - "Row glyph reflects dedup state: ? (pending) | ~ (hashing) | - (unique) | = (dedup-able) | # (already unified)"
+    - "After unify, summary bar shows reclaimed bytes; row glyph flips to #; [All Unified] count increments"
+
+  emotional_arc:
+    pattern: "Problem Relief"
+    start: "Confused/skeptical (the v1 UI says dedup=0 and pressing u does nothing)"
+    middle: "Curious then confident (hash progress visible, dedup-able number appears, dialog preview is concrete)"
+    end: "Relieved/satisfied (real bytes reclaimed, row state changes persist)"
+
+  steps:
+
+    - id: 0
+      name: "Launch and first paint"
+      command: "modeltap"
+      shared_artifacts:
+        - name: "dedup_key_progress"
+          source: "in-process hash queue (modeltap-core)"
+          displayed_as: "${hash_progress}"
+          consumers: ["summary bar status line"]
+      emotional_state:
+        entry: "Skeptical (last time this was broken)"
+        exit: "Cautiously hopeful (something is happening — hash progress visible)"
+      integration_checkpoint: "All rows render in <1s (K3) with dedup glyph = ? as placeholder"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: First paint shows hashing in progress"
+
+    - id: 1
+      name: "Hashes resolve in background"
+      command: "(passive — background work)"
+      shared_artifacts:
+        - name: "dedup_able_bytes"
+          source: "modeltap-core::logic::dedup classifier"
+          displayed_as: "${dedup_able_bytes}"
+          consumers: ["summary bar", "row glyph computation"]
+        - name: "unified_count"
+          source: "modeltap-core::logic::dedup classifier"
+          displayed_as: "${unified_count}"
+          consumers: ["summary bar", "[All Unified] left-pane count"]
+      emotional_state:
+        entry: "Cautiously hopeful"
+        exit: "Discovery joy (the dedup-able number appeared and is non-zero)"
+      integration_checkpoint: "Summary bar updates live as hashes complete; row glyphs reactively update from ? to one of {-, =, #}"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: Background hashing updates row glyphs and summary bar"
+
+    - id: 2
+      name: "Navigate to a dedup-able row"
+      command: "j/k or arrow keys"
+      shared_artifacts:
+        - name: "selected_model"
+          source: "TUI app state"
+          displayed_as: "${selected_model_name}, ${selected_model_size}"
+          consumers: ["highlighted row", "status line"]
+      emotional_state:
+        entry: "Discovery"
+        exit: "Focused (Devon found a candidate)"
+      integration_checkpoint: "Row highlight + status line show consistent model identity"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: User selects a row marked = (dedup-able)"
+
+    - id: 3
+      name: "Press u — unify dialog opens"
+      command: "u"
+      shared_artifacts:
+        - name: "unify_plan"
+          source: "modeltap-core::logic::plan::build_plan()"
+          displayed_as: "dialog body (canonical, replacements, reclaim total)"
+          consumers: ["unify dialog", "actions::unify::run()"]
+      emotional_state:
+        entry: "Focused"
+        exit: "Confident (preview is concrete: shows exactly which tools will share, how much will be reclaimed)"
+      integration_checkpoint: "Dialog reclaim total = sum of (size * (N-1)) where N = number of mates, displayed in human bytes"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: u from main view opens dialog with mates pre-populated"
+
+    - id: 4
+      name: "Confirm — apply plan"
+      command: "Enter"
+      shared_artifacts:
+        - name: "unify_events"
+          source: "actions::unify::run() JSONL stream"
+          displayed_as: "progress lines + final reclaim toast"
+          consumers: ["progress UI", "launch.log"]
+        - name: "reclaimed_bytes"
+          source: "actions::unify::run() final event"
+          displayed_as: "${reclaimed_bytes}"
+          consumers: ["success toast", "summary bar delta"]
+      emotional_state:
+        entry: "Confident"
+        exit: "Relieved (it worked, the bytes really came back)"
+      integration_checkpoint: "On success, affected rows re-classify (= -> #); summary bar updates without restart"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: Confirming the dialog applies the plan and shows reclaim"
+
+    - id: 5
+      name: "See result persist"
+      command: "(passive)"
+      shared_artifacts:
+        - name: "row_glyph"
+          source: "modeltap-core::logic::dedup classifier (re-run)"
+          displayed_as: "# (already-unified)"
+          consumers: ["row rendering", "[All Unified] pseudo-tool list"]
+      emotional_state:
+        entry: "Relieved"
+        exit: "Satisfied; trusts the tool"
+      integration_checkpoint: "Row glyph, summary bar, and [All Unified] count are consistent (all three agree the row is now unified)"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: After unify, row glyph and counts persist"
+
+  error_paths:
+    - id: E1
+      trigger: "Cross-filesystem detected during apply"
+      handling: "Existing ADR-008 [s/c/x] dialog (skip / copy / cancel)"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: Cross-filesystem fallback shows s/c/x dialog"
+
+    - id: E2
+      trigger: "Target tool currently has the file open (lsof gate, Q5)"
+      handling: "Detect-and-prompt-then-retry dialog: [r]etry / [s]kip / [x]cancel"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: Tool-in-use detection blocks unify until user retries"
+
+    - id: E3
+      trigger: "User presses u on a row whose hash is still computing"
+      handling: "Status line: hash still computing N%; dialog does NOT open; u is no-op"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: u on a hashing row shows status hint and is a no-op"
+
+    - id: E4
+      trigger: "Partial success — some targets succeed, some fail"
+      handling: "Toast shows per-target outcome; reclaim total reflects actual success; row stays = if any tool still has its own copy"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: Partial success reports per-target outcomes"
+
+    - id: E5
+      trigger: "User presses u on a row with no dedup mates (-)"
+      handling: "Status line explains; dialog does NOT open"
+      gherkin_ref: "journey-unify-flow.feature::Scenario: u on a unique row shows status hint"
+
+  integration_validation:
+    shared_artifact_consistency:
+      - artifact: "dedup_able_bytes"
+        must_match_across: [1, 2, 3, 4, 5]
+        failure_message: "Summary bar and row glyphs are reading from different dedup classifications — possible v1 regression where bar is hardcoded."
+      - artifact: "unified_count"
+        must_match_across: [1, 5]
+        failure_message: "[All Unified] count and summary bar 'Unified: N models' value disagree."
+      - artifact: "reclaimed_bytes"
+        must_match_across: [4, 5]
+        failure_message: "Toast says X reclaimed but summary bar delta shows Y."
+
+  ux_decisions_resolved:
+    sha256_timing: "Background-with-progress on launch (non-blocking; preserves K3); status line shows N/M progress; rows reactively flip from ? to dedup glyph as hashes complete"
+    unified_view_mechanism: "Pseudo-tool slot in left pane labeled [All Unified] (with count); reuses existing left-pane navigation"
+    u_from_main_view: "Pressing u on a row opens unify dialog with that row's dedup-mates pre-populated; no-op with status hint if row has no mates or hash pending"
+    already_unified_indicator: "New # glyph in dedup column (distinct from = which means dedup-able-but-separate-inodes)"
