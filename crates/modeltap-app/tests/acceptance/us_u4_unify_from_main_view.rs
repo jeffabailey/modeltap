@@ -105,7 +105,10 @@ fn build_duplicate(temp: &TempDir) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
     let hf_blob = hf_blobs.join(hf_blob_name);
     fs::write(&hf_blob, &payload).expect("write hf blob");
     std::os::unix::fs::symlink(
-        PathBuf::from("..").join("..").join("blobs").join(hf_blob_name),
+        PathBuf::from("..")
+            .join("..")
+            .join("blobs")
+            .join(hf_blob_name),
         snap.join("model.safetensors"),
     )
     .expect("snap symlink");
@@ -121,11 +124,7 @@ fn build_single_tool(temp: &TempDir) -> PathBuf {
     let blobs = ollama_dir.join("blobs");
     fs::create_dir_all(&blobs).expect("blobs");
     let blob = "5555555555555555555555555555555555555555555555555555555555555555";
-    fs::write(
-        blobs.join(format!("sha256-{}", blob)),
-        vec![0xCCu8; 4096],
-    )
-    .expect("write blob");
+    fs::write(blobs.join(format!("sha256-{}", blob)), vec![0xCCu8; 4096]).expect("write blob");
     let m = ollama_dir
         .join("manifests")
         .join("registry.ollama.ai")

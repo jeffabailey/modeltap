@@ -102,7 +102,10 @@ fn build_two_blob_duplicate(temp: &TempDir) -> (PathBuf, PathBuf, PathBuf, PathB
     let hf_blob = hf_blobs.join(hf_blob_name);
     fs::write(&hf_blob, &payload).expect("write hf");
     std::os::unix::fs::symlink(
-        PathBuf::from("..").join("..").join("blobs").join(hf_blob_name),
+        PathBuf::from("..")
+            .join("..")
+            .join("blobs")
+            .join(hf_blob_name),
         snap.join("model.safetensors"),
     )
     .expect("symlink");
@@ -242,8 +245,5 @@ fn pressing_esc_cancels_dialog_with_no_filesystem_change() {
     let post_b = ino_of(&hf_blob);
     assert_eq!(post_a, pre_a, "AC-U5.5: ollama inode must be unchanged");
     assert_eq!(post_b, pre_b, "AC-U5.5: hf inode must be unchanged");
-    assert_ne!(
-        post_a, post_b,
-        "AC-U5.5: Esc must NOT merge inodes"
-    );
+    assert_ne!(post_a, post_b, "AC-U5.5: Esc must NOT merge inodes");
 }

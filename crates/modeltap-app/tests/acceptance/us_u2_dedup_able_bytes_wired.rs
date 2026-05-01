@@ -72,7 +72,10 @@ fn build_duplicate_fixture() -> DuplicateFixture {
     let hf_blob = hf_blobs.join(hf_blob_name);
     fs::write(&hf_blob, &payload).expect("write hf blob");
     std::os::unix::fs::symlink(
-        PathBuf::from("..").join("..").join("blobs").join(hf_blob_name),
+        PathBuf::from("..")
+            .join("..")
+            .join("blobs")
+            .join(hf_blob_name),
         hf_snapshots.join("model.safetensors"),
     )
     .expect("hf snapshot symlink");
@@ -211,9 +214,7 @@ fn build_unique_only_fixture() -> UniqueFixture {
     let blobs = ollama_dir.join("blobs");
     fs::create_dir_all(&blobs).expect("create blobs");
     fs::write(
-        blobs.join(
-            "sha256-3333333333333333333333333333333333333333333333333333333333333333",
-        ),
+        blobs.join("sha256-3333333333333333333333333333333333333333333333333333333333333333"),
         vec![0xAAu8; 4096],
     )
     .expect("write unique blob");

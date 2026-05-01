@@ -88,7 +88,10 @@ fn build_two_blob_duplicate(temp: &TempDir) -> (PathBuf, PathBuf, PathBuf, PathB
     let hf_blob = hf_blobs.join(hf_blob_name);
     fs::write(&hf_blob, &payload).expect("write hf");
     std::os::unix::fs::symlink(
-        PathBuf::from("..").join("..").join("blobs").join(hf_blob_name),
+        PathBuf::from("..")
+            .join("..")
+            .join("blobs")
+            .join(hf_blob_name),
         snap.join("model.safetensors"),
     )
     .expect("symlink");

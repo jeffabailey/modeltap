@@ -20,10 +20,7 @@ use std::time::Duration;
 use assert_cmd::Command;
 use tempfile::TempDir;
 
-fn modeltap_headless_at(
-    ollama_dir: &PathBuf,
-    hf_home: &PathBuf,
-) -> (Command, TempDir) {
+fn modeltap_headless_at(ollama_dir: &PathBuf, hf_home: &PathBuf) -> (Command, TempDir) {
     let temp = tempfile::tempdir().expect("tempdir for log");
     let log_dir = temp.path().join(".modeltap");
     fs::create_dir_all(&log_dir).expect("create log dir");
@@ -89,7 +86,10 @@ fn build_two_blob_duplicate(temp: &TempDir, hardlinked: bool) -> (PathBuf, PathB
         fs::write(&hf_blob, &payload).expect("write hf blob");
     }
     std::os::unix::fs::symlink(
-        PathBuf::from("..").join("..").join("blobs").join(hf_blob_name),
+        PathBuf::from("..")
+            .join("..")
+            .join("blobs")
+            .join(hf_blob_name),
         snap.join("model.safetensors"),
     )
     .expect("hf snap symlink");
@@ -173,8 +173,7 @@ fn unique_model_shows_dash_glyph_after_hashing() {
     let blobs = ollama_dir.join("blobs");
     fs::create_dir_all(&blobs).expect("create blobs");
     let blob = "0000000000000000000000000000000000000000000000000000000000000001";
-    fs::write(blobs.join(format!("sha256-{}", blob)), vec![0u8; 4096])
-        .expect("write blob");
+    fs::write(blobs.join(format!("sha256-{}", blob)), vec![0u8; 4096]).expect("write blob");
     let m_dir = ollama_dir
         .join("manifests")
         .join("registry.ollama.ai")

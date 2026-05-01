@@ -86,7 +86,10 @@ fn build_pre_unified_two_tool(temp: &TempDir) -> (PathBuf, PathBuf) {
     // Pre-unified: hardlink to the ollama blob so they share one inode.
     fs::hard_link(&ollama_blob, &hf_blob).expect("hardlink hf to ollama");
     std::os::unix::fs::symlink(
-        PathBuf::from("..").join("..").join("blobs").join(hf_blob_name),
+        PathBuf::from("..")
+            .join("..")
+            .join("blobs")
+            .join(hf_blob_name),
         snap.join("model.safetensors"),
     )
     .expect("snap symlink");

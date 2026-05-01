@@ -387,8 +387,7 @@ fn apply_effect(
                 let tool_id = trigger.tool;
                 match runtime.block_on(refresh::refresh_tool_incremental(plugin)) {
                     Ok(view) => {
-                        let (next, _) =
-                            update(std::mem::take(state), Msg::RefreshSucceeded(view));
+                        let (next, _) = update(std::mem::take(state), Msg::RefreshSucceeded(view));
                         *state = next;
                     }
                     Err(refresh::RefreshError::NotInstalled) => {
@@ -404,8 +403,7 @@ fn apply_effect(
                             "refresh after delete_one failed for {}: {e}",
                             tool_id.0
                         );
-                        let (next, _) =
-                            update(std::mem::take(state), Msg::RefreshFailed(tool_id));
+                        let (next, _) = update(std::mem::take(state), Msg::RefreshFailed(tool_id));
                         *state = next;
                     }
                 }
