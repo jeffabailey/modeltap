@@ -5,9 +5,11 @@
 //! `render::*` reads `&AppState` and writes ratatui widgets.
 
 use std::collections::BTreeSet;
+use std::time::Instant;
 
 use modeltap_core::domain::last_action::LastAction;
-use modeltap_core::{ToolId, ToolStatus};
+use modeltap_core::domain::synthetic_slot::LeftPaneSlot;
+use modeltap_core::{DedupSummary, ToolId, ToolStatus};
 
 use crate::dialogs::cross_fs_choice::CrossFsChoiceDialog;
 pub use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsDecision, CrossFsMode};
@@ -75,21 +77,73 @@ impl ToolView {
     }
 }
 
+/// Live state of the background hash pool. All counters are derived from the
+/// pool's `AtomicU64`s but cached on `AppState` so render fns stay pure.
+///
+/// Per `data-models.md` §HashPoolState — populated by hash-pool worker Msgs in
+/// later steps (01-04 onwards). For step 01-03 the field exists with a
+/// `Default` value so the render path can read it without panicking.
+#[derive(Debug, Clone, Default, Eq, PartialEq)]
+pub struct HashPoolState {
+    /// Total jobs queued at startup.
+    pub total: u64,
+    /// Jobs whose hash has been computed (success or failure).
+    pub completed: u64,
+    /// Model ids with a worker currently hashing them. Drives the `~` glyph.
+    pub in_progress: BTreeSet<String>,
+    /// Model ids whose hash failed. Drives the `-` + `!` decorator.
+    pub failed: BTreeSet<String>,
+}
+
+impl HashPoolState {
+    /// True while jobs remain. Used by render code for the "Hashing N/M..."
+    /// summary indicator.
+    pub fn is_hashing(&self) -> bool {
+        self.completed < self.total
+    }
+
+    /// True iff hashing has started AND every job has finished.
+    pub fn is_complete(&self) -> bool {
+        self.total > 0 && self.completed == self.total
+    }
+}
+
+/// Transient "(was X GB)" delta after a successful unify (US-10/US-11).
+/// Cleared by a 5-second timer via `Msg::SummaryDeltaExpired` in later steps.
+///
+/// `Instant` is intentionally a transient runtime field — the field exists on
+/// `AppState` for shape compatibility with the future expiry tick handler.
+/// Step 01-03 never sets a non-`None` value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SummaryDelta {
+    pub previous_dedup_able_bytes: u64,
+    pub expires_at: Instant,
+}
+
 /// The pure view-model. Cloned per Elm `update` call. Per ADR-006, a few KB
 /// of allocation per keystroke is negligible.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AppState {
-    /// Tool slots in left-pane render order. Sorted alphabetically by
-    /// `tool.0` at construction time so navigation order is deterministic
-    /// across plugin-registry orderings.
-    pub tools: Vec<ToolView>,
+    /// Left-pane slots in render order. Per ADR-014 the left pane is a
+    /// heterogeneous list: `LeftPaneSlot::Real(ToolView)` for registered
+    /// tools, `LeftPaneSlot::Synthetic(_)` for render-only entries such as
+    /// the future `[All Unified]` slot.
+    ///
+    /// Real tools are sorted alphabetically by `tool.0` at construction time
+    /// so navigation order is deterministic across plugin-registry orderings.
+    /// The synthetic slot (when populated by step 04-02) is APPENDED LAST
+    /// after all real tools. For step 01-03 only `Real(_)` entries appear.
+    ///
+    /// Selection navigation operates on `len()` unchanged — `selected_tool`
+    /// indexes into this vec; both Real and Synthetic count as slot positions.
+    pub left_pane_slots: Vec<LeftPaneSlot<ToolView>>,
 
-    /// Index into `tools` of the currently-selected tool. Always a valid
-    /// index — invariant enforced by all constructors and updates.
+    /// Index into `left_pane_slots` of the currently-selected slot. Always a
+    /// valid index — invariant enforced by all constructors and updates.
     pub selected_tool: usize,
 
-    /// Index into `tools[selected_tool].model_ids` of the highlighted row.
-    /// Reset to 0 when the selected tool changes.
+    /// Index into the current tool's `model_ids` of the highlighted row.
+    /// Reset to 0 when the selected slot changes.
     pub selected_row: usize,
 
     /// First visible row in the right pane. Advances when `selected_row`
@@ -106,8 +160,8 @@ pub struct AppState {
     pub visible_rows: usize,
 
     /// First visible row in the LEFT pane. Symmetric to `scroll_offset` but
-    /// over `tools` instead of the current tool's model rows. Advances when
-    /// `selected_tool` would otherwise scroll off the visible window.
+    /// over `left_pane_slots`. Advances when `selected_tool` would otherwise
+    /// scroll off the visible window.
     pub left_scroll_offset: usize,
 
     /// Number of left-pane rows visible at once. Set by the production
@@ -183,12 +237,28 @@ pub struct AppState {
     /// shortcut. Cleared per-tool on a successful `Msg::RefreshSucceeded`.
     /// `BTreeSet` for deterministic iteration order in render code.
     pub refresh_failed_tools: BTreeSet<ToolId>,
+
+    /// Live state of the background hash pool. Driven by `Msg::HashComputed`
+    /// / `Msg::HashFailed` / `Msg::HashProgressTick` in later steps; for step
+    /// 01-03 always at its `Default` value.
+    pub hash_state: HashPoolState,
+
+    /// Cached classifier output for render. Recomputed by
+    /// `logic::dedup::dedup_summary` on hash msgs and on action completion;
+    /// carried explicitly so render fns stay pure. Step 01-03 leaves this at
+    /// `Default` (all `None`) — populated in step 01-04+.
+    pub dedup_summary: DedupSummary,
+
+    /// Transient "(was X GB)" delta after unify (US-10). `Some(...)` for
+    /// ~5 s after a successful unify; cleared by `Msg::SummaryDeltaExpired`.
+    /// Step 01-03 never sets a non-`None` value.
+    pub summary_delta: Option<SummaryDelta>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
-            tools: Vec::new(),
+            left_pane_slots: Vec::new(),
             selected_tool: 0,
             selected_row: 0,
             scroll_offset: 0,
@@ -206,21 +276,30 @@ impl Default for AppState {
             last_action: None,
             current_screen: Screen::Main,
             refresh_failed_tools: BTreeSet::new(),
+            hash_state: HashPoolState::default(),
+            dedup_summary: DedupSummary::default(),
+            summary_delta: None,
         }
     }
 }
 
 impl AppState {
     /// Construct an `AppState` from the discovered tool views. Sorts the
-    /// tools alphabetically by `ToolId` and lands the default selection on
-    /// the alphabetically-first INSTALLED tool. If no tool is installed,
-    /// the selection falls back to index 0 so the right pane has something
-    /// to render (an empty / not-installed message).
+    /// tools alphabetically by `ToolId`, wraps each in `LeftPaneSlot::Real(_)`,
+    /// and lands the default selection on the alphabetically-first INSTALLED
+    /// tool. If no tool is installed, the selection falls back to index 0 so
+    /// the right pane has something to render.
+    ///
+    /// Step 01-03 does NOT yet append the `[All Unified]` synthetic slot —
+    /// that wiring lands in step 04-02. The constructor signature stays
+    /// `Vec<ToolView>` for back-compat with v1 acceptance tests; internally
+    /// each view is wrapped in `LeftPaneSlot::Real(_)`.
     pub fn new_with_default_selection(mut tools: Vec<ToolView>) -> Self {
         tools.sort_by(|a, b| a.tool.0.cmp(b.tool.0));
         let selected_tool = tools.iter().position(ToolView::is_installed).unwrap_or(0);
+        let left_pane_slots = tools.into_iter().map(LeftPaneSlot::Real).collect();
         Self {
-            tools,
+            left_pane_slots,
             selected_tool,
             selected_row: 0,
             scroll_offset: 0,
@@ -238,20 +317,59 @@ impl AppState {
             last_action: None,
             current_screen: Screen::Main,
             refresh_failed_tools: BTreeSet::new(),
+            hash_state: HashPoolState::default(),
+            dedup_summary: DedupSummary::default(),
+            summary_delta: None,
         }
     }
 
-    /// Total number of rows in the currently-selected tool's right pane.
+    /// Iterator over `&ToolView` for every `LeftPaneSlot::Real(_)` slot in
+    /// render order. The synthetic slot (when present) is silently skipped —
+    /// callers that need to operate on real tools only (summary aggregation,
+    /// content-hash dedup) use this iterator. Mirror of the pre-refactor
+    /// `state.tools.iter()` call site, with the `LeftPaneSlot::Real` arm
+    /// lifted out so callers do not pattern-match.
+    pub fn real_tools_iter(&self) -> impl Iterator<Item = &ToolView> + '_ {
+        self.left_pane_slots.iter().filter_map(|slot| match slot {
+            LeftPaneSlot::Real(view) => Some(view),
+            LeftPaneSlot::Synthetic(_) => None,
+        })
+    }
+
+    /// Mutable iterator counterpart to `real_tools_iter`. Used by
+    /// `replace_tool_slot` in `update.rs` to mutate a single matching slot.
+    pub fn real_tools_iter_mut(&mut self) -> impl Iterator<Item = &mut ToolView> + '_ {
+        self.left_pane_slots
+            .iter_mut()
+            .filter_map(|slot| match slot {
+                LeftPaneSlot::Real(view) => Some(view),
+                LeftPaneSlot::Synthetic(_) => None,
+            })
+    }
+
+    /// Borrow the `ToolView` at slot index `idx`, returning `None` for
+    /// out-of-bounds OR when the slot at that index is synthetic (the caller
+    /// must handle the synthetic arm explicitly — it has no `ToolView`).
+    pub fn real_tool_at(&self, idx: usize) -> Option<&ToolView> {
+        match self.left_pane_slots.get(idx) {
+            Some(LeftPaneSlot::Real(view)) => Some(view),
+            _ => None,
+        }
+    }
+
+    /// Total number of rows in the currently-selected slot's right pane.
+    /// Returns 0 when the selected slot is synthetic (the synthetic slot has
+    /// no per-tool rows; step 04-02 will reroute the right pane to its own
+    /// row source).
     pub fn current_row_count(&self) -> usize {
-        self.tools
-            .get(self.selected_tool)
+        self.real_tool_at(self.selected_tool)
             .map(|t| t.model_ids.len())
             .unwrap_or(0)
     }
 
-    /// Currently-selected tool view, if any. Returns None only if `tools` is
-    /// empty (no plugins registered — pathological case).
+    /// Currently-selected tool view, if any. Returns None when
+    /// `left_pane_slots` is empty OR when the selected slot is synthetic.
     pub fn current_tool(&self) -> Option<&ToolView> {
-        self.tools.get(self.selected_tool)
+        self.real_tool_at(self.selected_tool)
     }
 }

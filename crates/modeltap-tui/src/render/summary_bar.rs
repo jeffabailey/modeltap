@@ -5,9 +5,12 @@
 //!   "Total: <N> models | Disk: <X> GB | Dedup-able: <Y> GB"
 //!
 //! For the WS slice, dedup-able is always 0 (cross-tool dedup classifier
-//! lands in 03-01). The summary aggregates `AppState.tools` — every
-//! installed tool's `model_ids.len()` and `total_bytes()` — and is rendered
-//! above the bottom shortcut bar.
+//! lands in 03-01). The summary aggregates the real tool slots in
+//! `AppState.left_pane_slots` (via `real_tools_iter()`) — every installed
+//! tool's `model_ids.len()` and `total_bytes()` — and is rendered above the
+//! bottom shortcut bar. Synthetic slots (when present) are skipped: their
+//! contribution is already counted on the underlying real tools whose
+//! contents the synthesis aggregates.
 
 use ratatui::layout::Rect;
 use ratatui::widgets::Paragraph;
@@ -18,12 +21,15 @@ use crate::app_state::AppState;
 /// Aggregate the total bytes across all installed tools, deduplicating
 /// nothing in the WS slice (cross-tool dedup classifier is 03-01 work).
 pub fn total_disk_bytes(state: &AppState) -> u64 {
-    state.tools.iter().map(|t| t.total_bytes()).sum()
+    state.real_tools_iter().map(|t| t.total_bytes()).sum()
 }
 
 /// Aggregate the total model count across all installed tools.
 pub fn total_models(state: &AppState) -> u64 {
-    state.tools.iter().map(|t| t.model_ids.len() as u64).sum()
+    state
+        .real_tools_iter()
+        .map(|t| t.model_ids.len() as u64)
+        .sum()
 }
 
 /// Format the summary line. Pure string; rendered by `summary_bar::render`.

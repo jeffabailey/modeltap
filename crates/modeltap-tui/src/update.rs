@@ -283,11 +283,13 @@ fn clear_last_action(state: AppState) -> AppState {
     }
 }
 
-/// Replace the matching `ToolView` slot in `state.tools` with the freshly-
-/// discovered view. Tools are matched by `ToolId`; if no slot matches (e.g.
-/// a future plugin id we don't know yet) the state is returned unchanged.
+/// Replace the matching `ToolView` slot in `state.left_pane_slots` with the
+/// freshly-discovered view. Tools are matched by `ToolId`; only `Real(_)`
+/// slots are considered — the synthetic `[All Unified]` slot (when present)
+/// is left untouched. If no slot matches (e.g. a future plugin id we don't
+/// know yet) the state is returned unchanged.
 fn replace_tool_slot(mut state: AppState, view: crate::app_state::ToolView) -> AppState {
-    if let Some(slot) = state.tools.iter_mut().find(|t| t.tool == view.tool) {
+    if let Some(slot) = state.real_tools_iter_mut().find(|t| t.tool == view.tool) {
         *slot = view;
     }
     state
@@ -300,7 +302,7 @@ fn replace_tool_slot(mut state: AppState, view: crate::app_state::ToolView) -> A
 /// more tools than the left pane's visible_rows (small terminal or future
 /// plugin growth).
 fn advance_tool(state: AppState, delta: i32) -> AppState {
-    let n = state.tools.len();
+    let n = state.left_pane_slots.len();
     if n == 0 {
         return state;
     }

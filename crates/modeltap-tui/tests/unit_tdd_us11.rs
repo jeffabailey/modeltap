@@ -70,8 +70,7 @@ fn refresh_succeeded_replaces_slot_and_clears_failed_marker() {
 
     // Slot replaced.
     let ollama = next
-        .tools
-        .iter()
+        .real_tools_iter()
         .find(|t| t.tool == ToolId("ollama"))
         .expect("ollama present");
     assert_eq!(ollama.model_ids.len(), 0);
@@ -99,8 +98,7 @@ fn refresh_failed_marks_tool_and_preserves_inventory() {
 
     // Slot preserved (no blanking).
     let ollama = next
-        .tools
-        .iter()
+        .real_tools_iter()
         .find(|t| t.tool == ToolId("ollama"))
         .expect("ollama still present");
     assert_eq!(ollama.model_ids.len(), 3, "old slot preserved on failure");
@@ -258,8 +256,7 @@ fn int5_invariant_property_test_256_iterations() {
 
         // Other tools' slots unchanged.
         let hf = next
-            .tools
-            .iter()
+            .real_tools_iter()
             .find(|t| t.tool == ToolId("hf"))
             .expect("hf present");
         assert_eq!(hf.total_bytes(), 5_000_000);

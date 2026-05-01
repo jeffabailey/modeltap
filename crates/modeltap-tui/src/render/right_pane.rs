@@ -28,10 +28,11 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     );
 
     // Build the cross-tool presence-view once per render (US-04.AC-4).
-    // Cheap to construct: clones each tool's id-string list.
+    // Cheap to construct: clones each tool's id-string list. Synthetic slots
+    // are skipped — they have no per-tool model_ids; the synthesis aggregates
+    // the same real-tool data we already iterate.
     let inventory: Vec<ToolPresence> = state
-        .tools
-        .iter()
+        .real_tools_iter()
         .map(|t| ToolPresence {
             tool: t.tool,
             model_ids: t.model_ids.clone(),

@@ -75,11 +75,11 @@ fn state_with_not_unified_mistral() -> AppState {
     // canonical id this scenario exercises in the detail screen. Tools are
     // sorted alphabetically by ToolId; "Loose GGUFs" (capital L) sorts before
     // lowercase "hf"/"ollama", so we find hf's slot by name rather than index.
-    state.selected_tool = state
-        .tools
-        .iter()
+    let hf_index = state
+        .real_tools_iter()
         .position(|t| t.tool.0 == "hf")
         .expect("hf must be in fixture");
+    state.selected_tool = hf_index;
     state.selected_row = 0;
     state
 }

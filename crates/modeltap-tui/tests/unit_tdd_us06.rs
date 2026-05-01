@@ -174,16 +174,14 @@ fn refresh_tool_replaces_matching_slot_in_tools() {
     let refreshed = tool_view("ollama", ToolStatus::Ok, &[]);
     let (next, _) = update(state, Msg::RefreshTool(refreshed));
     let ollama = next
-        .tools
-        .iter()
+        .real_tools_iter()
         .find(|t| t.tool == ToolId("ollama"))
         .expect("ollama still present");
     assert_eq!(ollama.model_ids.len(), 0, "ollama refreshed to 0 models");
     assert_eq!(ollama.total_bytes(), 0, "ollama refreshed to 0 bytes");
     // Other tools must remain unchanged.
     let hf = next
-        .tools
-        .iter()
+        .real_tools_iter()
         .find(|t| t.tool == ToolId("hf"))
         .expect("hf still present");
     assert_eq!(hf.status, ToolStatus::NotInstalled);

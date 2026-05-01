@@ -276,8 +276,7 @@ fn lift_delete_one_in_main(state: &AppState, msg: Msg) -> Msg {
     let target_tool = tool_view.tool;
     let target_id = model_id.clone();
     let was_shared = state
-        .tools
-        .iter()
+        .real_tools_iter()
         .any(|t| t.tool != target_tool && t.model_ids.iter().any(|id| id == &target_id));
     let dialog = DeleteOneConfirmState::for_model(target_tool, target_id, size_bytes, was_shared);
     Msg::OpenDeleteOneDialog(dialog)
