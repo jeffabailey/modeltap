@@ -21,6 +21,7 @@ use crate::render::all_unified;
 use crate::render::colors::no_color_active;
 use crate::render::last_action;
 use crate::render::row::render_row_basic;
+use crate::render::toast;
 
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     // Step 04-02 dispatch: when the currently-selected left-pane slot is a
@@ -165,10 +166,23 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     // the only model row in single-row tools (the partial-unify acceptance
     // test then could not see the `=` glyph at all). Slice 2 rows for the
     // banner and render the list into the remaining area.
-    let banner_height: u16 = if state.last_action.is_some() && inner_area.height >= 2 {
-        2
-    } else {
+    // US-U10: when the last action is a partial-success unify (or a
+    // unify total-failure with per-target detail), render the richer toast
+    // (header + per-target lines + reclaim + footer). Otherwise the v1
+    // 2-line banner. Banner height is computed from the toast's actual
+    // line count so the model list area shrinks accordingly.
+    let banner_lines: Vec<String> = match &state.last_action {
+        Some(action) => toast::view_lines(action),
+        None => Vec::new(),
+    };
+    let banner_height: u16 = if banner_lines.is_empty() {
         0
+    } else {
+        let want = banner_lines.len() as u16;
+        // Reserve at most half of the inner area for the banner so the model
+        // list always remains observable beneath it (AC-U6.3 invariant).
+        let cap = (inner_area.height / 2).max(2);
+        want.min(cap).min(inner_area.height)
     };
     let list_area = if banner_height > 0 {
         Rect::new(
@@ -198,8 +212,25 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
     if let Some(action) = &state.last_action {
         if banner_height >= 2 {
-            let banner_area = Rect::new(inner_area.x, inner_area.y, inner_area.width, 2);
-            last_action::render(frame, banner_area, action);
+            let banner_area =
+                Rect::new(inner_area.x, inner_area.y, inner_area.width, banner_height);
+            // Dispatch by status: Partial / Failed-with-detail flow through
+            // the US-U10 toast renderer; everything else falls back to the
+            // v1 2-line banner. Toast itself defers to last_action for
+            // non-partial cases, so we always go through toast — the
+            // dispatch keeps last_action::render reachable for the call
+            // sites that explicitly wanted the v1 layout.
+            use modeltap_core::domain::last_action::ActionStatus;
+            if matches!(action.status, ActionStatus::Partial { .. })
+                || (matches!(
+                    action.verb,
+                    modeltap_core::domain::last_action::ActionVerb::Unify
+                ) && matches!(action.status, ActionStatus::Failed))
+            {
+                toast::render(frame, banner_area, action);
+            } else {
+                last_action::render(frame, banner_area, action);
+            }
         }
     }
 }
