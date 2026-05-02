@@ -47,15 +47,20 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .collect();
 
     // Build a transient `Inventory` for the dedup-glyph classifier (step 01-05).
-    // Every entry has `content_hash: None` because the hash pool has not yet
-    // been wired (lands in step 01-07). With no hashes, `compute_dedup_glyph`
-    // returns `Pending` for every row, which is the correct first-paint state.
-    // After 01-07 wires real hashes the same call site will start producing
-    // `Hashing`/`Unique`/`DedupAble`/`AlreadyUnified`/`Failed`.
+    // Each entry's `content_hash` is read back from `state.hash_state.completed_hashes`
+    // so post-hash the row glyph reflects the real classification (=, #, -, -!).
+    // Pre-hash, `completed_hashes` is empty and every entry has
+    // `content_hash: None` so the classifier returns `Pending` (`?`).
     let dedup_inventory = build_dedup_inventory(state);
-    // No inode map and no in-progress/failed hashes at first paint. The
-    // hash-pool wiring (01-07) will populate these.
-    let dedup_inodes: InodeMap = InodeMap::default();
+    // Inode map mirrors `state.hash_state.inodes` — populated as the hash pool
+    // resolves device+inode for each blob. Required so that pre-hardlinked
+    // blobs route to `AlreadyUnified` (`#`) rather than `DedupAble` (`=`).
+    let dedup_inodes: InodeMap = state
+        .hash_state
+        .inodes
+        .iter()
+        .map(|((tool, id), devino)| ((*tool, id.clone()), *devino))
+        .collect();
     let in_progress: BTreeSet<ModelKey> = state
         .hash_state
         .in_progress
@@ -178,10 +183,11 @@ fn format_size(bytes: u64) -> String {
 }
 
 /// Build a transient `Inventory` from `state.real_tools_iter()` for the
-/// dedup-glyph classifier. Every entry has `content_hash: None` because the
-/// hash pool does not exist yet (lands in step 01-07). The render path
-/// recomputes this each frame; performance is fine because rows are bounded
-/// by `state.visible_rows` and tools are typically O(4).
+/// dedup-glyph classifier. Each entry's `content_hash` is looked up in
+/// `state.hash_state.completed_hashes`; pre-hash the lookup misses and the
+/// entry stays with `content_hash: None`, so the classifier returns
+/// `Pending` (`?`). Post-hash the same call site sees the real hashes and
+/// the classifier returns `Unique`/`DedupAble`/`AlreadyUnified`/`Failed`.
 ///
 /// We synthesize a thin `DiscoveredModel` per (tool, id, size) — only the
 /// fields the classifier inspects are populated; the rest get sensible
@@ -192,6 +198,8 @@ fn build_dedup_inventory(state: &AppState) -> Inventory {
     for view in state.real_tools_iter() {
         for (idx, id) in view.model_ids.iter().enumerate() {
             let size = view.model_sizes_bytes.get(idx).copied().unwrap_or(0);
+            let key = (view.tool, id.clone());
+            let content_hash = state.hash_state.completed_hashes.get(&key).copied();
             entries.push(InventoryEntry {
                 tool: view.tool,
                 model: DiscoveredModel {
@@ -202,7 +210,7 @@ fn build_dedup_inventory(state: &AppState) -> Inventory {
                     display_label: DisplayLabel::from(id.as_str()),
                     status: ModelStatus::Healthy,
                 },
-                content_hash: None,
+                content_hash,
             });
         }
     }
