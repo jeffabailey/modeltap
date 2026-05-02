@@ -222,6 +222,17 @@ pub enum Msg {
     /// (no fs mutation), emit the `action.unify_dry_run` JSONL event, and
     /// dispatch `Msg::UnifyDryRunCompleted(lines)` once the lines are ready.
     UnifyDryRun,
+    /// US-U5: user pressed `[space]` while the unify confirm dialog is open.
+    /// `update()` flips `unify_dialog.target_active[idx]` so the live total
+    /// reclaim recomputes. The dispatcher (headless harness / interactive
+    /// keymap) resolves `idx` from the dialog's cursor (`selected_target_idx`).
+    ToggleTarget(usize),
+    /// US-U5: user pressed `[down]` while the unify confirm dialog is open.
+    /// Advances the per-target cursor (`selected_target_idx`) so the next
+    /// [space] toggles the row below.
+    UnifyDialogSelectNext,
+    /// US-U5: user pressed `[up]` while the unify confirm dialog is open.
+    UnifyDialogSelectPrev,
     /// Composition root dispatches this after `actions::unify::dry_run`
     /// returns. Carries the formatted "(dry-run) Would..." lines; `update()`
     /// transitions the dialog to `UnifyMode::DryRunPreview { lines }`.

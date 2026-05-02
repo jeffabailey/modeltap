@@ -85,19 +85,78 @@ pub struct UnifyDialogState {
     /// confirm so the action runner has everything it needs.
     pub plan: UnifyPlan,
     pub mode: UnifyMode,
+    /// US-U5: per-link checkbox. `target_active[i] == true` means link `i`
+    /// will be applied on Enter. Initialised to all-true; the user toggles
+    /// individual entries with [space] to exclude them from the live total
+    /// reclaim and from the eventual `Tool::link()` calls.
+    pub target_active: Vec<bool>,
+    /// US-U5: cursor position over the target rows. ↑/↓ move it within
+    /// `[0, plan.links.len())`; [space] toggles `target_active[selected_target_idx]`.
+    pub selected_target_idx: usize,
 }
 
 impl UnifyDialogState {
     /// Construct a dialog state from a `UnifyPlan`. The mode is derived from
     /// the plan: if every link is `already_linked`, mode is `AlreadyUnified`;
-    /// otherwise `Confirm`.
+    /// otherwise `Confirm`. Per US-U5, every target starts active and the
+    /// cursor starts at the first row.
     pub fn from_plan(plan: UnifyPlan) -> Self {
         let mode = if plan.links.iter().all(|l| l.already_linked) && !plan.links.is_empty() {
             UnifyMode::AlreadyUnified
         } else {
             UnifyMode::Confirm
         };
-        Self { plan, mode }
+        let target_active = vec![true; plan.links.len()];
+        Self {
+            plan,
+            mode,
+            target_active,
+            selected_target_idx: 0,
+        }
+    }
+
+    /// US-U5: live recompute of the reclaim total. A link contributes
+    /// `canonical.size_bytes` iff `target_active[i] && !already_linked`. This
+    /// preserves the planner's per-distinct-inode model — each
+    /// active-and-unlinked target replaces one inode worth of bytes.
+    pub fn total_reclaim_bytes(&self) -> u64 {
+        let canonical_size = self.plan.canonical.size_bytes;
+        let active_unlinked = self
+            .plan
+            .links
+            .iter()
+            .enumerate()
+            .filter(|(i, link)| {
+                !link.already_linked && *self.target_active.get(*i).unwrap_or(&false)
+            })
+            .count() as u64;
+        active_unlinked.saturating_mul(canonical_size)
+    }
+
+    /// US-U5: flip the checkbox for target `idx`. Out-of-range indices are
+    /// silently ignored (defense in depth — the headless harness can only
+    /// dispatch indices the cursor actually visited, but a stray Msg should
+    /// not panic the pure update).
+    pub fn toggle_target(&mut self, idx: usize) {
+        if let Some(slot) = self.target_active.get_mut(idx) {
+            *slot = !*slot;
+        }
+    }
+
+    /// US-U5: advance the per-target cursor by 1, clamped at the end of the
+    /// link list. No-wrap semantics mirror the right-pane row navigation.
+    pub fn select_next_target(&mut self) {
+        let max = self.plan.links.len().saturating_sub(1);
+        if self.selected_target_idx < max {
+            self.selected_target_idx += 1;
+        }
+    }
+
+    /// US-U5: regress the per-target cursor by 1, clamped at 0.
+    pub fn select_prev_target(&mut self) {
+        if self.selected_target_idx > 0 {
+            self.selected_target_idx -= 1;
+        }
     }
 
     /// True when the dialog is in the benign "already unified" path.
@@ -366,5 +425,124 @@ mod tests {
         assert!(dialog.is_already_unified());
         // [n] in AlreadyUnified is a no-op (Cancel sentinel).
         assert_eq!(dialog.decide_on_dry_run_key(), UnifyDecision::Cancel);
+    }
+
+    // ---- US-U5 reclaim-preview state: target toggle + live total ---------
+
+    /// Build a Confirm-mode plan with 2 unlinked targets and a known
+    /// canonical size. With both targets active, the live total reclaim
+    /// equals 2 × canonical_size (matches the planner's
+    /// bytes_reclaimed_estimate for distinct inodes).
+    fn plan_with_two_unlinked_targets() -> UnifyPlan {
+        UnifyPlan {
+            canonical: PlanCandidate {
+                tool: ToolId("ollama"),
+                path: PathBuf::from("/c"),
+                exists: true,
+                device: 1,
+                inode: 100,
+                size_bytes: 4096,
+            },
+            links: vec![
+                PlannedLink {
+                    tool: ToolId("hf"),
+                    target: PathBuf::from("/h"),
+                    cross_filesystem: false,
+                    already_linked: false,
+                },
+                PlannedLink {
+                    tool: ToolId("lm-studio"),
+                    target: PathBuf::from("/l"),
+                    cross_filesystem: false,
+                    already_linked: false,
+                },
+            ],
+            bytes_reclaimed_estimate: 8192,
+        }
+    }
+
+    #[test]
+    fn target_active_initialised_all_true_and_total_matches_plan_estimate() {
+        // AC-U5.1 — fresh Confirm dialog has every target active and the
+        // live total matches the planner's bytes_reclaimed_estimate.
+        let dialog = UnifyDialogState::from_plan(plan_with_two_unlinked_targets());
+        assert_eq!(dialog.target_active.len(), 2);
+        assert!(
+            dialog.target_active.iter().all(|&b| b),
+            "all targets must start active"
+        );
+        assert_eq!(dialog.total_reclaim_bytes(), 8192);
+    }
+
+    #[test]
+    fn toggling_a_target_off_drops_total_by_canonical_size() {
+        // AC-U5.2 + AC-U5.3 — toggling one of the two targets off must
+        // drop the live total by exactly canonical.size_bytes (4096).
+        let mut dialog = UnifyDialogState::from_plan(plan_with_two_unlinked_targets());
+        dialog.toggle_target(0);
+        assert!(!dialog.target_active[0]);
+        assert!(dialog.target_active[1]);
+        assert_eq!(dialog.total_reclaim_bytes(), 4096);
+        // Toggling again restores it.
+        dialog.toggle_target(0);
+        assert_eq!(dialog.total_reclaim_bytes(), 8192);
+    }
+
+    #[test]
+    fn already_linked_targets_never_contribute_even_when_active() {
+        // already_linked links contribute zero regardless of target_active —
+        // toggling them is a no-op for the live total.
+        let plan = UnifyPlan {
+            canonical: PlanCandidate {
+                tool: ToolId("ollama"),
+                path: PathBuf::from("/c"),
+                exists: true,
+                device: 1,
+                inode: 100,
+                size_bytes: 4096,
+            },
+            links: vec![
+                PlannedLink {
+                    tool: ToolId("hf"),
+                    target: PathBuf::from("/h"),
+                    cross_filesystem: false,
+                    already_linked: true,
+                },
+                PlannedLink {
+                    tool: ToolId("lm-studio"),
+                    target: PathBuf::from("/l"),
+                    cross_filesystem: false,
+                    already_linked: false,
+                },
+            ],
+            bytes_reclaimed_estimate: 4096,
+        };
+        let mut dialog = UnifyDialogState::from_plan(plan);
+        // Only the second link contributes.
+        assert_eq!(dialog.total_reclaim_bytes(), 4096);
+        // Toggle the already_linked one — total is unchanged.
+        dialog.toggle_target(0);
+        assert_eq!(dialog.total_reclaim_bytes(), 4096);
+        // Toggle the unlinked one off — total drops to 0.
+        dialog.toggle_target(1);
+        assert_eq!(dialog.total_reclaim_bytes(), 0);
+    }
+
+    #[test]
+    fn selected_target_idx_navigation_is_clamped_within_link_range() {
+        // selected_target_idx starts at 0 and clamps at boundaries; cursor
+        // navigation never escapes [0, links.len()).
+        let mut dialog = UnifyDialogState::from_plan(plan_with_two_unlinked_targets());
+        assert_eq!(dialog.selected_target_idx, 0);
+        dialog.select_next_target();
+        assert_eq!(dialog.selected_target_idx, 1);
+        // At max — next stays put.
+        dialog.select_next_target();
+        assert_eq!(dialog.selected_target_idx, 1);
+        dialog.select_prev_target();
+        assert_eq!(dialog.selected_target_idx, 0);
+        // At zero — prev stays put.
+        dialog.select_prev_target();
+        assert_eq!(dialog.selected_target_idx, 0);
     }
 }

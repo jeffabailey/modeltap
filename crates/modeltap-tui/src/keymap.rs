@@ -175,10 +175,23 @@ pub fn dispatch(key: KeyEvent) -> Msg {
 /// Backspace → DialogBackspace, Enter → DialogConfirm, Esc → DialogCancel).
 /// Anything else falls through to `dispatch()` so global shortcuts (Ctrl+C)
 /// still work.
-pub fn dispatch_in_dialog(key: KeyEvent) -> Msg {
+///
+/// US-U5: when `unify_dialog_open` is true, [space] dispatches
+/// `Msg::ToggleTarget(0)` (the call site lifts it to the cursor position via
+/// `lift_toggle_in_unify_dialog`-equivalent in the production loop) and the
+/// arrow keys move the per-target cursor.
+pub fn dispatch_in_dialog(key: KeyEvent, unify_dialog_open: bool) -> Msg {
     // Global override: Ctrl+C must always interrupt, even with a dialog open.
     if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
         return Msg::CtrlC;
+    }
+    if unify_dialog_open {
+        match key.code {
+            KeyCode::Char(' ') => return Msg::ToggleTarget(0),
+            KeyCode::Up => return Msg::UnifyDialogSelectPrev,
+            KeyCode::Down => return Msg::UnifyDialogSelectNext,
+            _ => {}
+        }
     }
     match key.code {
         KeyCode::Esc => Msg::DialogCancel,

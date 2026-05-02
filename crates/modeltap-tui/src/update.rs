@@ -246,6 +246,10 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // ----- US-14 dry-run preview (step 03-05) -----------------------
         Msg::UnifyDryRun => decide_dry_run(state),
         Msg::UnifyDryRunCompleted(lines) => apply_dry_run_lines(state, lines),
+        // ----- US-U5 reclaim-preview toggle + cursor (step 03-02) -------
+        Msg::ToggleTarget(idx) => (apply_toggle_target(state, idx), UpdateEffect::default()),
+        Msg::UnifyDialogSelectNext => (apply_unify_dialog_next(state), UpdateEffect::default()),
+        Msg::UnifyDialogSelectPrev => (apply_unify_dialog_prev(state), UpdateEffect::default()),
         // ----- US-17 running-tool detect-and-prompt-then-retry (step 03-07) -
         // Per intake Q5: detect-and-prompt-then-retry. The composition root
         // dispatches OpenRunningToolPrompt(dialog) when, after the user
@@ -1127,4 +1131,31 @@ fn retry_from_dialog(dialog: &RunningToolDialog, proceed_anyway: bool) -> Runnin
         action: dialog.pending_action.clone(),
         proceed_anyway,
     }
+}
+
+/// US-U5: flip the checkbox for target `idx` in the open unify dialog. No-op
+/// when no dialog is open or `idx` is out of range (defense in depth).
+fn apply_toggle_target(mut state: AppState, idx: usize) -> AppState {
+    if let Some(dialog) = state.unify_dialog.as_mut() {
+        dialog.toggle_target(idx);
+    }
+    state
+}
+
+/// US-U5: advance the per-target cursor in the open unify dialog. No-op
+/// when no dialog is open.
+fn apply_unify_dialog_next(mut state: AppState) -> AppState {
+    if let Some(dialog) = state.unify_dialog.as_mut() {
+        dialog.select_next_target();
+    }
+    state
+}
+
+/// US-U5: regress the per-target cursor in the open unify dialog. No-op
+/// when no dialog is open.
+fn apply_unify_dialog_prev(mut state: AppState) -> AppState {
+    if let Some(dialog) = state.unify_dialog.as_mut() {
+        dialog.select_prev_target();
+    }
+    state
 }

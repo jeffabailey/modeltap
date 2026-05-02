@@ -130,7 +130,6 @@ fn detail_regs_json(ollama_blob: &Path, hf_blob: &Path) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U5 RED — DELIVER must render reclaim-preview dialog body"]
 fn dialog_body_shows_canonical_targets_savings_and_total_reclaim() {
     let temp = tempfile::tempdir().expect("tempdir");
     let (ollama, hf, ollama_blob, hf_blob) = build_two_blob_duplicate(&temp);
@@ -170,13 +169,29 @@ fn dialog_body_shows_canonical_targets_savings_and_total_reclaim() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U5 RED — DELIVER must wire space-key target toggle (Msg::ToggleTarget)"]
 fn toggling_a_target_with_space_updates_the_total_reclaim() {
-    panic!(
-        "AC-U5.2 + AC-U5.3 — DELIVER must add Msg::ToggleTarget and wire \
-         space-key in dialog. Test asserts: after pressing space on one of \
-         two targets, dialog's 'Total reclaim:' line decreases by that \
-         target's bytes."
+    let temp = tempfile::tempdir().expect("tempdir");
+    let (ollama, hf, ollama_blob, hf_blob) = build_two_blob_duplicate(&temp);
+    let (mut cmd, _temp, _log_file) = modeltap_headless_at(&ollama, &hf);
+    let regs = detail_regs_json(&ollama_blob, &hf_blob);
+    // Open dialog (one target — HF — since the canonical is the Ollama copy),
+    // toggle the only target off with space, capture frame, then close+quit.
+    let script = "<enter>u<space><esc>q";
+    let assert = cmd
+        .env("MODELTAP_HEADLESS_INPUT", script)
+        .env("MODELTAP_HEADLESS_DETAIL_REGS", regs)
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+    let frame = frame_text(&String::from_utf8_lossy(&assert.get_output().stdout));
+    let lower = frame.to_lowercase();
+    // With the only target toggled off, Total reclaim should drop to 0.
+    // Accept "0 b" (formatted), or "0 " followed by SI unit.
+    assert!(
+        lower.contains("total reclaim: 0 b") || lower.contains("total reclaim: 0\n"),
+        "AC-U5.2/U5.3: after toggling the only target off, Total reclaim \
+         should drop to 0; got:\n{}",
+        frame
     );
 }
 
@@ -185,7 +200,6 @@ fn toggling_a_target_with_space_updates_the_total_reclaim() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U5 RED — covered indirectly by walking-skeleton; this test is the explicit AC"]
 fn pressing_enter_applies_the_plan_and_creates_hardlink() {
     let temp = tempfile::tempdir().expect("tempdir");
     let (ollama, hf, ollama_blob, hf_blob) = build_two_blob_duplicate(&temp);
@@ -225,7 +239,6 @@ fn pressing_enter_applies_the_plan_and_creates_hardlink() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U5 RED — DELIVER must preserve no-fs-effect Esc behavior in new dialog"]
 fn pressing_esc_cancels_dialog_with_no_filesystem_change() {
     let temp = tempfile::tempdir().expect("tempdir");
     let (ollama, hf, ollama_blob, hf_blob) = build_two_blob_duplicate(&temp);

@@ -230,6 +230,11 @@ pub fn run(
         // registration when unset). Outside the detail screen, the message
         // stays a no-op.
         let msg = lift_delete_one_in_detail(&state, msg);
+        // US-U5: rewrite the placeholder `Msg::ToggleTarget(0)` produced by
+        // `token_to_msg` for `<space>` while a unify dialog is open into
+        // `Msg::ToggleTarget(selected_target_idx)` so the toggle hits the
+        // currently-cursored row.
+        let msg = lift_toggle_in_unify_dialog(&state, msg);
         // Intercept Enter on the main screen so we can open the detail
         // screen with synthesized registrations from the AppState.
         let msg = lift_enter_in_main(&state, msg);
@@ -297,6 +302,24 @@ pub fn run(
         if already_unified_visible {
             if let Err(e) = terminal.draw(|f| view(&state, f)) {
                 eprintln!("modeltap: already-unified dialog redraw failed: {e}");
+                return 1;
+            }
+            print_frame(&terminal);
+        }
+        // US-U5 (step 03-02) Confirm-mode unify dialog frame-capture seam.
+        // The dialog opens on `u` and is closed by `<enter>` (apply) or
+        // `<esc>` (cancel). Without this capture the FINAL frame (post-quit)
+        // would never show the reclaim-preview body and the AC-U5.1
+        // assertions ("Total reclaim:", "[Enter] Apply", "[space] Toggle")
+        // would fail. Same pattern as the dry-run / running-tool /
+        // already-unified seams above.
+        let confirm_visible = state
+            .unify_dialog
+            .as_ref()
+            .is_some_and(|d| matches!(d.mode, UnifyMode::Confirm));
+        if confirm_visible {
+            if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                eprintln!("modeltap: unify-confirm dialog redraw failed: {e}");
                 return 1;
             }
             print_frame(&terminal);
@@ -951,6 +974,23 @@ fn lift_enter_in_main(state: &AppState, msg: Msg) -> Msg {
     Msg::OpenDetail(detail)
 }
 
+/// US-U5: rewrite `Msg::ToggleTarget(0)` (placeholder produced by
+/// `token_to_msg` for `<space>` while a unify dialog is open) into
+/// `Msg::ToggleTarget(selected_target_idx)` so the toggle hits the row the
+/// per-target cursor is currently over. Falls through unchanged when no
+/// unify dialog is open OR the message is something else. The other
+/// `Msg::ToggleTarget(n)` variants (n != 0) are passed through verbatim
+/// so future production callers can inject explicit indices.
+fn lift_toggle_in_unify_dialog(state: &AppState, msg: Msg) -> Msg {
+    let Msg::ToggleTarget(0) = &msg else {
+        return msg;
+    };
+    let Some(dialog) = state.unify_dialog.as_ref() else {
+        return msg;
+    };
+    Msg::ToggleTarget(dialog.selected_target_idx)
+}
+
 /// Build a `DetailScreenState` from the `MODELTAP_HEADLESS_DETAIL_REGS`
 /// env-var JSON payload. The env-var is the headless-test-only seam that
 /// lets a test inject the cross-tool registrations a real production
@@ -1175,6 +1215,17 @@ fn token_to_msg(
                 "esc" => Msg::DialogCancel,
                 "enter" => Msg::DialogConfirm,
                 "backspace" => Msg::DialogBackspace,
+                // US-U5: while the unify dialog is open, [space] toggles
+                // the active checkbox for the currently-selected target row,
+                // and [up]/[down] move the per-target cursor. The
+                // `unify_open` guard is required because the zap and
+                // delete-one dialogs share the dialog_open branch but do
+                // not own a per-row cursor. The actual toggle index is
+                // resolved at the call site via `lift_toggle_in_unify_dialog`
+                // (this fn does not have access to the dialog state).
+                "space" if unify_open => Msg::ToggleTarget(0),
+                "up" if unify_open => Msg::UnifyDialogSelectPrev,
+                "down" if unify_open => Msg::UnifyDialogSelectNext,
                 _ => Msg::UnboundKey,
             },
             ScriptToken::Char(c) => {

@@ -38,46 +38,99 @@ pub fn render(frame: &mut Frame<'_>, parent_area: Rect, dialog: &UnifyDialogStat
     frame.render_widget(paragraph, inner);
 }
 
-/// Build the lines shown in the destructive Confirm path. Per US-10.AC-1 the
-/// modal MUST display the chosen canonical, the per-tool target list, and
-/// the disk reclaim before the user confirms.
+/// Build the lines shown in the destructive Confirm path. Per US-U5 the
+/// modal renders:
+///   - the model name + first 8 chars of the dedup key (canonical's hash
+///     proxy: device:inode is shown as the stable identifier when the
+///     content hash is not on the plan itself).
+///   - the canonical tool's full path.
+///   - per-target rows with `[x]`/`[ ]` checkbox + tool + path + per-row
+///     "X B → 0 B (saves X B)" annotation, with the cursored row prefixed
+///     by `>` and `selected_target_idx`'s row reverse-styled.
+///   - a **bold** "Total reclaim:" line that recomputes live from
+///     `dialog.total_reclaim_bytes()`.
+///   - an action footer "[Enter] Apply  [space] Toggle  [Esc] Cancel".
 fn build_confirm_lines(dialog: &UnifyDialogState) -> Vec<Line<'static>> {
     let plan = &dialog.plan;
     let canonical_path = plan.canonical.path.display().to_string();
     let canonical_tool = plan.canonical.tool.0.to_string();
-    let reclaim = format_bytes(plan.bytes_reclaimed_estimate);
+    let canonical_size = plan.canonical.size_bytes;
+    // The plan does not carry a content hash; surface a stable per-dialog
+    // identifier from the canonical's (device, inode) so the user can
+    // distinguish dialog instances. Truncated to 8 chars per US-U5 spec.
+    let dedup_prefix: String = format!("{:016x}", plan.canonical.inode)
+        .chars()
+        .take(8)
+        .collect();
 
     let mut lines = vec![
         Line::from(format!(
-            "Unify: hardlink {} target(s) to {}'s canonical copy?",
-            plan.links.len(),
-            canonical_tool
+            "Model: {} (#{})",
+            canonical_path
+                .rsplit('/')
+                .next()
+                .unwrap_or(canonical_path.as_str()),
+            dedup_prefix
         )),
         Line::from(""),
-        Line::from(format!("Canonical:  {}", canonical_path)),
-        Line::from(format!("Reclaim:    {} (after unify)", reclaim)),
+        Line::from(format!(
+            "Canonical ({}): {}",
+            canonical_tool, canonical_path
+        )),
         Line::from(""),
         Line::from("Targets to hardlink:"),
     ];
 
-    for link in &plan.links {
-        let suffix = if link.already_linked {
-            "  (already linked, no-op)"
-        } else if link.cross_filesystem {
-            "  (cross-filesystem — will fail on this step)"
+    for (idx, link) in plan.links.iter().enumerate() {
+        let active = dialog.target_active.get(idx).copied().unwrap_or(true);
+        let cursor = if idx == dialog.selected_target_idx {
+            "> "
         } else {
-            ""
+            "  "
         };
-        lines.push(Line::from(format!(
-            "  {}: {}{}",
-            link.tool.0,
-            link.target.display(),
-            suffix
-        )));
+        let checkbox = if active { "[x]" } else { "[ ]" };
+        let suffix = if link.already_linked {
+            "  (already linked, no-op)".to_string()
+        } else if link.cross_filesystem {
+            "  (cross-filesystem — will fail on this step)".to_string()
+        } else if active {
+            format!(
+                "  {} → 0 B (saves {})",
+                format_bytes(canonical_size),
+                format_bytes(canonical_size)
+            )
+        } else {
+            "  (skipped)".to_string()
+        };
+        let row = format!(
+            "{cursor}{checkbox} {tool}: {path}{suffix}",
+            cursor = cursor,
+            checkbox = checkbox,
+            tool = link.tool.0,
+            path = link.target.display(),
+            suffix = suffix
+        );
+        if idx == dialog.selected_target_idx {
+            lines.push(Line::from(Span::styled(
+                row,
+                Style::default().add_modifier(Modifier::REVERSED),
+            )));
+        } else {
+            lines.push(Line::from(row));
+        }
     }
+
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "[Enter] confirm   [n] dry-run   [Esc] cancel",
+        format!(
+            "Total reclaim: {}",
+            format_bytes(dialog.total_reclaim_bytes())
+        ),
+        Style::default().add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "[Enter] Apply  [space] Toggle  [Esc] Cancel",
         Style::default().add_modifier(Modifier::DIM),
     )));
     lines
