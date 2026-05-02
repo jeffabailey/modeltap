@@ -35,6 +35,7 @@ use ratatui::Terminal;
 use tokio_util::sync::CancellationToken;
 
 use crate::actions::delete_one::{self, DeleteOneOutcome};
+use crate::actions::reclassify;
 use crate::actions::unify::{self, DryRunOutcome, UnifyOutcome, UnifyResult};
 use crate::actions::zap::{self, ZapOutcome, ZapResult};
 use crate::observability::{LaunchLogger, RecordKind};
@@ -227,7 +228,14 @@ pub fn run(
             eprintln!("modeltap: redraw failed: {e}");
             return 1;
         }
-        apply_effect(&effect, &mut logger, &plugins, &rt, &mut state);
+        apply_effect(
+            &effect,
+            &mut logger,
+            &plugins,
+            &rt,
+            &mut state,
+            Some(&msg_tx),
+        );
         // US-14 frame-capture seam: when `apply_effect` dispatched
         // `UnifyDryRunCompleted`, the unify dialog just transitioned into
         // `UnifyMode::DryRunPreview { lines }`. The next iteration's `<esc>`
@@ -348,6 +356,7 @@ fn apply_effect(
     plugins: &[Box<dyn Tool>],
     rt: &tokio::runtime::Runtime,
     state: &mut AppState,
+    msg_tx: Option<&tokio::sync::mpsc::UnboundedSender<Msg>>,
 ) {
     if effect.emit_launch_ended {
         logger.record(RecordKind::LaunchEnded);
@@ -445,9 +454,31 @@ fn apply_effect(
             logger,
             effect.cross_fs_choice,
         ));
+
+        // Step 01-11 (US-U6): recompute the dedup view-model BEFORE
+        // dispatching SetLastAction. The reclassify pass refreshes the
+        // affected (tool, model_id) inodes, recomputes
+        // `state.dedup_summary` via the canonical
+        // `logic::dedup::dedup_summary`, and sets `summary_delta` for the
+        // transient "(was X)" annotation. Pure call — no I/O, no async.
+        *state = reclassify::reclassify_after_unify(std::mem::take(state), &outcome);
+
         let last_action = build_unify_last_action(&outcome, target_name);
         let (next, _) = update(std::mem::take(state), Msg::SetLastAction(last_action));
         *state = next;
+
+        // Step 01-11 (US-U6 AC-U6.5): schedule the 5-second
+        // SummaryDeltaExpired dispatch so the renderer collapses the
+        // "(was X)" annotation. Only fires when we have a live msg_tx —
+        // the headless --quit-after-paint path has none and would
+        // otherwise leak a timer task into a dropped runtime.
+        if let Some(tx) = msg_tx {
+            let tx_clone = tx.clone();
+            rt.spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                let _ = tx_clone.send(Msg::SummaryDeltaExpired);
+            });
+        }
 
         // US-11.AC-1 (model-count-steady scenario): re-run incremental
         // refresh for every participating tool so the summary "Disk:" total

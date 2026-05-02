@@ -11,6 +11,7 @@
 //! for redaction at this seam.
 
 pub mod delete_one;
+pub mod reclassify;
 pub mod unify;
 pub mod zap;
 

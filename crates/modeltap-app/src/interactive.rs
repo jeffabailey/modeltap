@@ -53,6 +53,8 @@ use ratatui::Terminal;
 use tokio_util::sync::CancellationToken;
 
 use crate::actions::delete_one::{self, DeleteOneOutcome, DeleteOneResult};
+use crate::actions::reclassify;
+use crate::actions::unify::{self, UnifyOutcome, UnifyResult};
 use crate::actions::zap::{self, ZapOutcome, ZapResult};
 use crate::observability::{LaunchLogger, RecordKind};
 use modeltap_app::hash_pool::{self, HashPoolHandle};
@@ -214,7 +216,7 @@ fn event_loop(
                 let (next, effect) = update(state, msg);
                 state = next;
                 terminal.draw(|f| view(&state, f))?;
-                apply_effect(&effect, logger, plugins, runtime, &mut state);
+                apply_effect(&effect, logger, plugins, runtime, &mut state, &msg_tx);
                 terminal.draw(|f| view(&state, f))?;
             }
             Event::Resize(_, _) => {
@@ -379,6 +381,7 @@ fn apply_effect(
     plugins: &[Box<dyn Tool>],
     runtime: &tokio::runtime::Runtime,
     state: &mut AppState,
+    msg_tx: &tokio::sync::mpsc::UnboundedSender<Msg>,
 ) {
     if effect.emit_launch_ended {
         logger.record(RecordKind::LaunchEnded);
@@ -499,20 +502,79 @@ fn apply_effect(
         }
     }
 
-    // Forward-compatibility: unify / dry-run / running-tool-retry are only
-    // dispatched from the detail screen, which is not yet reachable via real
-    // keypresses (see module docstring). If one of them ever fires from
-    // production input, log a warning so the gap is observable.
-    if effect.trigger_unify.is_some()
-        || effect.trigger_dry_run.is_some()
-        || effect.trigger_running_tool_retry.is_some()
-    {
+    // Step 01-11 (US-U6): unify orchestration mirrors headless — when the
+    // detail-screen wiring is plumbed (a future step), the production loop
+    // must also reclassify-after-unify and schedule the SummaryDeltaExpired
+    // timer so the same Msg::SummaryDeltaExpired arrives via msg_tx.
+    if let Some(plan) = effect.trigger_unify.clone() {
+        let target_name = match &state.current_screen {
+            Screen::Detail(d) => d.model.id.clone(),
+            _ => plan
+                .canonical
+                .path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("model")
+                .to_string(),
+        };
+        let outcome: UnifyOutcome = runtime.block_on(unify::run(
+            plan.clone(),
+            plugins,
+            logger,
+            effect.cross_fs_choice,
+        ));
+
+        // Reclassify pure step BEFORE SetLastAction (per step 01-11 spec).
+        *state = reclassify::reclassify_after_unify(std::mem::take(state), &outcome);
+
+        let last_action = build_unify_last_action(&outcome, target_name);
+        let (next, _) = update(std::mem::take(state), Msg::SetLastAction(last_action));
+        *state = next;
+
+        // 5s SummaryDeltaExpired timer — uses msg_tx so the production loop
+        // drains it on the next tick and clears `state.summary_delta`.
+        let tx_clone = msg_tx.clone();
+        runtime.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            let _ = tx_clone.send(Msg::SummaryDeltaExpired);
+        });
+
+        // US-11.AC-1 — refresh every participating tool slot so the summary
+        // "Disk:" total reflects post-link sizes.
+        for link in &plan.links {
+            let tool_id = link.tool;
+            if let Some(plugin) = find_plugin(plugins, tool_id) {
+                match runtime.block_on(refresh::refresh_tool_incremental(plugin)) {
+                    Ok(view) => {
+                        let (next, _) = update(std::mem::take(state), Msg::RefreshSucceeded(view));
+                        *state = next;
+                    }
+                    Err(refresh::RefreshError::NotInstalled) => {}
+                    Err(_) => {
+                        let (next, _) = update(std::mem::take(state), Msg::RefreshFailed(tool_id));
+                        *state = next;
+                    }
+                }
+            }
+        }
+    }
+
+    // Forward-compatibility: dry-run / running-tool-retry are only dispatched
+    // from the detail screen, which is not yet reachable via real keypresses
+    // (see module docstring). If one of them ever fires from production
+    // input, log a warning so the gap is observable.
+    if effect.trigger_dry_run.is_some() || effect.trigger_running_tool_retry.is_some() {
         tracing::warn!(
             target: "modeltap.interactive",
             "detail-screen effect dispatched from production loop \
              (no real-key path opens the Detail screen yet); skipping"
         );
     }
+
+    // Suppress unused-by-some-paths warning when UnifyResult is only matched
+    // via the bin adapter; we still want the import to be reachable here so
+    // future enhancements (e.g. surfacing AlreadyUnified specially) compile.
+    let _ = std::convert::identity::<fn(UnifyResult) -> UnifyResult>(|r| r);
 }
 
 /// Map a `DeleteOneOutcome` to a `LastAction` for the right-pane banner.
@@ -528,6 +590,35 @@ fn build_delete_one_last_action(outcome: &DeleteOneOutcome) -> LastAction {
         DeleteOneResult::NotFound | DeleteOneResult::Failed => {
             LastAction::for_zap_failed(outcome.tool)
         }
+    }
+}
+
+/// Map a `UnifyOutcome` to a `LastAction` for the right-pane banner. Mirrors
+/// `headless::build_unify_last_action`; kept private to interactive.rs to
+/// avoid cross-module coupling.
+fn build_unify_last_action(outcome: &UnifyOutcome, target_name: String) -> LastAction {
+    let hardlink_count = outcome.tools_unified.len();
+    match outcome.outcome {
+        UnifyResult::Success => {
+            LastAction::for_unify_success(target_name, outcome.bytes_reclaimed, hardlink_count)
+        }
+        UnifyResult::AlreadyUnified => {
+            LastAction::for_unify_already_unified(target_name, hardlink_count)
+        }
+        UnifyResult::Partial => {
+            use modeltap_core::domain::last_action::TargetError;
+            let failures: Vec<TargetError> = outcome
+                .failures
+                .iter()
+                .map(|f| TargetError {
+                    path: f.target.display().to_string(),
+                    reason: f.reason.clone(),
+                })
+                .collect();
+            let successes = hardlink_count as u64;
+            LastAction::for_unify_partial(target_name, outcome.bytes_reclaimed, successes, failures)
+        }
+        UnifyResult::Failed => LastAction::for_unify_failed(target_name),
     }
 }
 
