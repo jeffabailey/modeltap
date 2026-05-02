@@ -13,6 +13,8 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
+use crate::render::bytes::format_bytes;
+
 /// Format the post-action banner into header + body lines per the US-06
 /// master-acceptance schema. Returns at least one line (header); a second
 /// "Reclaimed: ..." body line is included for Success and Partial outcomes.
@@ -33,7 +35,7 @@ pub fn view_lines(action: &LastAction) -> Vec<String> {
             lines.push(String::new());
         }
         _ => {
-            let mut body = format!("Reclaimed: {}", format_size(action.bytes_reclaimed));
+            let mut body = format!("Reclaimed: {}", format_bytes(action.bytes_reclaimed));
             if let Some(extra) = &action.extra {
                 body.push_str(" (");
                 body.push_str(extra);
@@ -41,7 +43,7 @@ pub fn view_lines(action: &LastAction) -> Vec<String> {
             } else if action.bytes_retained > 0 {
                 body.push_str(&format!(
                     " ({} retained — also linked from other tools)",
-                    format_size(action.bytes_retained)
+                    format_bytes(action.bytes_retained)
                 ));
             }
             lines.push(body);
@@ -75,16 +77,3 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, action: &LastAction) {
     }
 }
 
-/// Display-formatter for byte counts. Identical formatting to
-/// `right_pane::format_size`; kept inline to avoid a cross-module dep.
-fn format_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}

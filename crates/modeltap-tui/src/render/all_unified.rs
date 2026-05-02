@@ -33,6 +33,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::app_state::AppState;
+use crate::render::bytes::format_bytes;
 
 /// US-U8 (step 06-01): empty-state guidance lines for the `[All Unified]`
 /// right pane. Returned when `collect_unified_rows` is empty so the caller
@@ -81,7 +82,7 @@ pub fn view_lines(rows: &[UnifiedRow]) -> Vec<String> {
     lines.push(format!(
         "Unified: {} models | Total reclaimed by unification: {}",
         count,
-        format_size(total_saved),
+        format_bytes(total_saved),
     ));
     lines
 }
@@ -222,7 +223,7 @@ fn build_inventory(state: &AppState) -> Inventory {
 /// Format one body row: `<name>  <size>  <N tools>  saves <X.Y GB>`.
 /// The display name is taken from `display_label` (falls back to
 /// `model_id_in_tool` only when the label is empty); the size and saves
-/// use the same `format_size` helper as the rest of the render layer.
+/// use the canonical `render::bytes::format_bytes` helper.
 fn format_row(row: &UnifiedRow) -> String {
     let name = if row.display_label.0.is_empty() {
         row.model_id_in_tool.as_str()
@@ -232,23 +233,8 @@ fn format_row(row: &UnifiedRow) -> String {
     format!(
         "{}  {}  {} tools  saves {}",
         name,
-        format_size(row.size_bytes),
+        format_bytes(row.size_bytes),
         row.tools_sharing.len(),
-        format_size(row.saves_bytes),
+        format_bytes(row.saves_bytes),
     )
-}
-
-/// Display-formatter for byte counts — identical contract to
-/// `right_pane::format_size` and `summary_bar::format_bytes`. Inlined to
-/// avoid a cross-module dep.
-fn format_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
 }

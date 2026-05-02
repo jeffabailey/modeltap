@@ -17,6 +17,7 @@ use ratatui::Frame;
 
 use crate::app_state::{AppState, FocusPane, ToolView};
 use crate::render::all_unified;
+use crate::render::bytes::format_bytes;
 
 /// Render the left pane. The currently-selected slot is shown with a
 /// highlighted style. Each Real row reads:
@@ -78,7 +79,7 @@ fn format_real_row(tool: &ToolView) -> String {
         "{}  {}  {}{}",
         tool.tool.0,
         tool.model_ids.len(),
-        format_size(tool.total_bytes()),
+        format_bytes(tool.total_bytes()),
         status,
     )
 }
@@ -111,17 +112,3 @@ fn format_synthetic_row(syn: &SyntheticSlot, state: &AppState) -> String {
     }
 }
 
-/// Display-formatter for a byte count: GB if >= 1 GB, MB if >= 1 MB, else
-/// "<N B". Step 01-03 keeps this minimal; richer formatting (TB / EB,
-/// thousands separators) is not needed for the @us-03 scenarios.
-fn format_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}

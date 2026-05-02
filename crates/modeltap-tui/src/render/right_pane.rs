@@ -18,6 +18,7 @@ use ratatui::Frame;
 
 use crate::app_state::{AppState, FocusPane};
 use crate::render::all_unified;
+use crate::render::bytes::format_bytes;
 use crate::render::colors::no_color_active;
 use crate::render::last_action;
 use crate::render::row::render_row_basic;
@@ -47,7 +48,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         "Models in {} ({}, {})",
         tool.tool.0,
         tool.model_ids.len(),
-        format_size(tool.total_bytes()),
+        format_bytes(tool.total_bytes()),
     );
 
     // Build the cross-tool presence-view once per render (US-04.AC-4).
@@ -232,18 +233,6 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 last_action::render(frame, banner_area, action);
             }
         }
-    }
-}
-
-fn format_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
     }
 }
 

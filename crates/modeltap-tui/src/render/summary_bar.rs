@@ -25,6 +25,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app_state::AppState;
+use crate::render::bytes::format_bytes;
 
 /// Aggregate the total bytes across all installed tools, deduplicating
 /// nothing in the WS slice (cross-tool dedup classifier is 03-01 work).
@@ -63,7 +64,7 @@ pub fn summary_text(state: &AppState) -> String {
         Some(delta) if delta.expires_at > Instant::now() => {
             format!(
                 "{dedup_segment} (was {})",
-                format_size(delta.previous_dedup_able_bytes)
+                format_bytes(delta.previous_dedup_able_bytes)
             )
         }
         _ => dedup_segment,
@@ -82,7 +83,7 @@ pub fn summary_text(state: &AppState) -> String {
     let base = format!(
         "Total: {} models | Disk: {} | {}{}",
         total_models(state),
-        format_size(total_disk_bytes(state)),
+        format_bytes(total_disk_bytes(state)),
         dedup_with_delta,
         unified_segment.unwrap_or_default(),
     );
@@ -105,7 +106,7 @@ fn dedup_able_segment(state: &AppState) -> String {
         return "Dedup-able: computing...".to_string();
     }
     match state.dedup_summary.dedup_able_bytes {
-        Some(n) => format!("Dedup-able: {}", format_size(n)),
+        Some(n) => format!("Dedup-able: {}", format_bytes(n)),
         None => "Dedup-able: computing...".to_string(),
     }
 }
@@ -134,16 +135,3 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     frame.render_widget(Paragraph::new(trimmed), row);
 }
 
-/// Display-formatter for byte counts. Identical formatting to the right-pane
-/// renderer; kept inline to avoid a cross-module dep.
-fn format_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
-}

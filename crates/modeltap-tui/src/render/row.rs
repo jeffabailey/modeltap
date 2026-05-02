@@ -31,6 +31,7 @@ use modeltap_core::{DiscoveredModel, Format, ToolId};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 
+use crate::render::bytes::format_bytes;
 use crate::render::indicator::{indicator_glyph, indicator_style};
 
 /// The text of the dedup column for a given `DedupGlyph`. Returns either a
@@ -104,7 +105,7 @@ pub fn render_row<'a>(
     let glyph = indicator_glyph(indicator);
     let glyph_style = indicator_style(indicator, no_color);
 
-    let size = format_size(model.size_bytes);
+    let size = format_bytes(model.size_bytes);
 
     let mut spans: Vec<Span<'a>> = Vec::with_capacity(8);
     // Compatibility-indicator glyph (styled).
@@ -147,7 +148,7 @@ pub fn render_row_basic<'a>(
     let glyph = indicator_glyph(indicator);
     let glyph_style = indicator_style(indicator, no_color);
 
-    let size = format_size(size_bytes);
+    let size = format_bytes(size_bytes);
 
     let mut spans: Vec<Span<'a>> = Vec::with_capacity(8);
     spans.push(Span::styled(glyph.to_string(), glyph_style));
@@ -164,20 +165,6 @@ pub fn render_row_basic<'a>(
     }
 
     Line::from(spans)
-}
-
-/// Display-formatter for byte counts. Identical to `right_pane::format_size`;
-/// kept here so the row module is self-contained.
-fn format_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
-    }
 }
 
 /// Serialize a Line into its plain-text content (concatenation of span

@@ -25,6 +25,8 @@ use ratatui::layout::Rect;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
+use crate::render::bytes::format_bytes;
+
 /// Format the partial-success toast into header + per-target + footer lines.
 ///
 /// `total_targets` is the total number of targets the unify attempted (the
@@ -97,7 +99,7 @@ fn format_partial(action: &LastAction, successes: u64, failures: &[TargetError])
     // Total reclaim line.
     lines.push(format!(
         "Reclaimed: {}",
-        format_size(action.bytes_reclaimed)
+        format_bytes(action.bytes_reclaimed)
     ));
 
     // Footer — retry-failed-only is offered ONLY when there is at least one
@@ -133,19 +135,6 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, action: &LastAction) {
         }
         let row = Rect::new(area.x, area.y + i as u16, row_w, 1);
         frame.render_widget(Paragraph::new(trimmed), row);
-    }
-}
-
-/// Display-formatter for byte counts. Mirrors `render::last_action::format_size`.
-fn format_size(bytes: u64) -> String {
-    const GB: u64 = 1_000_000_000;
-    const MB: u64 = 1_000_000;
-    if bytes >= GB {
-        format!("{:.1} GB", bytes as f64 / GB as f64)
-    } else if bytes >= MB {
-        format!("{:.1} MB", bytes as f64 / MB as f64)
-    } else {
-        format!("{} B", bytes)
     }
 }
 
