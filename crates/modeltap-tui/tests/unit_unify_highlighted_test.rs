@@ -233,10 +233,7 @@ fn unify_on_pending_row_sets_still_computing_hint_no_dialog() {
 fn unify_on_hashing_row_sets_still_computing_hint_no_dialog() {
     let mut state = state_with_two_dup_models();
     // Mark the highlighted row's id as in-progress → Hashing glyph wins.
-    state
-        .hash_state
-        .in_progress
-        .insert("ollama:m0".to_string());
+    state.hash_state.in_progress.insert("ollama:m0".to_string());
 
     let (next, _eff) = update(state, Msg::Unify);
 

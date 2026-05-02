@@ -154,18 +154,15 @@ fn hash_computed_records_hash_and_inode_and_recomputes_summary() {
     let mut state = state_two_tools_one_dup();
     state.hash_state.total = 2;
     state.hash_state.completed = 1; // hf already done in this scenario
-    state.hash_state.completed_hashes.insert(
-        (ToolId("hf"), "hf:m0".to_string()),
-        h(7),
-    );
+    state
+        .hash_state
+        .completed_hashes
+        .insert((ToolId("hf"), "hf:m0".to_string()), h(7));
     state
         .hash_state
         .inodes
         .insert((ToolId("hf"), "hf:m0".to_string()), (1, 200));
-    state
-        .hash_state
-        .in_progress
-        .insert("ollama:m0".to_string());
+    state.hash_state.in_progress.insert("ollama:m0".to_string());
 
     let (next, _eff) = update(
         state,
@@ -224,18 +221,15 @@ fn hash_failed_records_failure_and_recomputes_summary() {
     let mut state = state_two_tools_one_dup();
     state.hash_state.total = 2;
     state.hash_state.completed = 1;
-    state.hash_state.completed_hashes.insert(
-        (ToolId("hf"), "hf:m0".to_string()),
-        h(7),
-    );
+    state
+        .hash_state
+        .completed_hashes
+        .insert((ToolId("hf"), "hf:m0".to_string()), h(7));
     state
         .hash_state
         .inodes
         .insert((ToolId("hf"), "hf:m0".to_string()), (1, 200));
-    state
-        .hash_state
-        .in_progress
-        .insert("ollama:m0".to_string());
+    state.hash_state.in_progress.insert("ollama:m0".to_string());
 
     let (next, _eff) = update(
         state,
@@ -300,10 +294,7 @@ fn hash_progress_tick_is_state_noop() {
     let mut state = state_two_tools_one_dup();
     state.hash_state.total = 5;
     state.hash_state.completed = 2;
-    state
-        .hash_state
-        .in_progress
-        .insert("ollama:m0".to_string());
+    state.hash_state.in_progress.insert("ollama:m0".to_string());
     let pre = state.clone();
 
     let (next, eff) = update(state, Msg::HashProgressTick);
@@ -538,7 +529,10 @@ fn summary_delta_expired_when_already_none_is_noop() {
 
     let (next, eff) = update(state, Msg::SummaryDeltaExpired);
 
-    assert_eq!(next, pre, "no state change when summary_delta was already None");
+    assert_eq!(
+        next, pre,
+        "no state change when summary_delta was already None"
+    );
     assert_eq!(eff, modeltap_tui::update::UpdateEffect::default());
 }
 

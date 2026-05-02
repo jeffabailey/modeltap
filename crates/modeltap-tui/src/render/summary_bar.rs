@@ -18,6 +18,8 @@
 //! Synthetic slots (when present) are skipped: their contribution is already
 //! counted on the underlying real tools whose contents the synthesis aggregates.
 
+use std::time::Instant;
+
 use ratatui::layout::Rect;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -47,12 +49,30 @@ pub fn total_models(state: &AppState) -> u64 {
 /// Per AC-U2.1/U2.2/U2.3/U2.5/NFR-5 (step 01-04): the Dedup-able segment is
 /// driven by `state.hash_state` + `state.dedup_summary.dedup_able_bytes`,
 /// NOT a separate computation.
+///
+/// Per AC-U6.5 (step 05-01): when `state.summary_delta` is `Some(delta)` AND
+/// `delta.expires_at > Instant::now()`, append `(was <previous>)` immediately
+/// after the Dedup-able segment so the user sees the transient delta after
+/// a successful unify. The orchestrator separately schedules a
+/// `Msg::SummaryDeltaExpired` dispatch ~5s later that clears the field; the
+/// renderer also honours expiry locally so a stale field never produces
+/// stale visual output between dispatch and the next paint.
 pub fn summary_text(state: &AppState) -> String {
+    let dedup_segment = dedup_able_segment(state);
+    let dedup_with_delta = match &state.summary_delta {
+        Some(delta) if delta.expires_at > Instant::now() => {
+            format!(
+                "{dedup_segment} (was {})",
+                format_size(delta.previous_dedup_able_bytes)
+            )
+        }
+        _ => dedup_segment,
+    };
     let base = format!(
         "Total: {} models | Disk: {} | {}",
         total_models(state),
         format_size(total_disk_bytes(state)),
-        dedup_able_segment(state),
+        dedup_with_delta,
     );
     if state.refresh_failed_tools.is_empty() {
         base

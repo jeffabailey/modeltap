@@ -27,12 +27,7 @@ use modeltap_core::domain::dedup_summary::UnifiedRow;
 use modeltap_core::{DisplayLabel, ToolId};
 use modeltap_tui::render::all_unified;
 
-fn unified_row(
-    id: &str,
-    label: &str,
-    size_bytes: u64,
-    tools: &[&'static str],
-) -> UnifiedRow {
+fn unified_row(id: &str, label: &str, size_bytes: u64, tools: &[&'static str]) -> UnifiedRow {
     let tools_sharing: Vec<ToolId> = tools.iter().map(|t| ToolId(t)).collect();
     let saves_bytes = (tools_sharing.len() as u64).saturating_sub(1) * size_bytes;
     UnifiedRow {
@@ -74,12 +69,7 @@ fn empty_rows_renders_header_and_zero_footer() {
 #[test]
 fn single_unified_group_renders_one_row_and_aggregated_footer() {
     // Two tools sharing a 1 GB model → saves = 1 GB.
-    let row = unified_row(
-        "mistral:7b",
-        "mistral:7b",
-        1_000_000_000,
-        &["ollama", "hf"],
-    );
+    let row = unified_row("mistral:7b", "mistral:7b", 1_000_000_000, &["ollama", "hf"]);
     let lines = all_unified::view_lines(&[row]);
 
     let joined = lines.join("\n");
@@ -127,12 +117,7 @@ fn two_unified_groups_renders_two_rows_and_summed_footer() {
         &["ollama", "hf", "lm-studio"],
     );
     // Group B: 2 tools sharing 500 MB → saves = (2-1)*500 MB = 500 MB.
-    let row_b = unified_row(
-        "phi3:mini",
-        "phi3:mini",
-        500_000_000,
-        &["hf", "lm-studio"],
-    );
+    let row_b = unified_row("phi3:mini", "phi3:mini", 500_000_000, &["hf", "lm-studio"]);
     let lines = all_unified::view_lines(&[row_a, row_b]);
 
     let joined = lines.join("\n");

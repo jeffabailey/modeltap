@@ -12,9 +12,7 @@ use modeltap_core::logic::canonical_selector::{select_canonical, CandidatePath};
 use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
 use modeltap_core::logic::dedup::{compute_dedup_glyph, dedup_summary, InodeMap, ModelKey};
 use modeltap_core::logic::plan::{build_plan, PlanCandidate, UnifyPlan};
-use modeltap_core::{
-    DedupGlyph, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId,
-};
+use modeltap_core::{DedupGlyph, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId};
 
 use crate::app_state::{AppState, FocusPane, Screen, SummaryDelta};
 use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsChoiceDialog};
@@ -288,7 +286,9 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             reason: _,
         } => (apply_hash_failed(state, model_id), UpdateEffect::default()),
         Msg::HashProgressTick => (state, UpdateEffect::default()),
-        Msg::UnifyApplied(outcome) => (apply_unify_outcome(state, outcome), UpdateEffect::default()),
+        Msg::UnifyApplied(outcome) => {
+            (apply_unify_outcome(state, outcome), UpdateEffect::default())
+        }
         Msg::SummaryDeltaExpired => (
             AppState {
                 summary_delta: None,
@@ -418,11 +418,7 @@ fn state_inventory(state: &AppState) -> (Inventory, InodeMap) {
     let mut entries: Vec<InventoryEntry> = Vec::new();
     for view in state.real_tools_iter() {
         for (idx, id_in_tool) in view.model_ids.iter().enumerate() {
-            let size_bytes = view
-                .model_sizes_bytes
-                .get(idx)
-                .copied()
-                .unwrap_or(0);
+            let size_bytes = view.model_sizes_bytes.get(idx).copied().unwrap_or(0);
             let key = (view.tool, id_in_tool.clone());
             let content_hash = state.hash_state.completed_hashes.get(&key).copied();
             entries.push(InventoryEntry {
@@ -485,8 +481,7 @@ fn recompute_dedup_summary(state: &AppState) -> modeltap_core::DedupSummary {
 /// Per-glyph status_line hints. Defined as constants so the test file and
 /// future render code share the exact strings without drift.
 const STATUS_HINT_UNIQUE: &str = "This model is unique — nothing to unify";
-const STATUS_HINT_HASHING: &str =
-    "Hash still computing — wait for completion, then press u again";
+const STATUS_HINT_HASHING: &str = "Hash still computing — wait for completion, then press u again";
 const STATUS_HINT_FAILED: &str = "Hash failed for this row — re-launch modeltap to retry";
 
 /// Handle `Msg::Unify` dispatched from `Screen::Main`. Returns the next
@@ -520,9 +515,9 @@ fn handle_unify_from_main(state: AppState) -> AppState {
         DedupGlyph::DedupAble | DedupGlyph::AlreadyUnified => {
             match build_unify_plan_for_row(&state, target_tool, &target_id, &inventory) {
                 Some(plan) => AppState {
-                    unify_dialog: Some(
-                        crate::dialogs::unify_confirm::UnifyDialogState::from_plan(plan),
-                    ),
+                    unify_dialog: Some(crate::dialogs::unify_confirm::UnifyDialogState::from_plan(
+                        plan,
+                    )),
                     status_line: None,
                     ..state
                 },
@@ -614,12 +609,7 @@ fn build_unify_plan_for_row(
             continue;
         }
         let key = (entry.tool, entry.model.id_in_tool.clone());
-        let (device, inode) = state
-            .hash_state
-            .inodes
-            .get(&key)
-            .copied()
-            .unwrap_or((0, 0));
+        let (device, inode) = state.hash_state.inodes.get(&key).copied().unwrap_or((0, 0));
         let synth_path = synthetic_row_path(entry.tool, &entry.model.id_in_tool);
         candidates.push(CandidatePath {
             tool: entry.tool,

@@ -282,10 +282,7 @@ pub enum Msg {
     /// Composition root dispatches this when the hash pool assigns a worker
     /// to a model. `update()` inserts `model_id` into
     /// `state.hash_state.in_progress` so the renderer shows the `~` glyph.
-    HashStarted {
-        tool: ToolId,
-        model_id: String,
-    },
+    HashStarted { tool: ToolId, model_id: String },
     /// Composition root dispatches this when a worker successfully computes
     /// a SHA256 hash. `update()` removes the model from `in_progress`,
     /// increments `completed`, stores the hash + (device, inode) in the
@@ -326,10 +323,7 @@ pub enum Msg {
     /// to give the just-unified row a brief visual highlight (~1 s). The
     /// renderer reads `state.unify_highlight` and applies a reverse-video
     /// style. Cleared by `Msg::UnifyHighlightExpired`.
-    UnifyHighlighted {
-        tool: ToolId,
-        model_id: String,
-    },
+    UnifyHighlighted { tool: ToolId, model_id: String },
     /// Composition root dispatches this when the ~1s highlight timer fires.
     /// `update()` clears `state.unify_highlight` to `None`.
     UnifyHighlightExpired,
