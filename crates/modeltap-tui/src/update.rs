@@ -8,11 +8,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use modeltap_core::logic::canonical_selector::{select_canonical, CandidatePath};
 use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
-use modeltap_core::logic::dedup::{dedup_summary, InodeMap, ModelKey};
-use modeltap_core::logic::plan::UnifyPlan;
+use modeltap_core::logic::dedup::{compute_dedup_glyph, dedup_summary, InodeMap, ModelKey};
+use modeltap_core::logic::plan::{build_plan, PlanCandidate, UnifyPlan};
 use modeltap_core::{
-    DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId,
+    DedupGlyph, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId,
 };
 
 use crate::app_state::{AppState, FocusPane, Screen, SummaryDelta};
@@ -216,11 +217,12 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         Msg::CrossFsSkip => decide_cross_fs(state, CrossFsKey::Skip),
         Msg::CrossFsCopy => decide_cross_fs(state, CrossFsKey::Copy),
         Msg::CrossFsCancel => decide_cross_fs(state, CrossFsKey::Cancel),
-        // Unify and DeleteFromOne are wired in subsequent steps (03-02, 03-06).
-        // Here they are bound to non-noop Msg variants so the INT-6
-        // invariant holds — every visible shortcut maps to a real Msg —
-        // while the state remains unchanged.
-        Msg::Unify => (state, UpdateEffect::default()),
+        // Step 01-10: Msg::Unify from the MAIN view dispatches on the
+        // highlighted row's DedupGlyph. Detail-screen Unify continues to be
+        // lifted by `lift_unify_in_detail` in interactive.rs / headless.rs;
+        // this branch leaves the state untouched on Detail so the orchestrator
+        // path keeps working unchanged.
+        Msg::Unify => (handle_unify_from_main(state), UpdateEffect::default()),
         Msg::DeleteFromOne => (state, UpdateEffect::default()),
         // ----- US-05b single-model delete dialog (step 03-06; ADR-009) ------
         Msg::OpenDeleteOneDialog(dialog) => (
@@ -397,17 +399,18 @@ fn apply_unify_outcome(mut state: AppState, outcome: UnifyOutcome) -> AppState {
     state
 }
 
-/// Build a synthetic `Inventory` + `InodeMap` from the current `AppState`
-/// and call the canonical `logic::dedup::dedup_summary`. The synthetic
-/// inventory mirrors `state.real_tools_iter()` (each `ToolView` row becomes
-/// one `InventoryEntry`); per-row `content_hash` is read from
-/// `hash_state.completed_hashes`. The `InodeMap` is `hash_state.inodes`
-/// converted to the `ModelKey` shape.
+/// Build a synthetic `Inventory` + `InodeMap` from the current `AppState`.
+/// Pure: no I/O. Reused by `recompute_dedup_summary` (full pass over the
+/// derived inventory) and `handle_unify_from_main` (computes the per-row
+/// `DedupGlyph` and looks up content-hash peers without re-walking discovery).
 ///
-/// `hashing_done` is `state.hash_state.is_complete()`. Per the
-/// `dedup_summary` contract, while not done the function returns
-/// `DedupSummary::default()` (all `None` — "computing...").
-fn recompute_dedup_summary(state: &AppState) -> modeltap_core::DedupSummary {
+/// `on_disk_path` is left empty because `AppState::ToolView` does not carry
+/// per-row paths (the right pane only renders ids + sizes); the dedup classifier
+/// and the dedup_summary aggregator do not consult `on_disk_path`. For the
+/// unify-plan builder in step 01-10 a synthetic per-row path
+/// (`/<tool>/<model_id>`) is used at the call site so `select_canonical` and
+/// `build_plan` have a stable, deterministic key without reaching into discovery.
+fn state_inventory(state: &AppState) -> (Inventory, InodeMap) {
     let mut entries: Vec<InventoryEntry> = Vec::new();
     for view in state.real_tools_iter() {
         for (idx, id_in_tool) in view.model_ids.iter().enumerate() {
@@ -439,8 +442,212 @@ fn recompute_dedup_summary(state: &AppState) -> modeltap_core::DedupSummary {
         let key: ModelKey = (*tool, id_in_tool.clone());
         inodes.insert(key, *devino);
     }
+    (inventory, inodes)
+}
 
+/// Build a synthetic `Inventory` + `InodeMap` from the current `AppState`
+/// and call the canonical `logic::dedup::dedup_summary`.
+///
+/// `hashing_done` is `state.hash_state.is_complete()`. Per the
+/// `dedup_summary` contract, while not done the function returns
+/// `DedupSummary::default()` (all `None` — "computing...").
+fn recompute_dedup_summary(state: &AppState) -> modeltap_core::DedupSummary {
+    let (inventory, inodes) = state_inventory(state);
     dedup_summary(&inventory, &inodes, state.hash_state.is_complete())
+}
+
+// ---------------------------------------------------------------------------
+// Step 01-10 — Msg::Unify glyph-aware dispatch from the main view.
+//
+// Branches on the highlighted row's `DedupGlyph`:
+//
+//   = (DedupAble)     → build plan from content_hash peers, open unify dialog
+//                       in Confirm mode.
+//   # (AlreadyUnified)→ build plan the same way (every link reports
+//                       already_linked == true), open unify dialog in
+//                       AlreadyUnified informational mode.
+//   - (Unique)        → set status_line "This model is unique — nothing to
+//                       unify". No dialog.
+//   ? (Pending) /
+//   ~ (Hashing)       → set status_line "Hash still computing — wait for
+//                       completion, then press u again". No dialog.
+//   -! (Failed)       → set status_line "Hash failed for this row —
+//                       re-launch modeltap to retry". No dialog.
+//
+// On Detail screen, Msg::Unify is a state-noop here — `lift_unify_in_detail`
+// in interactive.rs / headless.rs owns that path and continues to do so.
+// ---------------------------------------------------------------------------
+
+/// Per-glyph status_line hints. Defined as constants so the test file and
+/// future render code share the exact strings without drift.
+const STATUS_HINT_UNIQUE: &str = "This model is unique — nothing to unify";
+const STATUS_HINT_HASHING: &str =
+    "Hash still computing — wait for completion, then press u again";
+const STATUS_HINT_FAILED: &str = "Hash failed for this row — re-launch modeltap to retry";
+
+/// Handle `Msg::Unify` dispatched from `Screen::Main`. Returns the next
+/// `AppState`. Detail-screen Unify falls through unchanged so the
+/// orchestrator-level `lift_unify_in_detail` keeps working.
+fn handle_unify_from_main(state: AppState) -> AppState {
+    if !matches!(state.current_screen, Screen::Main) {
+        // Detail / Help — leave to the orchestrator (or no-op in Help).
+        return state;
+    }
+    let Some((target_tool, target_id)) = highlighted_row(&state) else {
+        // No tool / no row → no actionable target.
+        return state;
+    };
+    let (inventory, inodes) = state_inventory(&state);
+    let Some(target_entry) = inventory
+        .entries
+        .iter()
+        .find(|e| e.tool == target_tool && e.model.id_in_tool == target_id)
+    else {
+        return state;
+    };
+    let glyph = compute_dedup_glyph(
+        target_entry,
+        &inventory,
+        &inodes,
+        &model_keys_in_progress(&state),
+        &model_keys_failed(&state),
+    );
+    match glyph {
+        DedupGlyph::DedupAble | DedupGlyph::AlreadyUnified => {
+            match build_unify_plan_for_row(&state, target_tool, &target_id, &inventory) {
+                Some(plan) => AppState {
+                    unify_dialog: Some(
+                        crate::dialogs::unify_confirm::UnifyDialogState::from_plan(plan),
+                    ),
+                    status_line: None,
+                    ..state
+                },
+                // Defensive: classifier said dedup-able but plan came back
+                // empty (e.g., canonical missing). Fall back to a hint.
+                None => AppState {
+                    status_line: Some(STATUS_HINT_UNIQUE.to_string()),
+                    ..state
+                },
+            }
+        }
+        DedupGlyph::Unique => AppState {
+            status_line: Some(STATUS_HINT_UNIQUE.to_string()),
+            ..state
+        },
+        DedupGlyph::Pending | DedupGlyph::Hashing => AppState {
+            status_line: Some(STATUS_HINT_HASHING.to_string()),
+            ..state
+        },
+        DedupGlyph::Failed => AppState {
+            status_line: Some(STATUS_HINT_FAILED.to_string()),
+            ..state
+        },
+    }
+}
+
+/// `(tool, model_id)` of the right-pane highlighted row, when one exists.
+fn highlighted_row(state: &AppState) -> Option<(ToolId, String)> {
+    let tool_view = state.current_tool()?;
+    let id = tool_view.model_ids.get(state.selected_row)?.clone();
+    Some((tool_view.tool, id))
+}
+
+/// `compute_dedup_glyph` takes a `BTreeSet<ModelKey>` of in-progress keys.
+/// `state.hash_state.in_progress` is a `BTreeSet<String>` of model_ids only
+/// (no tool prefix), so we expand each id into a `(tool, id)` for every tool
+/// that registers it. Conservative: a model_id present in `in_progress` is
+/// considered hashing for ALL tools that own it, mirroring the renderer's
+/// glyph computation in `render::row_dedup_column`.
+fn model_keys_in_progress(state: &AppState) -> std::collections::BTreeSet<ModelKey> {
+    let mut out = std::collections::BTreeSet::new();
+    for view in state.real_tools_iter() {
+        for id in &view.model_ids {
+            if state.hash_state.in_progress.contains(id) {
+                out.insert((view.tool, id.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// Same as `model_keys_in_progress` but for the `failed` set.
+fn model_keys_failed(state: &AppState) -> std::collections::BTreeSet<ModelKey> {
+    let mut out = std::collections::BTreeSet::new();
+    for view in state.real_tools_iter() {
+        for id in &view.model_ids {
+            if state.hash_state.failed.contains(id) {
+                out.insert((view.tool, id.clone()));
+            }
+        }
+    }
+    out
+}
+
+/// Build a `UnifyPlan` for the highlighted row by gathering all rows in the
+/// inventory whose `content_hash` matches the target's. Synthesises per-row
+/// paths as `/<tool>/<model_id>` because `AppState::ToolView` does not carry
+/// per-row paths — the actual on-disk paths are resolved by the orchestrator
+/// when the user confirms the dialog (deferred to step 01-12 walking-skeleton
+/// activation; today the dialog opens but Enter cannot complete an end-to-end
+/// link from this code path). Returns `None` when the target has no
+/// content_hash OR no peer with a matching hash.
+fn build_unify_plan_for_row(
+    state: &AppState,
+    target_tool: ToolId,
+    target_id: &str,
+    inventory: &Inventory,
+) -> Option<UnifyPlan> {
+    let target_entry = inventory
+        .entries
+        .iter()
+        .find(|e| e.tool == target_tool && e.model.id_in_tool == target_id)?;
+    let target_hash = target_entry.content_hash?;
+
+    let mut candidates: Vec<CandidatePath> = Vec::new();
+    let mut plan_candidates: Vec<PlanCandidate> = Vec::new();
+    for entry in &inventory.entries {
+        if entry.content_hash != Some(target_hash) {
+            continue;
+        }
+        let key = (entry.tool, entry.model.id_in_tool.clone());
+        let (device, inode) = state
+            .hash_state
+            .inodes
+            .get(&key)
+            .copied()
+            .unwrap_or((0, 0));
+        let synth_path = synthetic_row_path(entry.tool, &entry.model.id_in_tool);
+        candidates.push(CandidatePath {
+            tool: entry.tool,
+            path: synth_path.clone(),
+            exists: true,
+            size_bytes: entry.model.size_bytes,
+            is_ollama_blob: entry.tool == ToolId("ollama"),
+        });
+        plan_candidates.push(PlanCandidate {
+            tool: entry.tool,
+            path: synth_path,
+            exists: true,
+            device,
+            inode,
+            size_bytes: entry.model.size_bytes,
+        });
+    }
+    let canonical = select_canonical(&candidates)?;
+    let canonical_plan = plan_candidates
+        .iter()
+        .find(|p| p.path == canonical.path)?
+        .clone();
+    build_plan(&canonical_plan, &plan_candidates)
+}
+
+/// Synthetic per-row path used when constructing a `UnifyPlan` from
+/// `AppState`. Stable, deterministic, and free of filesystem dependencies —
+/// the dialog renders these as the canonical path / target paths until the
+/// orchestrator-level walking-skeleton wiring (step 01-12) replaces them with
+/// real on-disk paths at confirmation time.
+fn synthetic_row_path(tool: ToolId, model_id: &str) -> PathBuf {
+    PathBuf::from(format!("/{}/{}", tool.0, model_id))
 }
 
 /// Toggle the layered help overlay (US-08). When `current_screen` is anything
@@ -461,10 +668,14 @@ fn toggle_help(state: AppState) -> AppState {
     }
 }
 
-/// Clear `last_action` (US-06: any nav Msg dismisses the post-action banner).
+/// Clear `last_action` (US-06: any nav Msg dismisses the post-action banner)
+/// AND `status_line` (step 01-10: any nav Msg dismisses the unify-from-main
+/// status hint). Both fields share the "user moved on, drop the transient
+/// post-action narrative" semantics, so they clear together.
 fn clear_last_action(state: AppState) -> AppState {
     AppState {
         last_action: None,
+        status_line: None,
         ..state
     }
 }

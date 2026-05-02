@@ -271,6 +271,18 @@ pub struct AppState {
     /// when the 1 s timer fires; lands in 01-08). Step 01-06 introduces the
     /// field; render integration lands in a later step.
     pub unify_highlight: Option<(ToolId, String)>,
+
+    /// Single-line hint surfaced just below the summary bar. Set by
+    /// `Msg::Unify` from the main view when the highlighted row's
+    /// `DedupGlyph` is one of `{Unique, Pending, Hashing, Failed}` —
+    /// the unify dialog cannot be opened in those states (no peers / hash
+    /// not ready / hash failed), so a brief textual hint informs the user
+    /// what to do next. Cleared on any nav Msg
+    /// (`SelectNext/PrevTool`, `SelectNext/PrevRow`) so it disappears
+    /// the moment the user moves away from the row that produced it.
+    /// Step 01-10 introduces the field and the state-machine plumbing;
+    /// visual surfacing in the right pane follows in a later step.
+    pub status_line: Option<String>,
 }
 
 impl Default for AppState {
@@ -298,6 +310,7 @@ impl Default for AppState {
             dedup_summary: DedupSummary::default(),
             summary_delta: None,
             unify_highlight: None,
+            status_line: None,
         }
     }
 }
@@ -340,6 +353,7 @@ impl AppState {
             dedup_summary: DedupSummary::default(),
             summary_delta: None,
             unify_highlight: None,
+            status_line: None,
         }
     }
 
