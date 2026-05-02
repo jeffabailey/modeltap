@@ -16,6 +16,7 @@ use ratatui::widgets::{Block, Borders, List, ListItem};
 use ratatui::Frame;
 
 use crate::app_state::{AppState, FocusPane, ToolView};
+use crate::render::all_unified;
 
 /// Render the left pane. The currently-selected slot is shown with a
 /// highlighted style. Each Real row reads:
@@ -43,7 +44,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             .map(|idx| {
                 let row_text = match &state.left_pane_slots[idx] {
                     LeftPaneSlot::Real(tool) => format_real_row(tool),
-                    LeftPaneSlot::Synthetic(syn) => format_synthetic_row(syn),
+                    LeftPaneSlot::Synthetic(syn) => format_synthetic_row(syn, state),
                 };
                 let mut style = Style::default();
                 if idx == state.selected_tool {
@@ -82,17 +83,28 @@ fn format_real_row(tool: &ToolView) -> String {
     )
 }
 
-/// Format a placeholder row for the synthetic slot. Step 01-03 leaves this as
-/// a dead code path (the synthetic slot is not yet appended to
-/// `left_pane_slots`); step 04-02 lands the real `[All Unified]` rendering
-/// (count + saved-bytes badge). Until then this is a defensive placeholder so
-/// a future caller that injects a synthetic slot does not panic on render.
-fn format_synthetic_row(syn: &SyntheticSlot) -> String {
+/// Format the row for a synthetic left-pane slot. The badge count for
+/// `AllUnified` is derived LIVE from `collect_unified_rows(state)` rather
+/// than the `count` field on the variant — this side-steps the stale-state
+/// failure mode where the slot's stored count diverges from the right-pane
+/// footer's count after a hash completes or a unify lands. AC-CONS-2
+/// invariant: badge count == footer count == row count, all from one
+/// source. When hashing is still in flight (no hashes computed yet),
+/// `collect_rows_from_state` returns an empty vec, so we render `(?)` to
+/// distinguish "computing" from "definitively zero".
+fn format_synthetic_row(syn: &SyntheticSlot, state: &AppState) -> String {
     match syn {
-        SyntheticSlot::AllUnified { count, .. } => {
-            let badge = match count {
-                Some(n) => format!("({n})"),
-                None => "(?)".to_string(),
+        SyntheticSlot::AllUnified { .. } => {
+            let badge = if state.hash_state.is_complete() {
+                let count = all_unified::collect_rows_from_state(state).len();
+                format!("({count})")
+            } else if state.hash_state.total == 0 {
+                // Pre-discovery / no jobs queued: render the live count so
+                // empty-inventory states still report `(0)` honestly.
+                let count = all_unified::collect_rows_from_state(state).len();
+                format!("({count})")
+            } else {
+                "(?)".to_string()
             };
             format!("[All Unified] {}", badge)
         }

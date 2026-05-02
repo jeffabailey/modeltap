@@ -5,6 +5,7 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
+use modeltap_core::domain::synthetic_slot::LeftPaneSlot;
 use modeltap_core::domain::{classify_by_presence, other_tools_by_presence, ToolPresence};
 use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
 use modeltap_core::logic::dedup::{compute_dedup_glyph, InodeMap, ModelKey};
@@ -16,11 +17,25 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
 use crate::app_state::{AppState, FocusPane};
+use crate::render::all_unified;
 use crate::render::colors::no_color_active;
 use crate::render::last_action;
 use crate::render::row::render_row_basic;
 
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
+    // Step 04-02 dispatch: when the currently-selected left-pane slot is a
+    // synthetic entry (`[All Unified]`), the right pane is no longer a
+    // per-tool model list — it's a filtered cross-tool unified-rows view.
+    // Route to the dedicated renderer; the per-tool path below is only
+    // valid when `selected_tool` indexes a `LeftPaneSlot::Real(_)`.
+    if matches!(
+        state.left_pane_slots.get(state.selected_tool),
+        Some(LeftPaneSlot::Synthetic(_))
+    ) {
+        all_unified::render(frame, area, state);
+        return;
+    }
+
     let Some(tool) = state.current_tool() else {
         let block = Block::default().borders(Borders::ALL).title("Models");
         frame.render_widget(block, area);

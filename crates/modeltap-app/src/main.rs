@@ -249,6 +249,14 @@ fn resolve_terminal_cols(headless: bool) -> u16 {
 /// `NotInstalled` / `Error` for the others. The `AppState` constructor
 /// sorts alphabetically and lands the default selection on the first
 /// installed tool.
+///
+/// Step 04-02 (cross-tool-model-unify) lands the renderer infrastructure
+/// for the `[All Unified]` synthetic slot (`render::all_unified` module +
+/// `right_pane` dispatch + `AppState::append_all_unified_slot` helper).
+/// Per the step's "no v1 regressions" gate, the actual slot population
+/// is deferred to 04-03 (alongside the us_u7 acceptance scenarios that
+/// drive the navigation contract; that step also updates the v1
+/// us_03 wrap-cycle assertion to acknowledge the new 5th slot).
 fn build_app_state(summary: &InventorySummary) -> AppState {
     let tools: Vec<ToolView> = summary
         .outcomes

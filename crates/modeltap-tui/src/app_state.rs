@@ -8,7 +8,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use modeltap_core::domain::last_action::LastAction;
-use modeltap_core::domain::synthetic_slot::LeftPaneSlot;
+use modeltap_core::domain::synthetic_slot::{LeftPaneSlot, SyntheticSlot};
 use modeltap_core::{ContentHash, DedupSummary, ToolId, ToolStatus};
 
 use crate::dialogs::cross_fs_choice::CrossFsChoiceDialog;
@@ -405,5 +405,31 @@ impl AppState {
     /// `left_pane_slots` is empty OR when the selected slot is synthetic.
     pub fn current_tool(&self) -> Option<&ToolView> {
         self.real_tool_at(self.selected_tool)
+    }
+
+    /// Append a `SyntheticSlot::AllUnified` entry at the END of
+    /// `left_pane_slots`, after every real tool (per ADR-014 ordering).
+    /// Idempotent: if a synthetic slot is already present, this is a no-op
+    /// so the composition root cannot accidentally double-register the slot.
+    ///
+    /// Step 04-02 wires this from the composition root (`main::build_app_state`)
+    /// so both `headless` and `interactive` modes get the slot at startup.
+    /// The stored `count` / `total_saved_bytes` fields are initialized to
+    /// `None`; `render::left_pane` and `render::all_unified` both compute
+    /// the live values at render time, so the stored fields are placeholders
+    /// preserved for serialization symmetry only.
+    pub fn append_all_unified_slot(&mut self) {
+        let already_present = self
+            .left_pane_slots
+            .iter()
+            .any(|s| matches!(s, LeftPaneSlot::Synthetic(_)));
+        if already_present {
+            return;
+        }
+        self.left_pane_slots
+            .push(LeftPaneSlot::Synthetic(SyntheticSlot::AllUnified {
+                count: None,
+                total_saved_bytes: None,
+            }));
     }
 }

@@ -5,6 +5,7 @@
 //! - `right_pane` — model rows + scroll position indicator.
 //! - `bottom_bar` — shortcut line driven by `keymap::SHORTCUT_TABLE`.
 
+pub mod all_unified;
 pub mod bottom_bar;
 pub mod bytes;
 pub mod colors;
