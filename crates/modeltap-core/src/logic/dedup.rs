@@ -25,7 +25,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 
 use crate::domain::dedup_glyph::DedupGlyph;
-use crate::domain::dedup_summary::DedupSummary;
+use crate::domain::dedup_summary::{DedupSummary, UnifiedRow};
 use crate::logic::compatibility::{Inventory, InventoryEntry};
 use crate::types::{ContentHash, DisplayLabel, Format, ModelStatus, ToolId};
 
@@ -312,4 +312,117 @@ pub fn dedup_summary(inventory: &Inventory, inodes: &InodeMap, hashing_done: boo
         unified_count: Some(unified_count),
         total_saved_by_unification: Some(total_saved_by_unification),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Step 04-01: collect_unified_rows — render data for the All-Unified view
+// ---------------------------------------------------------------------------
+
+/// Assemble the right-pane `[All Unified]` rows: one row per cross-tool
+/// group whose entries share one `(device, inode)` AND content hash.
+///
+/// This is the single source of truth for both the All-Unified right-pane
+/// view and the footer aggregates derived from it. NOT an action — purely
+/// render-data assembly. Pure function: no I/O, no state.
+///
+/// Algorithm (mirrors `dedup_summary` group-by-hash logic):
+///
+/// 1. Group inventory entries by SHA256 content hash. Entries without a
+///    hash are skipped (we cannot prove cross-tool sharing without it).
+/// 2. Within each hash-group, deduplicate by tool — a single tool listing
+///    the same hash twice is not cross-tool sharing.
+/// 3. A group is "unified" when ≥ 2 cross-tool entries share ONE
+///    `(device, inode)` and no separate-inode peer exists for that hash.
+/// 4. For each unified group emit a `UnifiedRow` with:
+///    - `model_id_in_tool` + `display_label` + `size_bytes` from a
+///      representative member (chosen deterministically by sorted ToolId
+///      then id_in_tool).
+///    - `tools_sharing` = sorted Vec<ToolId> of members.
+///    - `saves_bytes = (tools_sharing.len() - 1) * size_bytes` per ADR-002.
+/// 5. Return rows sorted by `display_label` ascending (with `model_id_in_tool`
+///    as a tiebreaker) for deterministic render order.
+pub fn collect_unified_rows(inventory: &Inventory, inodes: &InodeMap) -> Vec<UnifiedRow> {
+    // Group entries by SHA256.
+    let mut groups: HashMap<ContentHash, Vec<&InventoryEntry>> = HashMap::new();
+    for entry in &inventory.entries {
+        if let Some(hash) = entry.content_hash {
+            groups.entry(hash).or_default().push(entry);
+        }
+    }
+
+    let mut rows: Vec<UnifiedRow> = Vec::new();
+
+    for members in groups.values() {
+        if members.len() < 2 {
+            continue;
+        }
+        // Deduplicate by tool — a single tool listing the same hash twice
+        // doesn't count as cross-tool sharing for the All-Unified view.
+        let cross_tool: Vec<&&InventoryEntry> = {
+            let mut tools_seen: BTreeSet<ToolId> = BTreeSet::new();
+            members
+                .iter()
+                .filter(|e| tools_seen.insert(e.tool))
+                .collect()
+        };
+        if cross_tool.len() < 2 {
+            continue;
+        }
+
+        // Compute distinct (device, inode) pairs across the cross-tool group.
+        let mut inodes_seen: BTreeSet<(u64, u64)> = BTreeSet::new();
+        let mut entries_with_inode: u64 = 0;
+        for m in &cross_tool {
+            let mkey: ModelKey = (m.tool, m.model.id_in_tool.clone());
+            if let Some(devino) = inodes.get(&mkey) {
+                inodes_seen.insert(*devino);
+                entries_with_inode = entries_with_inode.saturating_add(1);
+            }
+        }
+
+        // A unified group: one shared inode, no separate-inode peer, and
+        // ≥ 2 cross-tool entries actually share that inode.
+        if inodes_seen.len() != 1 || entries_with_inode < 2 {
+            continue;
+        }
+
+        // Pick a deterministic representative: sort cross-tool members by
+        // (ToolId, id_in_tool) and take the first. Same-tool size, label, and
+        // id are the row's display source.
+        let mut sorted_members: Vec<&&InventoryEntry> = cross_tool.clone();
+        sorted_members.sort_by(|a, b| {
+            a.tool
+                .0
+                .cmp(b.tool.0)
+                .then_with(|| a.model.id_in_tool.cmp(&b.model.id_in_tool))
+        });
+        let representative = sorted_members[0];
+
+        // tools_sharing: sorted Vec<ToolId>.
+        let mut tools_sharing: Vec<ToolId> = cross_tool.iter().map(|e| e.tool).collect();
+        tools_sharing.sort();
+
+        let size_bytes = representative.model.size_bytes;
+        let saves_bytes = (tools_sharing.len() as u64)
+            .saturating_sub(1)
+            .saturating_mul(size_bytes);
+
+        rows.push(UnifiedRow {
+            model_id_in_tool: representative.model.id_in_tool.clone(),
+            display_label: representative.model.display_label.clone(),
+            size_bytes,
+            tools_sharing,
+            saves_bytes,
+        });
+    }
+
+    // Deterministic render order: by display_label asc, then by model_id_in_tool.
+    rows.sort_by(|a, b| {
+        a.display_label
+            .0
+            .cmp(&b.display_label.0)
+            .then_with(|| a.model_id_in_tool.cmp(&b.model_id_in_tool))
+    });
+
+    rows
 }
