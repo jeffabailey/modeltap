@@ -216,7 +216,9 @@ fn event_loop(
                 let (next, effect) = update(state, msg);
                 state = next;
                 terminal.draw(|f| view(&state, f))?;
-                apply_effect(&effect, logger, plugins, runtime, &mut state, &msg_tx);
+                apply_effect(
+                    &effect, logger, plugins, runtime, &mut state, &msg_tx, discovered,
+                );
                 terminal.draw(|f| view(&state, f))?;
             }
             Event::Resize(_, _) => {
@@ -382,6 +384,7 @@ fn apply_effect(
     runtime: &tokio::runtime::Runtime,
     state: &mut AppState,
     msg_tx: &tokio::sync::mpsc::UnboundedSender<Msg>,
+    discovered: &[(ToolId, Vec<DiscoveredModel>)],
 ) {
     if effect.emit_launch_ended {
         logger.record(RecordKind::LaunchEnded);
@@ -507,6 +510,13 @@ fn apply_effect(
     // must also reclassify-after-unify and schedule the SummaryDeltaExpired
     // timer so the same Msg::SummaryDeltaExpired arrives via msg_tx.
     if let Some(plan) = effect.trigger_unify.clone() {
+        // Step 01-12 (WS activation): mirror headless's plan-path resolution.
+        // The pure update layer constructs unify plans with synthetic per-row
+        // paths (`/<tool>/<id_in_tool>`); the composition root resolves those
+        // to real on-disk paths from the discovered inventory before invoking
+        // `unify::run`. Without this, the orchestrator would call `Tool::link`
+        // with synthetic targets and silently no-op.
+        let plan = crate::headless::resolve_plan_paths(plan, discovered);
         let target_name = match &state.current_screen {
             Screen::Detail(d) => d.model.id.clone(),
             _ => plan

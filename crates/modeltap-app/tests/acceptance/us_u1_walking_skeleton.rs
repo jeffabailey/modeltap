@@ -184,7 +184,6 @@ fn frame_text(stdout: &str) -> String {
 /// with mates pre-populated, Enter applies the plan, and the two blobs
 /// share one inode.
 #[test]
-#[ignore = "WS RED — production code lands in DELIVER (US-U1..U6 wave)"]
 fn devon_reclaims_disk_by_unifying_a_duplicated_model_from_the_main_view() {
     let fix = build_walking_skeleton_fixture();
 
@@ -210,10 +209,12 @@ fn devon_reclaims_disk_by_unifying_a_duplicated_model_from_the_main_view() {
     //       that by the time the harness reaches `u`, hashing has produced
     //       at least one classification.
     //
-    // For now the script is just `u<enter>q`. If DELIVER finds it needs an
-    // explicit "<hash-complete>" token, that is a script-tokenizer change
-    // (not a new env-var seam) — see lift_unify_in_detail's existing pattern.
-    let script = "u<enter>q";
+    // Step 01-09 added the `<hash-complete>` script sentinel — a sync point
+    // (not a new env-var seam; pure script-grammar) that blocks until the
+    // background hash pool reports completion. The WS uses it so the
+    // highlighted row is guaranteed to carry a `=` glyph (both blobs hashed
+    // and classified as duplicates) by the time `u` fires from the main view.
+    let script = "<hash-complete>u<enter>q";
     cmd.env("MODELTAP_HEADLESS_INPUT", script)
         .timeout(Duration::from_secs(20))
         .assert()

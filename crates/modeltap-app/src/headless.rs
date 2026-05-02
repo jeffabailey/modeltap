@@ -84,9 +84,20 @@ pub fn run(
     let tokens = tokenize_script(&config.input);
     let token_count = tokens.len();
 
-    // Lazy-construct a tokio runtime ONLY if a zap actually fires (the @us-01
-    // K3 path must not pay the runtime cost).
-    let rt = match tokio::runtime::Builder::new_current_thread()
+    // Construct a multi-thread tokio runtime so the hash pool's worker tasks
+    // and queue-pusher task make progress while the script driver loop is
+    // synchronously waiting on `<hash-complete>` (no `block_on` is in flight).
+    // A `current_thread` runtime would only drive tasks while
+    // `runtime.block_on(...)` is active, which would deadlock the
+    // `<hash-complete>` sentinel: the loop polls `try_recv` + `thread::sleep`
+    // and never enters the runtime, so workers never run.
+    //
+    // Production (interactive.rs) uses `new_multi_thread` for the same
+    // reason; the headless harness now mirrors that choice. The K3 paint
+    // path still skips spawning the pool when the script is empty
+    // (`spawn_pool` flag below), so the runtime cost is paid only when
+    // there's actual work.
+    let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
     {
@@ -235,6 +246,7 @@ pub fn run(
             &rt,
             &mut state,
             Some(&msg_tx),
+            &discovered,
         );
         // US-14 frame-capture seam: when `apply_effect` dispatched
         // `UnifyDryRunCompleted`, the unify dialog just transitioned into
@@ -357,6 +369,7 @@ fn apply_effect(
     rt: &tokio::runtime::Runtime,
     state: &mut AppState,
     msg_tx: Option<&tokio::sync::mpsc::UnboundedSender<Msg>>,
+    discovered: &[(ToolId, Vec<DiscoveredModel>)],
 ) {
     if effect.emit_launch_ended {
         logger.record(RecordKind::LaunchEnded);
@@ -435,6 +448,14 @@ fn apply_effect(
         *state = next;
     }
     if let Some(plan) = effect.trigger_unify.clone() {
+        // Step 01-12 (WS activation): the pure update layer constructs unify
+        // plans with synthetic per-row paths (`/<tool>/<model_id>`) because
+        // `AppState::ToolView` does not carry on-disk paths. The composition
+        // root resolves those synthetic paths against the `discovered`
+        // inventory BEFORE handing the plan to `unify::run`, otherwise the
+        // hardlink targets would be the synthetic strings and the action
+        // would silently no-op (US-U5 inode-merge invariant would fail).
+        let plan = resolve_plan_paths(plan, discovered);
         // Synthesize the on-screen target name from the model id in the
         // detail screen state (if any) — fall back to the canonical's
         // basename. Used for the LastAction banner only.
@@ -570,6 +591,74 @@ fn apply_effect(
             );
         }
     }
+}
+
+/// Step 01-12 (WS activation): resolve every synthetic `PathBuf` in a
+/// `UnifyPlan` against the discovered model inventory. The pure update layer
+/// (in `modeltap-tui`) builds plans with synthetic per-row paths
+/// (`/<tool>/<model_id>`) because `AppState::ToolView` does not carry
+/// on-disk paths; the composition root fills in the real paths here so the
+/// plan handed to `actions::unify::run` is fully populated and the
+/// hardlink/copy operations target real files.
+///
+/// The resolution is keyed by `(tool, id_in_tool)`. When a candidate's path
+/// already exists on disk (`std::fs::symlink_metadata` succeeds), we leave it
+/// as-is — this preserves the detail-screen path (US-10 / US-19), which
+/// already canonicalizes via `build_plan_from_detail` and stat-s real files.
+/// Only the main-screen path (US-U4 walking-skeleton) needs resolution.
+pub(crate) fn resolve_plan_paths(
+    mut plan: UnifyPlan,
+    discovered: &[(ToolId, Vec<DiscoveredModel>)],
+) -> UnifyPlan {
+    fn lookup_path(
+        tool: ToolId,
+        synthetic_path: &std::path::Path,
+        discovered: &[(ToolId, Vec<DiscoveredModel>)],
+    ) -> Option<PathBuf> {
+        // The synthetic path produced by `build_unify_plan_for_row` in
+        // `modeltap-tui::update::synthetic_row_path` is
+        // `/<tool>/<id_in_tool>`. The `id_in_tool` may itself contain `/`
+        // (HF's id is `<org>/<repo>/<filename>`), so we strip the
+        // `/<tool>/` prefix rather than relying on `file_name()`.
+        let prefix = format!("/{}/", tool.0);
+        let path_str = synthetic_path.to_str()?;
+        let model_id = path_str.strip_prefix(&prefix)?;
+        discovered
+            .iter()
+            .find(|(t, _)| *t == tool)
+            .and_then(|(_, models)| {
+                models
+                    .iter()
+                    .find(|m| m.id_in_tool == model_id)
+                    .map(|m| m.on_disk_path.clone())
+            })
+    }
+    // Resolve canonical only when its path is synthetic (does not exist
+    // on disk). Detail-screen plans already carry real paths.
+    if !plan.canonical.path.exists() {
+        if let Some(real) = lookup_path(plan.canonical.tool, &plan.canonical.path, discovered) {
+            // Re-stat at the real path so device + inode reflect the actual
+            // file (the synthetic path was constructed with whatever the
+            // hash-state cache held, which may be (0, 0) for unhashed rows).
+            if let Ok(meta) = std::fs::metadata(&real) {
+                plan.canonical.path = real;
+                plan.canonical.exists = true;
+                plan.canonical.device = meta.dev();
+                plan.canonical.inode = meta.ino();
+                plan.canonical.size_bytes = meta.len();
+            } else {
+                plan.canonical.path = real;
+            }
+        }
+    }
+    for link in &mut plan.links {
+        if !link.target.exists() {
+            if let Some(real) = lookup_path(link.tool, &link.target, discovered) {
+                link.target = real;
+            }
+        }
+    }
+    plan
 }
 
 /// Resolve the on-disk path for a delete-one trigger by looking up the
