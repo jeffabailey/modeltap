@@ -44,4 +44,5 @@ mod acceptance {
     pub mod us_u5_unify_dialog_preview_and_apply;
     pub mod us_u6_post_unify_no_restart;
     pub mod us_u7_all_unified_pseudo_slot;
+    pub mod us_u8_all_unified_empty_state;
 }

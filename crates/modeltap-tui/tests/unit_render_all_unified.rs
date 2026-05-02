@@ -10,7 +10,11 @@
 //!         group's saves
 //!     B3: two unified groups → 2 body rows + footer aggregates both groups'
 //!         saves correctly
-//!   budget = 3 × 2 = 6 unit tests max. We use 3.
+//!     B4 (US-U8 step 06-01): `empty_state_lines(true)` — onboarding text
+//!         when hashing complete with zero unified rows.
+//!     B5 (US-U8 step 06-01): `empty_state_lines(false)` — "Hashing in
+//!         progress" message when hashing not yet complete.
+//!   budget = 5 × 2 = 10 unit tests max. We use 5.
 //!
 //! Each test enters through:
 //!   - `render::all_unified::view_lines` — pure render fn (driving port).
@@ -156,5 +160,53 @@ fn two_unified_groups_renders_two_rows_and_summed_footer() {
     assert!(
         joined.contains("Total reclaimed by unification: 4.5 GB"),
         "expected footer total = 4.5 GB (4 GB + 500 MB), got:\n{joined}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// B4 — US-U8 step 06-01: empty + hashing complete → onboarding guidance text.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn empty_state_lines_when_hashing_complete_show_onboarding_text() {
+    let lines = all_unified::empty_state_lines(true);
+    let joined = lines.join("\n");
+    // AC-U8.1 + AC-U8.3: stable substring + actionable hint. We pin the
+    // user-visible copy here so renderer tweaks that drop the actionable
+    // suffix flag as a regression in this fast-feedback unit suite rather
+    // than the slower acceptance suite.
+    assert!(
+        joined.contains("No models are unified yet"),
+        "AC-U8.1: expected 'No models are unified yet' onboarding copy, got:\n{joined}"
+    );
+    assert!(
+        joined.contains("press [u]"),
+        "AC-U8.3: expected '[u]' actionable hint, got:\n{joined}"
+    );
+    // Cross-branch isolation: the hashing-in-progress message must not leak
+    // into the post-hash branch.
+    assert!(
+        !joined.contains("Hashing in progress"),
+        "post-hash branch must not contain 'Hashing in progress', got:\n{joined}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// B5 — US-U8 step 06-01: empty + hashing in progress → 'Hashing in progress'.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn empty_state_lines_when_hashing_in_progress_show_hashing_message() {
+    let lines = all_unified::empty_state_lines(false);
+    let joined = lines.join("\n");
+    // AC-U8.2: don't show 'no models' while we have not finished checking.
+    assert!(
+        joined.contains("Hashing in progress"),
+        "AC-U8.2: expected 'Hashing in progress' message, got:\n{joined}"
+    );
+    assert!(
+        !joined.contains("No models are unified yet"),
+        "AC-U8.2: in-progress branch must not show onboarding 'no models' \
+         copy (would lie to the user mid-hash), got:\n{joined}"
     );
 }
