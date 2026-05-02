@@ -142,6 +142,51 @@ pub fn run(
                 Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
             }
         }
+        // <hash-complete> sentinel (step 01-09): block this iteration until
+        // the hash pool reports completion (or we observe should_quit).
+        // Drains msg_rx during the wait so HashComputed / HashFailed /
+        // HashProgressTick messages are applied as they arrive. No new
+        // env-var seam — this is a pure script-grammar sync point so
+        // acceptance tests can deterministically observe post-hash state
+        // without sleep-based polling.
+        if let ScriptToken::Tag(t) = token {
+            if t == "hash-complete" {
+                // Bounded wait — total + a small safety margin. The walking-
+                // skeleton fixture is small (~4 KB); production installs are
+                // larger but acceptance tests use synthetic blobs that hash
+                // well under this budget.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+                while !state.hash_state.is_complete()
+                    && std::time::Instant::now() < deadline
+                    && !state.should_quit
+                {
+                    // Drain any pending messages (advances completed counter).
+                    loop {
+                        match msg_rx.try_recv() {
+                            Ok(msg) => {
+                                let (next, _eff) = update(state, msg);
+                                state = next;
+                            }
+                            Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                            Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+                        }
+                    }
+                    // If still not complete, yield briefly so workers can make
+                    // progress without spinlock-heating the CPU. 5ms cadence
+                    // gives 200 polls/second — plenty for the 250ms throttle.
+                    if !state.hash_state.is_complete() {
+                        std::thread::sleep(std::time::Duration::from_millis(5));
+                    }
+                }
+                // After waiting (success OR timeout): repaint to surface the
+                // post-hashing state in the next captured frame.
+                if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                    eprintln!("modeltap: <hash-complete> redraw failed: {e}");
+                    return 1;
+                }
+                continue; // skip to next script token
+            }
+        }
         let dialog_open = state.zap_dialog.is_some()
             || state.unify_dialog.is_some()
             || state.delete_one_dialog.is_some();
@@ -1042,5 +1087,35 @@ fn token_to_msg(
             '?' => Msg::ToggleHelp,
             _ => Msg::UnboundKey,
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CHARACTERIZATION TEST (step 01-09).
+    ///
+    /// `<hash-complete>` is a NEW script-grammar sentinel introduced by
+    /// step 01-09. It is intentionally implemented WITHOUT a tokenizer
+    /// change because the existing `tokenize_script` already maps any
+    /// `<...>` sequence to `ScriptToken::Tag(<inside>)`. This test
+    /// pins that contract: the sentinel must parse to exactly one
+    /// `Tag("hash-complete")` token so the script driver loop can
+    /// recognise it before `token_to_msg` would (otherwise) classify
+    /// it as `Msg::UnboundKey`.
+    ///
+    /// If a future refactor changes the tokenizer to special-case any
+    /// `<...>` sequence, this test will fail and force re-evaluation
+    /// of the sentinel contract.
+    #[test]
+    fn tokenize_script_parses_hash_complete_sentinel_to_single_tag_token() {
+        let tokens = tokenize_script("<hash-complete>");
+        assert_eq!(
+            tokens,
+            vec![ScriptToken::Tag("hash-complete".to_string())],
+            "<hash-complete> must parse to exactly one Tag token so the \
+             script driver loop can recognise it as a sync sentinel"
+        );
     }
 }
