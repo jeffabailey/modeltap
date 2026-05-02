@@ -283,6 +283,24 @@ pub fn run(
             }
             print_frame(&terminal);
         }
+        // US-U4 (step 03-01) AlreadyUnified informational dialog frame-
+        // capture seam. Pressing `u` on a `#` row opens the unify dialog in
+        // `UnifyMode::AlreadyUnified`; per `decide_on_enter`, the very next
+        // `<enter>` Cancels and closes it. Without this capture the FINAL
+        // frame would no longer show the informational text and AC-U4.3
+        // ("frame must contain 'already unified'") would fail. Same pattern
+        // as the dry-run / running-tool seams above.
+        let already_unified_visible = state
+            .unify_dialog
+            .as_ref()
+            .is_some_and(|d| matches!(d.mode, UnifyMode::AlreadyUnified));
+        if already_unified_visible {
+            if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                eprintln!("modeltap: already-unified dialog redraw failed: {e}");
+                return 1;
+            }
+            print_frame(&terminal);
+        }
         if state.should_quit {
             break;
         }

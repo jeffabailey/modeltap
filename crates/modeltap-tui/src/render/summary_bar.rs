@@ -80,11 +80,21 @@ fn dedup_able_segment(state: &AppState) -> String {
 
 /// Render the summary line into `area`. Single-row paragraph; the caller
 /// (`layout::view`) reserves the row above the shortcut bar.
+///
+/// Step 03-01 (US-U4): when `state.status_line` is `Some(_)`, the transient
+/// status-line hint REPLACES the totals line in this slot so the user sees
+/// the per-row "u" feedback (per AC-U4.4 / AC-U4.5: "no copies in other
+/// tools" / "still computing"). The hint is cleared by any nav Msg via
+/// `clear_last_action` in `update.rs`, so the totals line returns as soon as
+/// the user moves on.
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     if area.height == 0 || area.width == 0 {
         return;
     }
-    let text = summary_text(state);
+    let text = match &state.status_line {
+        Some(hint) => hint.clone(),
+        None => summary_text(state),
+    };
     let max_w = area.width as usize;
     let trimmed: String = text.chars().take(max_w).collect();
     let row_w = trimmed.chars().count() as u16;

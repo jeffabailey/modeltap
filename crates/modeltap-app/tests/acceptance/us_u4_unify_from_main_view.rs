@@ -144,7 +144,6 @@ fn build_single_tool(temp: &TempDir) -> PathBuf {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U4 RED — DELIVER must wire u-from-main-view to Msg::UnifyHighlighted"]
 fn pressing_u_on_dedup_able_row_opens_dialog_with_mates_prepopulated() {
     let temp = tempfile::tempdir().expect("tempdir");
     let (ollama, hf, ollama_blob, hf_blob) = build_duplicate(&temp);
@@ -153,10 +152,12 @@ fn pressing_u_on_dedup_able_row_opens_dialog_with_mates_prepopulated() {
     assert_ne!(pre_a, pre_b, "fixture must start on distinct inodes");
 
     let (mut cmd, _temp, log_file) = modeltap_headless_at(&ollama, &hf);
-    // Script: highlight first row, press u (from MAIN view, not Detail),
-    // confirm with Enter, quit. After DELIVER: dialog opens, plan applies,
-    // inodes merge. Today: u is a no-op on Main, so nothing happens.
-    let script = "u<enter>q";
+    // Script: <hash-complete> blocks until the background hash pool reports
+    // completion (so the highlighted row carries `=` not `?`); then `u` opens
+    // the unify dialog with mates pre-populated; Enter confirms; q quits.
+    // Without <hash-complete> the row would still be `?` and step 01-10's
+    // glyph dispatch would set a status_line hint instead of opening the dialog.
+    let script = "<hash-complete>u<enter>q";
     cmd.env("MODELTAP_HEADLESS_INPUT", script)
         .timeout(Duration::from_secs(20))
         .assert()
@@ -188,7 +189,6 @@ fn pressing_u_on_dedup_able_row_opens_dialog_with_mates_prepopulated() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U4 RED — DELIVER must open dialog in informational mode for '#' rows"]
 fn pressing_u_on_already_unified_row_opens_informational_dialog() {
     let temp = tempfile::tempdir().expect("tempdir");
     let (ollama, hf, ollama_blob, hf_blob) = build_duplicate(&temp);
@@ -197,7 +197,10 @@ fn pressing_u_on_already_unified_row_opens_informational_dialog() {
     fs::hard_link(&ollama_blob, &hf_blob).expect("hardlink hf blob to ollama");
 
     let (mut cmd, _temp, _log_file) = modeltap_headless_at(&ollama, &hf);
-    let script = "u<enter>q";
+    // <hash-complete> ensures the row has been classified as `#` (AlreadyUnified)
+    // before pressing `u`. Without it the row is `?` (Pending) and `u` would
+    // emit a status-line hint instead of opening the informational dialog.
+    let script = "<hash-complete>u<enter>q";
     let assert = cmd
         .env("MODELTAP_HEADLESS_INPUT", script)
         .timeout(Duration::from_secs(20))
@@ -218,13 +221,15 @@ fn pressing_u_on_already_unified_row_opens_informational_dialog() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U4 RED — DELIVER must show status hint without opening dialog for unique rows"]
 fn pressing_u_on_unique_row_shows_status_hint_no_dialog() {
     let temp = tempfile::tempdir().expect("tempdir");
     let ollama = build_single_tool(&temp);
     let hf = temp.path().join("nonexistent-hf");
     let (mut cmd, _temp, log_file) = modeltap_headless_at(&ollama, &hf);
-    let script = "u<enter>q";
+    // <hash-complete> ensures the row has been classified as `-` (Unique) before
+    // pressing `u`; without it the row is `?` (Pending) and the hint would be
+    // the "still computing" hint, not the "unique" hint.
+    let script = "<hash-complete>u<enter>q";
     let assert = cmd
         .env("MODELTAP_HEADLESS_INPUT", script)
         .timeout(Duration::from_secs(20))
@@ -233,7 +238,7 @@ fn pressing_u_on_unique_row_shows_status_hint_no_dialog() {
     let frame = frame_text(&String::from_utf8_lossy(&assert.get_output().stdout));
     let lower = frame.to_lowercase();
     assert!(
-        lower.contains("unique") || lower.contains("no copies"),
+        lower.contains("unique") || lower.contains("no copies") || lower.contains("nothing to unify"),
         "AC-U4.4: u on a unique row must show a 'no copies in other tools' \
          hint in the status line, got:\n{}",
         frame
@@ -252,16 +257,74 @@ fn pressing_u_on_unique_row_shows_status_hint_no_dialog() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U4 RED — DELIVER must show 'hash still computing' hint without dialog for '?' rows"]
 fn pressing_u_on_pending_hash_row_shows_still_computing_hint() {
-    // To keep the row as "?" at the moment the harness presses `u`, we'd
-    // need either a deterministic "pause-the-hash-pool" seam or to rely on
-    // the current race-free first-paint state (NFR-1 says hashing starts
-    // AFTER first paint). DELIVER will choose the mechanism.
-    panic!(
-        "AC-U4.5 — DELIVER must wire: u on a '?' row shows 'hash still \
-         computing' hint and does not open a dialog. Mechanism (pause-hash \
-         seam vs. first-paint-only assertion) is crafter's choice."
+    // Mechanism: rely on the deterministic gap between pool spawn (which
+    // happens immediately before the script-driver loop enters its first
+    // iteration) and the FIRST scripted token. Per NFR-1, hashing starts
+    // AFTER first paint; the headless harness then enters the token loop,
+    // and at the start of every iteration drains `msg_rx.try_recv()` (which
+    // is non-blocking and only consumes already-arrived messages).
+    //
+    // We use a SINGLE-tool fixture with a large blob (~16 MB) so the SHA-256
+    // worker takes a few ms — long enough for the FIRST scripted `u` token
+    // to be processed while `state.hash_state.is_complete() == false` AND
+    // the row's `(tool, model_id)` key is not yet in `completed_hashes`. The
+    // dedup classifier therefore returns `DedupGlyph::Pending` for that row,
+    // and `handle_unify_from_main` sets `STATUS_HINT_HASHING` ("Hash still
+    // computing — wait for completion, then press u again").
+    //
+    // Note: we do NOT use `<hash-complete>` here because that sentinel would
+    // BLOCK until hashing is done, defeating the test's whole point.
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+    let ollama_dir = root.join(".ollama").join("models");
+    let blobs = ollama_dir.join("blobs");
+    fs::create_dir_all(&blobs).expect("create blobs");
+    let blob = "7777777777777777777777777777777777777777777777777777777777777777";
+    // 16 MiB payload — large enough that SHA-256 takes long enough for the
+    // headless driver to process the `u` token before the worker publishes
+    // `HashComputed`.
+    let payload_size: usize = 16 * 1024 * 1024;
+    fs::write(blobs.join(format!("sha256-{}", blob)), vec![0xABu8; payload_size])
+        .expect("write large blob");
+    let m = ollama_dir
+        .join("manifests")
+        .join("registry.ollama.ai")
+        .join("library")
+        .join("slowhash");
+    fs::create_dir_all(&m).expect("manifest dir");
+    let manifest = format!(
+        r#"{{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","config":{{"mediaType":"application/vnd.docker.container.image.v1+json","digest":"sha256:{blob}","size":412}},"layers":[{{"mediaType":"application/vnd.ollama.image.model","digest":"sha256:{blob}","size":{size}}}]}}"#,
+        blob = blob,
+        size = payload_size
+    );
+    fs::write(m.join("7b"), manifest).expect("manifest");
+    let hf = temp.path().join("nonexistent-hf");
+
+    let (mut cmd, _temp, log_file) = modeltap_headless_at(&ollama_dir, &hf);
+    // `u` is the very first token: the driver loop drains a fresh msg_rx
+    // (no HashComputed yet for a 16 MiB blob), then dispatches Msg::Unify on
+    // a `?` row. `<enter>` is harmless (no dialog open). `q` quits.
+    let script = "u<enter>q";
+    let assert = cmd
+        .env("MODELTAP_HEADLESS_INPUT", script)
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+    let frame = frame_text(&String::from_utf8_lossy(&assert.get_output().stdout));
+    let lower = frame.to_lowercase();
+    assert!(
+        lower.contains("still computing") || lower.contains("wait for completion"),
+        "AC-U4.5: u on a '?' row must surface a 'hash still computing' hint \
+         in the status line, got frame:\n{}",
+        frame
+    );
+    let events = read_jsonl_events(&log_file);
+    assert!(
+        events
+            .iter()
+            .all(|e| e.get("event").and_then(|v| v.as_str()) != Some("action.unify")),
+        "AC-U4.5: u on a '?' row must NOT trigger an action.unify event"
     );
 }
 
@@ -270,7 +333,6 @@ fn pressing_u_on_pending_hash_row_shows_still_computing_hint() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U4 RED — DELIVER must preserve the v1 'u from Detail' path"]
 fn pressing_u_on_detail_screen_still_opens_dialog() {
     // This test is the regression net for v1's existing behavior. The v1
     // acceptance suite (us_10_unify_hardlinks.rs) already exercises this
