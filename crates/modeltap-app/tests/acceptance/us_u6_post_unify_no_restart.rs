@@ -175,18 +175,159 @@ fn summary_bar_shows_transient_delta_then_collapses() {
 #[test]
 #[ignore = "US-U6 RED — DELIVER must keep '=' glyph on partial-success and not increment Unified"]
 fn partial_unify_leaves_glyph_as_equals_and_unified_count_unchanged() {
-    // Inducing partial-success deterministically requires a multi-target
-    // plan with one target failing. The cleanest mechanism in v1 is the
-    // existing read-only directory pattern (one of the target dirs has
-    // mode 0500 so link() fails with EACCES).
+    // Inducing partial-success deterministically: build a 3-tool fixture
+    // (ollama + hf + lm-studio) where every tool has the SAME duplicate
+    // model, but the lm-studio target directory is mode 0500 (read+execute,
+    // NO write). Discovery walks the dir successfully; link() fails with
+    // EACCES because hardlinking creates a NEW dirent in a directory the
+    // process cannot write to.
     //
-    // DELIVER will need the multi-target fixture (3 tools with one
-    // duplicated model, one tool's dir read-only). We do NOT need a new
-    // env-var seam — chmod is enough.
-    panic!(
-        "AC-U6.3 + AC-U6.6 — DELIVER must build a 3-tool partial-failure \
-         fixture (one target dir mode 0500). Test asserts: post-action, \
-         row glyph stays '=', Unified count unchanged, Dedup-able \
-         decreases by ONLY the bytes of the successful target."
+    // No new env-var seam is needed — `MODELTAP_LMSTUDIO_DIRS` already
+    // points at the fixture's lm-studio dir, and chmod handles the
+    // permission flip.
+
+    // Skip on non-Unix and as root (chmod 0500 has no effect on root).
+    if !cfg!(unix) {
+        eprintln!("skipping: partial-success scenario is Unix-only");
+        return;
+    }
+    #[cfg(unix)]
+    {
+        let uid = std::process::Command::new("id")
+            .arg("-u")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.trim().parse::<u32>().ok())
+            .unwrap_or(1);
+        if uid == 0 {
+            eprintln!("skipping: cannot test EACCES partial-success as root");
+            return;
+        }
+    }
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let (ollama, hf, ollama_blob, hf_blob) = build_two_blob_duplicate(&temp);
+
+    // Build a third (lm-studio) target with the same payload, then chmod
+    // its parent dir to 0500 so link() will fail.
+    let payload = vec![0x42u8; 4096];
+    let lm_root = temp.path().join(".cache").join("lm-studio").join("models");
+    let lm_repo_dir = lm_root.join("dup").join("Dup-7B");
+    fs::create_dir_all(&lm_repo_dir).expect("lm-studio dir");
+    let lm_blob = lm_repo_dir.join("model.gguf");
+    fs::write(&lm_blob, &payload).expect("write lm-studio blob");
+    // Make the lm-studio TARGET dir read-only AFTER discovery would walk it.
+    // Discovery still works (read + execute bits set); link() fails (no
+    // write bit) because it cannot create a new dirent.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perm = fs::metadata(&lm_repo_dir).unwrap().permissions();
+        perm.set_mode(0o500);
+        fs::set_permissions(&lm_repo_dir, perm).expect("chmod 0500");
+    }
+
+    let pre_lm_inode = ino_of(&lm_blob);
+    let log_dir = temp.path().join(".modeltap");
+    fs::create_dir_all(&log_dir).expect("log dir");
+    let log_file = log_dir.join("launch.log");
+    let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
+    cmd.env("MODELTAP_HEADLESS", "1")
+        .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_TERM_COLS", "120")
+        .env("MODELTAP_OLLAMA_DIR", &ollama)
+        .env("HF_HOME", &hf)
+        .env("MODELTAP_LMSTUDIO_DIRS", &lm_root)
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
+        .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
+
+    let regs = serde_json::json!({
+        "id": "dup/Dup-7B",
+        "regs": [
+            {"tool": "ollama", "path": ollama_blob.display().to_string()},
+            {"tool": "hf", "path": hf_blob.display().to_string()},
+            {"tool": "lm-studio", "path": lm_blob.display().to_string()},
+        ]
+    })
+    .to_string();
+    let script = "<enter>u<enter><esc>q";
+    let assert = cmd
+        .env("MODELTAP_HEADLESS_INPUT", script)
+        .env("MODELTAP_HEADLESS_DETAIL_REGS", regs)
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+
+    // Restore mode so tempdir cleanup can remove the file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perm = fs::metadata(&lm_repo_dir).unwrap().permissions();
+        perm.set_mode(0o700);
+        let _ = fs::set_permissions(&lm_repo_dir, perm);
+    }
+
+    // AC-U6.3: ollama+hf converged onto a shared inode; lm-studio inode
+    // unchanged (link failed).
+    let post_a = ino_of(&ollama_blob);
+    let post_b = ino_of(&hf_blob);
+    let post_lm = ino_of(&lm_blob);
+    assert_eq!(
+        post_a, post_b,
+        "AC-U6.3: ollama+hf must converge on partial"
+    );
+    assert_eq!(
+        post_lm, pre_lm_inode,
+        "AC-U6.3: lm-studio inode must be UNCHANGED on partial-failure"
+    );
+
+    let frame = frame_text(&String::from_utf8_lossy(&assert.get_output().stdout));
+    // AC-U6.3: row glyph stays '=' (still 2 distinct inodes after partial).
+    assert!(
+        frame.contains('='),
+        "AC-U6.3: post-partial-unify row glyph must remain '=' (lm-studio \
+         still on a separate inode), got:\n{}",
+        frame
+    );
+    // AC-U6.6: Unified count must NOT increment. Look for "Unified: 0" in
+    // the summary bar.
+    let lower = frame.to_lowercase();
+    assert!(
+        lower.contains("unified: 0") || !lower.contains("unified:"),
+        "AC-U6.6: partial-unify must NOT increment Unified count, got:\n{}",
+        frame
+    );
+
+    // AC-CONS-4: action.unify event records `outcome=partial` and a
+    // bytes_reclaimed equal to the bytes of successful targets only.
+    let raw = std::fs::read_to_string(&log_file).expect("launch.log");
+    let events: Vec<serde_json::Value> = raw
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    let unify_evt = events
+        .iter()
+        .find(|e| e.get("event").and_then(|v| v.as_str()) == Some("action.unify"))
+        .expect("AC-CONS-4: action.unify event must be emitted");
+    assert_eq!(
+        unify_evt.get("outcome").and_then(|v| v.as_str()),
+        Some("partial"),
+        "AC-U6.3: outcome must be 'partial', event was: {}",
+        unify_evt
+    );
+    let bytes_reclaimed = unify_evt
+        .get("bytes_reclaimed")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(u64::MAX);
+    assert!(
+        bytes_reclaimed > 0 && bytes_reclaimed < (3 * 4096),
+        "AC-CONS-4: bytes_reclaimed must be the SUCCESSFUL targets' bytes \
+         only (>0 and < 3 * 4096); got {}",
+        bytes_reclaimed
     );
 }

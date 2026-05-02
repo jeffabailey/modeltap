@@ -506,6 +506,286 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-05-02T16:49:10Z"
+    },
+    {
+      "sid": "02-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T16:49:31Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T16:52:13Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:01:27Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:01:45Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:02:21Z"
+    },
+    {
+      "sid": "03-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: unignore step; behavioral coverage is the unignored acceptance scenarios themselves",
+      "t": "2026-05-02T17:02:22Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:04:57Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:05:39Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:06:18Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:13:51Z"
+    },
+    {
+      "sid": "03-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:14:03Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:15:47Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: tests already unignored in step 03-02; this step is verification-only",
+      "t": "2026-05-02T17:15:49Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: verification-only step; behavioral coverage from 03-02 + v1 us_19/us_17 regression checks",
+      "t": "2026-05-02T17:15:51Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:15:53Z"
+    },
+    {
+      "sid": "03-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:16:04Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:18:10Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: pure-function step; acceptance test (us_u7) lands at 04-02 / 04-03",
+      "t": "2026-05-02T17:18:16Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:19:28Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:22:51Z"
+    },
+    {
+      "sid": "04-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:23:11Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:26:09Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: us_u7 acceptance scenarios unignore at 04-03",
+      "t": "2026-05-02T17:26:15Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:27:32Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:35:15Z"
+    },
+    {
+      "sid": "04-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:35:33Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:38:28Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:42:45Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: unignore step; behavioral coverage is the unignored acceptance scenarios themselves",
+      "t": "2026-05-02T17:42:51Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:47:13Z"
+    },
+    {
+      "sid": "04-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:47:33Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:49:46Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: us_u6 tests unignore at 05-03",
+      "t": "2026-05-02T17:49:54Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:50:39Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:54:52Z"
+    },
+    {
+      "sid": "05-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:55:31Z"
+    },
+    {
+      "sid": "05-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T17:57:27Z"
+    },
+    {
+      "sid": "05-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: us_u6 tests unignore at 05-03",
+      "t": "2026-05-02T17:57:38Z"
+    },
+    {
+      "sid": "05-02",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T18:02:09Z"
+    },
+    {
+      "sid": "05-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T18:03:37Z"
     }
   ]
 }
