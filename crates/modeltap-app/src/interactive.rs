@@ -33,6 +33,7 @@
 //! happy-path teardown.
 
 use std::io::{self, Stdout};
+use std::sync::Arc;
 use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -41,7 +42,7 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use modeltap_core::domain::last_action::LastAction;
-use modeltap_core::{Tool, ToolId};
+use modeltap_core::{DiscoveredModel, Tool, ToolId};
 use modeltap_tui::app_state::Screen;
 use modeltap_tui::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use modeltap_tui::{
@@ -49,11 +50,16 @@ use modeltap_tui::{
 };
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use tokio_util::sync::CancellationToken;
 
 use crate::actions::delete_one::{self, DeleteOneOutcome, DeleteOneResult};
 use crate::actions::zap::{self, ZapOutcome, ZapResult};
 use crate::observability::{LaunchLogger, RecordKind};
-use crate::refresh;
+use modeltap_app::hash_pool::{self, HashPoolHandle};
+use modeltap_app::hash_pool_wiring::build_hash_jobs;
+use modeltap_app::refresh;
+use modeltap_app::sha256_cache::{Sha256Cache, Sha2Hasher};
+use modeltap_core::ports::Hasher;
 
 /// How long to block on `event::poll` per loop tick. Short enough to stay
 /// responsive on resize / signal-driven teardown; long enough that an idle
@@ -76,6 +82,7 @@ pub fn run(
     initial_state: AppState,
     mut logger: LaunchLogger,
     plugins: Vec<Box<dyn Tool>>,
+    discovered: Vec<(ToolId, Vec<DiscoveredModel>)>,
 ) -> io::Result<i32> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -83,7 +90,14 @@ pub fn run(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = event_loop(&mut terminal, runtime, initial_state, &mut logger, &plugins);
+    let result = event_loop(
+        &mut terminal,
+        runtime,
+        initial_state,
+        &mut logger,
+        &plugins,
+        &discovered,
+    );
 
     // Always restore the terminal — even if the event loop returned an
     // error, the user must get their shell back. Errors during teardown
@@ -104,6 +118,7 @@ fn event_loop(
     initial_state: AppState,
     logger: &mut LaunchLogger,
     plugins: &[Box<dyn Tool>],
+    discovered: &[(ToolId, Vec<DiscoveredModel>)],
 ) -> io::Result<i32> {
     let mut state = initial_state;
 
@@ -113,9 +128,59 @@ fn event_loop(
     sync_viewport_sizes(terminal, &mut state)?;
 
     // Initial paint — required by US-01 AC-1 (cold start to first paint).
+    // K3 / NFR-1: NO file I/O, NO pool spawn before this draw returns.
     terminal.draw(|f| view(&state, f))?;
 
+    // ----- Step 01-08: spawn background hash pool AFTER first paint -------
+    //
+    // Per ADR-013: jobs are queued from the just-finished discovery; the pool
+    // hashes them on a fixed worker set; results flow into `update()` via the
+    // unbounded `msg_tx`/`msg_rx` channel below. The channel + pool live for
+    // the lifetime of the event loop and are torn down on `Msg::Quit` /
+    // `Msg::CtrlC` via `pool.shutdown()` (200 ms budget per AC-U1.5).
+    let per_tool_refs: Vec<(ToolId, &[DiscoveredModel])> = discovered
+        .iter()
+        .map(|(t, models)| (*t, models.as_slice()))
+        .collect();
+    let jobs = build_hash_jobs(&per_tool_refs);
+    state.hash_state.total = jobs.len() as u64;
+
+    let (msg_tx, mut msg_rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
+    let cache = Sha256Cache::new();
+    let hasher: Arc<dyn Hasher + Send + Sync> = Arc::new(Sha2Hasher::new());
+    let cancel = CancellationToken::new();
+    let pool: HashPoolHandle = hash_pool::spawn(
+        jobs,
+        cache,
+        hasher,
+        msg_tx.clone(),
+        cancel.clone(),
+        runtime.handle(),
+    );
+
     while !state.should_quit {
+        // Drain any background hash-pool messages BEFORE blocking on input,
+        // so the user sees `Hashing N/M...` progress between keystrokes.
+        // `try_recv` is non-blocking — at most a single fast pass per tick.
+        let mut drained_any = false;
+        loop {
+            match msg_rx.try_recv() {
+                Ok(msg) => {
+                    let (next, _eff) = update(state, msg);
+                    state = next;
+                    drained_any = true;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
+        if drained_any {
+            terminal.draw(|f| view(&state, f))?;
+            if state.should_quit {
+                break;
+            }
+        }
+
         // Block up to POLL_INTERVAL waiting for an event. Returning `false`
         // means "no event yet" — we loop and try again. This keeps the
         // tokio runtime free for any background work and lets us redraw on
@@ -167,6 +232,18 @@ fn event_loop(
             _ => {}
         }
     }
+
+    // ----- Step 01-08: clean shutdown of the hash pool (AC-U1.5) ---------
+    //
+    // Quit budget is 500 ms total; the pool's internal join timeout is
+    // 200 ms (HashPoolHandle::shutdown). The remaining 300 ms is the
+    // terminal teardown headroom. Drop msg_tx FIRST so workers see EOF on
+    // their channel and exit promptly; then `block_on(shutdown)` cancels
+    // and joins.
+    drop(msg_tx);
+    runtime.block_on(async {
+        let _ = pool.shutdown().await;
+    });
 
     Ok(state.exit_code)
 }

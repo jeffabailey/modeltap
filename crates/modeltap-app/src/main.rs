@@ -178,6 +178,22 @@ fn main() -> ExitCode {
 
     let initial_state = build_app_state(&summary);
 
+    // Step 01-08: extract per-tool discovered models for the background
+    // hash pool. Done here (before the headless/interactive branch) so both
+    // event loops receive the same data. Plugins that errored out contribute
+    // an empty Vec so they're visible in the per-tool list (no jobs queued).
+    let discovered_per_tool: Vec<(ToolId, Vec<modeltap_core::DiscoveredModel>)> = summary
+        .outcomes
+        .iter()
+        .map(|o| {
+            let models = match &o.result {
+                Ok(v) => v.clone(),
+                Err(_) => Vec::new(),
+            };
+            (o.tool, models)
+        })
+        .collect();
+
     if headless {
         let config = HeadlessConfig {
             cols,
@@ -185,7 +201,13 @@ fn main() -> ExitCode {
             input: std::env::var("MODELTAP_HEADLESS_INPUT").unwrap_or_default(),
             quit_after_paint: cli.quit_after_paint,
         };
-        let exit = headless::run(config, initial_state, logger, plugins_for_actions);
+        let exit = headless::run(
+            config,
+            initial_state,
+            logger,
+            plugins_for_actions,
+            discovered_per_tool,
+        );
         return ExitCode::from(exit as u8);
     }
 
@@ -195,7 +217,13 @@ fn main() -> ExitCode {
     // keypress polling via crossterm::event) differ. The headless harness
     // remains the deterministic acceptance-test driver; this is the path
     // a user reaches by running `modeltap` with no flags on a real TTY.
-    match interactive::run(&runtime, initial_state, logger, plugins_for_actions) {
+    match interactive::run(
+        &runtime,
+        initial_state,
+        logger,
+        plugins_for_actions,
+        discovered_per_tool,
+    ) {
         Ok(code) => ExitCode::from(code as u8),
         Err(e) => {
             eprintln!("modeltap: interactive loop failed: {e}");

@@ -119,7 +119,7 @@ pub fn spawn(
         .store(jobs.len() as u64, std::sync::atomic::Ordering::SeqCst);
 
     let workers = worker_count();
-    let (queue_rx, queue_handle) = queue::build(jobs, workers);
+    let (queue_rx, queue_handle) = queue::build(jobs, workers, runtime);
 
     let mut join: JoinSet<()> = JoinSet::new();
 

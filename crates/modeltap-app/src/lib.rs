@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 pub mod hash_pool;
+pub mod hash_pool_wiring;
 pub mod inventory_build;
 pub mod lsof_adapter;
 pub mod platform;

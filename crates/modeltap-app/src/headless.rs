@@ -11,12 +11,14 @@
 use std::io::Write;
 use std::os::unix::fs::MetadataExt;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::logic::canonical_selector::{select_canonical, CandidatePath};
 use modeltap_core::logic::plan::{build_plan, PlanCandidate, UnifyPlan};
 use modeltap_core::ports::fs_probe::{FsProbe, ProbeError};
-use modeltap_core::{Tool, ToolId};
+use modeltap_core::ports::Hasher;
+use modeltap_core::{DiscoveredModel, Tool, ToolId};
 use modeltap_tui::app_state::Screen;
 use modeltap_tui::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use modeltap_tui::dialogs::running_tool_prompt::{PendingGatedAction, RunningToolDialog};
@@ -24,9 +26,13 @@ use modeltap_tui::dialogs::unify_confirm::UnifyMode;
 use modeltap_tui::screens::detail::DetailScreenState;
 use modeltap_tui::{update, view, AppState, Msg, UpdateEffect};
 
+use modeltap_app::hash_pool::{self, HashPoolHandle};
+use modeltap_app::hash_pool_wiring::build_hash_jobs;
 use modeltap_app::lsof_adapter::LsofAdapter;
+use modeltap_app::sha256_cache::{Sha256Cache, Sha2Hasher};
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
+use tokio_util::sync::CancellationToken;
 
 use crate::actions::delete_one::{self, DeleteOneOutcome};
 use crate::actions::unify::{self, DryRunOutcome, UnifyOutcome, UnifyResult};
@@ -52,6 +58,7 @@ pub fn run(
     initial_state: AppState,
     mut logger: LaunchLogger,
     plugins: Vec<Box<dyn Tool>>,
+    discovered: Vec<(ToolId, Vec<DiscoveredModel>)>,
 ) -> i32 {
     let mut terminal = match Terminal::new(TestBackend::new(config.cols, config.rows)) {
         Ok(t) => t,
@@ -64,6 +71,7 @@ pub fn run(
     let mut state = initial_state;
 
     // Initial paint — required by US-01 AC-1 (cold start to first paint).
+    // K3 / NFR-1: NO file I/O, NO pool spawn before this draw returns.
     if let Err(e) = terminal.draw(|f| view(&state, f)) {
         eprintln!("modeltap: initial paint failed: {e}");
         return 1;
@@ -88,7 +96,52 @@ pub fn run(
         }
     };
 
+    // ----- Step 01-08: spawn background hash pool AFTER first paint -------
+    //
+    // The `--quit-after-paint` mode (K3 / launch-timing benchmark) exits
+    // immediately after one paint; spawning a pool there would just be wasted
+    // work because the channel is never drained. Skip the spawn in that case.
+    let spawn_pool = !(config.quit_after_paint && tokens.is_empty());
+    let (msg_tx, mut msg_rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
+    let cancel = CancellationToken::new();
+    let pool: Option<HashPoolHandle> = if spawn_pool {
+        let per_tool_refs: Vec<(ToolId, &[DiscoveredModel])> = discovered
+            .iter()
+            .map(|(t, models)| (*t, models.as_slice()))
+            .collect();
+        let jobs = build_hash_jobs(&per_tool_refs);
+        state.hash_state.total = jobs.len() as u64;
+
+        let cache = Sha256Cache::new();
+        let hasher: Arc<dyn Hasher + Send + Sync> = Arc::new(Sha2Hasher::new());
+        Some(hash_pool::spawn(
+            jobs,
+            cache,
+            hasher,
+            msg_tx.clone(),
+            cancel.clone(),
+            rt.handle(),
+        ))
+    } else {
+        None
+    };
+
     for (idx, token) in tokens.iter().enumerate() {
+        // Drain any background hash-pool messages BEFORE the next scripted
+        // token so the per-iteration captured frame reflects the latest
+        // `Hashing N/M...` progress. `try_recv` is non-blocking; the test
+        // harness's deterministic-frame contract is preserved (no waiting,
+        // just consume what's already arrived).
+        loop {
+            match msg_rx.try_recv() {
+                Ok(msg) => {
+                    let (next, _eff) = update(state, msg);
+                    state = next;
+                }
+                Err(tokio::sync::mpsc::error::TryRecvError::Empty) => break,
+                Err(tokio::sync::mpsc::error::TryRecvError::Disconnected) => break,
+            }
+        }
         let dialog_open = state.zap_dialog.is_some()
             || state.unify_dialog.is_some()
             || state.delete_one_dialog.is_some();
@@ -184,6 +237,31 @@ pub fn run(
 
     print_frame(&terminal);
 
+    // ----- Step 01-08: clean shutdown of the hash pool (AC-U1.5) ---------
+    //
+    // Drop msg_tx so workers see EOF on their channel and exit promptly;
+    // then `block_on(shutdown)` cancels and joins with the 200 ms internal
+    // budget. The 500 ms quit envelope (AC-U1.5) is comfortably preserved.
+    drop(msg_tx);
+    if let Some(pool) = pool {
+        rt.block_on(async {
+            let _ = pool.shutdown().await;
+        });
+    } else {
+        // No pool to shut down (quit-after-paint fast path) — but the
+        // CancellationToken is still owned here; cancel for symmetry.
+        cancel.cancel();
+    }
+
+    // The pool's `CancellationToken` cannot abort in-flight `spawn_blocking`
+    // SHA256 jobs (they are CPU-bound, not async). On large fixtures (e.g.,
+    // 12.8 GB devon-multi-tool) those jobs can run for tens of seconds. The
+    // default `Runtime::drop` blocks until every blocking task drains, which
+    // would exceed the AC-U1.5 quit envelope and stall acceptance tests.
+    //
+    // Replace the implicit drop with `shutdown_timeout(300 ms)` so the
+    // remaining quit budget (after the 200 ms pool join) is bounded; any
+    // still-running blocking thread is detached and the process exits.
     let summary = serde_json::json!({
         "schema": "modeltap.session_summary.v1",
         "frames_captured": 1 + token_count,
@@ -193,7 +271,9 @@ pub fn run(
     });
     println!("{}", summary);
 
-    state.exit_code
+    let exit_code = state.exit_code;
+    rt.shutdown_timeout(std::time::Duration::from_millis(300));
+    exit_code
 }
 
 fn exit_reason(state: &AppState) -> &'static str {

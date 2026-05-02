@@ -16,7 +16,11 @@ pub(super) struct QueueHandle(#[allow(dead_code)] mpsc::Sender<HashJob>);
 
 /// Build the queue, push every job, return the receiver + a sender handle
 /// that the caller drops to signal end-of-stream.
-pub(super) fn build(jobs: Vec<HashJob>, workers: usize) -> (mpsc::Receiver<HashJob>, QueueHandle) {
+pub(super) fn build(
+    jobs: Vec<HashJob>,
+    workers: usize,
+    runtime: &tokio::runtime::Handle,
+) -> (mpsc::Receiver<HashJob>, QueueHandle) {
     let cap = (workers.saturating_mul(4)).max(1);
     let (tx, rx) = mpsc::channel::<HashJob>(cap);
 
@@ -25,7 +29,7 @@ pub(super) fn build(jobs: Vec<HashJob>, workers: usize) -> (mpsc::Receiver<HashJ
     // with a small async sleep when the channel is momentarily full. For a
     // bounded queue with `cap = 4*workers` this rarely contends.
     let tx_for_push = tx.clone();
-    tokio::spawn(async move {
+    runtime.spawn(async move {
         for job in jobs {
             // Push respecting bound: send().await blocks the producer task
             // (NOT the runtime) until a worker pops. This is the standard
