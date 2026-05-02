@@ -1,6 +1,7 @@
 {
   "schema_version": "3.0",
   "feature_id": "cross-tool-model-unify",
+  "project_id": "cross-tool-model-unify",
   "events": [
     {
       "sid": "01-01",
@@ -134,6 +135,13 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-05-02T01:02:09Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:02:27Z"
     }
   ]
 }
