@@ -25,16 +25,29 @@ use crate::actions::unify::{UnifyOutcome, UnifyResult};
 ///
 /// Translates the canonical `UnifyOutcome` into a `UnifyReclassifySummary`:
 /// the set of "succeeded tools" is `outcome.tools_unified` minus any tool
-/// that appears in `outcome.failures`. (The canonical orchestrator already
-/// records partial-success failures separately; this lets the reclassify
-/// pass move ONLY the successful tools' inodes onto the canonical.)
-pub fn reclassify_after_unify(state: AppState, outcome: &UnifyOutcome) -> AppState {
-    let succeeded_tools: Vec<ToolId> = outcome
+/// that appears in `outcome.failures`, plus the `canonical_tool` (the tool
+/// that owns the canonical inode — `actions::unify::run` does NOT include
+/// it in `tools_unified` because no link was performed for it; the canonical
+/// IS the inode every other tool's blob got linked to). Without including
+/// the canonical, the lib-side reclassify would only rewrite the LINKED
+/// tools' entries onto themselves (a no-op), leaving the canonical's entry
+/// pointing at its old, distinct inode. The dedup_summary recompute would
+/// then still see N distinct inodes and the row glyph would stay `=`
+/// instead of flipping to `#` (AC-U6.2 violation).
+pub fn reclassify_after_unify(
+    state: AppState,
+    outcome: &UnifyOutcome,
+    canonical_tool: ToolId,
+) -> AppState {
+    let mut succeeded_tools: Vec<ToolId> = outcome
         .tools_unified
         .iter()
         .filter(|tool| !outcome.failures.iter().any(|f| f.tool == **tool))
         .copied()
         .collect();
+    if !succeeded_tools.contains(&canonical_tool) {
+        succeeded_tools.push(canonical_tool);
+    }
     let summary = UnifyReclassifySummary {
         succeeded_tools,
         already_unified: matches!(outcome.outcome, UnifyResult::AlreadyUnified),
@@ -105,7 +118,13 @@ mod tests {
         };
         // Seed dedup_summary by running a noop reclassify. This drives the
         // canonical recompute so the pre-condition reflects the seeded
-        // topology.
+        // topology. The seed canonical is the first tool in `tools` — its
+        // identity does not matter because `tools_unified` is empty (no inode
+        // rewrite is performed).
+        let seed_canonical = tools
+            .first()
+            .map(|(t, _)| *t)
+            .unwrap_or(ToolId("ollama"));
         let seed_outcome = UnifyOutcome {
             tools_unified: Vec::new(),
             bytes_reclaimed: 0,
@@ -114,7 +133,7 @@ mod tests {
             cross_fs_targets_skipped: 0,
             cross_fs_targets_copied: 0,
         };
-        let mut seeded = reclassify_after_unify(state, &seed_outcome);
+        let mut seeded = reclassify_after_unify(state, &seed_outcome, seed_canonical);
         seeded.summary_delta = None;
         seeded
     }
@@ -159,7 +178,7 @@ mod tests {
             cross_fs_targets_skipped: 0,
             cross_fs_targets_copied: 0,
         };
-        let after = reclassify_after_unify(state, &outcome);
+        let after = reclassify_after_unify(state, &outcome, ollama);
 
         // All three tools must have converged onto the same (device, inode).
         let inode_ol = after.hash_state.inodes.get(&(ollama, "m".to_string()));
@@ -208,7 +227,7 @@ mod tests {
             cross_fs_targets_skipped: 0,
             cross_fs_targets_copied: 0,
         };
-        let after = reclassify_after_unify(state, &outcome);
+        let after = reclassify_after_unify(state, &outcome, ollama);
 
         let inode_ol = after.hash_state.inodes.get(&(ollama, "m".to_string()));
         let inode_hf = after.hash_state.inodes.get(&(hf, "m".to_string()));
@@ -269,7 +288,7 @@ mod tests {
             cross_fs_targets_skipped: 0,
             cross_fs_targets_copied: 0,
         };
-        let after = reclassify_after_unify(state, &outcome);
+        let after = reclassify_after_unify(state, &outcome, ollama);
 
         assert_eq!(
             after.hash_state.inodes, pre_inodes,
@@ -342,7 +361,7 @@ mod tests {
             cross_fs_targets_skipped: 0,
             cross_fs_targets_copied: 0,
         };
-        let after = reclassify_after_unify(state, &outcome);
+        let after = reclassify_after_unify(state, &outcome, ollama);
 
         let new_dedup_able = after.dedup_summary.dedup_able_bytes.unwrap_or(0);
         let delta = pre_dedup_able.saturating_sub(new_dedup_able);

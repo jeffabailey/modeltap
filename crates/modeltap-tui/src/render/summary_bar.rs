@@ -68,11 +68,23 @@ pub fn summary_text(state: &AppState) -> String {
         }
         _ => dedup_segment,
     };
+    // AC-U6.4 (step 05-03): the summary bar surfaces the cross-tool unified
+    // group count so post-unify state is observable in the same single line
+    // the user already reads for Total/Disk/Dedup-able. The value is read
+    // from `state.dedup_summary.unified_count` — the same source the
+    // `[All Unified]` synthetic-slot badge uses (AC-CONS-2 single source of
+    // truth). Pre-hash (None) the segment is omitted to avoid showing a
+    // misleading `Unified: 0` while hashing is still in flight.
+    let unified_segment = state
+        .dedup_summary
+        .unified_count
+        .map(|n| format!(" | Unified: {}", n));
     let base = format!(
-        "Total: {} models | Disk: {} | {}",
+        "Total: {} models | Disk: {} | {}{}",
         total_models(state),
         format_size(total_disk_bytes(state)),
         dedup_with_delta,
+        unified_segment.unwrap_or_default(),
     );
     if state.refresh_failed_tools.is_empty() {
         base

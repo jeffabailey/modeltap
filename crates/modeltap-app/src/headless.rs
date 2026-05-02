@@ -523,7 +523,13 @@ fn apply_effect(
         // `state.dedup_summary` via the canonical
         // `logic::dedup::dedup_summary`, and sets `summary_delta` for the
         // transient "(was X)" annotation. Pure call — no I/O, no async.
-        *state = reclassify::reclassify_after_unify(std::mem::take(state), &outcome);
+        // The canonical tool is passed explicitly because
+        // `actions::unify::run` does NOT include it in `tools_unified`
+        // (no link is performed for the canonical itself); without it the
+        // reclassify pass would leave the canonical's inode entry on its
+        // pre-unify (distinct) inode and the row glyph would stay `=`.
+        *state =
+            reclassify::reclassify_after_unify(std::mem::take(state), &outcome, plan.canonical.tool);
 
         let last_action = build_unify_last_action(&outcome, target_name);
         let (next, _) = update(std::mem::take(state), Msg::SetLastAction(last_action));

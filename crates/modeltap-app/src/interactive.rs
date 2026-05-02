@@ -535,7 +535,16 @@ fn apply_effect(
         ));
 
         // Reclassify pure step BEFORE SetLastAction (per step 01-11 spec).
-        *state = reclassify::reclassify_after_unify(std::mem::take(state), &outcome);
+        // Canonical tool is passed explicitly — `actions::unify::run` omits
+        // it from `tools_unified` (no link performed for the canonical
+        // itself); without it, the reclassify pass would not rewrite the
+        // canonical's inode entry and the dedup recompute would still see
+        // distinct inodes (row glyph stays `=` instead of flipping to `#`).
+        *state = reclassify::reclassify_after_unify(
+            std::mem::take(state),
+            &outcome,
+            plan.canonical.tool,
+        );
 
         let last_action = build_unify_last_action(&outcome, target_name);
         let (next, _) = update(std::mem::take(state), Msg::SetLastAction(last_action));

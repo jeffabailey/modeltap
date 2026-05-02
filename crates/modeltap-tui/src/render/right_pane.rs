@@ -156,8 +156,32 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let block = Block::default().borders(Borders::ALL).title(title);
     let inner_area = block.inner(area);
     frame.render_widget(block, area);
+
+    // US-06 post-action banner: structured 2-line header + body, drawn at
+    // the TOP of the inner area. AC-U6.3 (step 05-03): the model list must
+    // remain visible BELOW the banner so the per-row dedup glyph (`=`/`#`)
+    // stays observable post-action — earlier the list was rendered across
+    // the FULL inner_area and the banner overdrew the first 2 rows, hiding
+    // the only model row in single-row tools (the partial-unify acceptance
+    // test then could not see the `=` glyph at all). Slice 2 rows for the
+    // banner and render the list into the remaining area.
+    let banner_height: u16 = if state.last_action.is_some() && inner_area.height >= 2 {
+        2
+    } else {
+        0
+    };
+    let list_area = if banner_height > 0 {
+        Rect::new(
+            inner_area.x,
+            inner_area.y + banner_height,
+            inner_area.width,
+            inner_area.height.saturating_sub(banner_height),
+        )
+    } else {
+        inner_area
+    };
     let widget = List::new(rows);
-    frame.render_widget(widget, inner_area);
+    frame.render_widget(widget, list_area);
 
     // Scroll-position indicator in the bottom-right corner. Format:
     // "<selected+1>/<total>". Only rendered when there are rows.
@@ -172,13 +196,8 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         }
     }
 
-    // US-06 post-action banner: structured 2-line header + body, drawn at
-    // the TOP of the inner area so it appears above the model list (per
-    // the Step-5 mockup in journey-cleanup-and-unify-visual.md). Pure-
-    // structured rendering via `render::last_action`; the right pane only
-    // owns the layout slice.
     if let Some(action) = &state.last_action {
-        if inner_area.height >= 2 {
+        if banner_height >= 2 {
             let banner_area = Rect::new(inner_area.x, inner_area.y, inner_area.width, 2);
             last_action::render(frame, banner_area, action);
         }
