@@ -75,6 +75,12 @@ crossterm = { workspace = true }
 # SHA-256 streaming (per ADR-002, US-13).
 sha2 = { workspace = true }
 
+# Background SHA256 hash pool — cooperative cancellation primitive (ADR-013).
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# Background SHA256 hash pool — worker count default = num_cpus.min(4) (ADR-013).
+num_cpus = "1"
+
 [dev-dependencies]
 assert_cmd = { workspace = true }
 predicates = { workspace = true }

@@ -10,6 +10,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod hash_pool;
 pub mod inventory_build;
 pub mod lsof_adapter;
 pub mod platform;
