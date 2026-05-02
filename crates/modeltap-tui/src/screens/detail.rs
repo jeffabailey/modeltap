@@ -168,13 +168,7 @@ fn build_body_lines(state: &DetailScreenState) -> Vec<Line<'static>> {
     )));
     lines.push(Line::from(""));
     lines.push(Line::from("Registrations:"));
-    for reg in &state.registrations {
-        lines.push(Line::from(format!(
-            "  {}: {}",
-            reg.tool,
-            reg.path.display()
-        )));
-    }
+    append_inode_groups(&mut lines, &state.registrations);
     lines.push(Line::from(""));
 
     let status = state.status();
@@ -195,6 +189,75 @@ fn build_body_lines(state: &DetailScreenState) -> Vec<Line<'static>> {
         )));
     }
     lines
+}
+
+/// Append the per-inode group view of `regs` to `lines` (US-U9 inode proof).
+///
+/// Grouping rules:
+/// - When every registration has the SAME `Some(inode)` → render a single
+///   "Shared inode N:" header followed by the indented paths (AC-U9.1).
+/// - Otherwise → group registrations by `Some(inode)`; for each group render
+///   an "Inode N:" header followed by the indented paths (AC-U9.2). Groups
+///   are emitted in first-seen order so the layout is deterministic across
+///   runs.
+/// - Any registration whose inode is `None` (filesystem could not stat the
+///   path) renders a single "inode: <not available on this filesystem>" line
+///   labeled with the tool + path, so the user still sees the registration
+///   exists but understands why no inode group is shown (AC-U9.4).
+fn append_inode_groups(lines: &mut Vec<Line<'static>>, regs: &[DetailRegistration]) {
+    let known: Vec<&DetailRegistration> = regs.iter().filter(|r| r.inode.is_some()).collect();
+    let unknown: Vec<&DetailRegistration> = regs.iter().filter(|r| r.inode.is_none()).collect();
+
+    // Detect the "all share one inode" branch — the unified-across-tools case.
+    let single_shared_inode: Option<u64> = match known.first().and_then(|r| r.inode) {
+        Some(first) if known.iter().all(|r| r.inode == Some(first)) && unknown.is_empty() => {
+            Some(first)
+        }
+        _ => None,
+    };
+
+    if let Some(inode) = single_shared_inode {
+        lines.push(Line::from(format!("  Shared inode {}:", inode)));
+        for reg in &known {
+            lines.push(Line::from(format!(
+                "    {}: {}",
+                reg.tool,
+                reg.path.display()
+            )));
+        }
+        return;
+    }
+
+    // Multi-inode (or mixed-known/unknown) view: emit one "Inode N:" group
+    // per distinct known inode in first-seen order.
+    let mut seen_inodes: Vec<u64> = Vec::new();
+    for reg in &known {
+        if let Some(ino) = reg.inode {
+            if !seen_inodes.contains(&ino) {
+                seen_inodes.push(ino);
+            }
+        }
+    }
+    for ino in &seen_inodes {
+        lines.push(Line::from(format!("  Inode {}:", ino)));
+        for reg in known.iter().filter(|r| r.inode == Some(*ino)) {
+            lines.push(Line::from(format!(
+                "    {}: {}",
+                reg.tool,
+                reg.path.display()
+            )));
+        }
+    }
+
+    // Any registration whose inode could not be determined renders the
+    // informational text without crashing (AC-U9.4 graceful-degradation).
+    for reg in &unknown {
+        lines.push(Line::from(format!(
+            "  {}: {} (inode: <not available on this filesystem>)",
+            reg.tool,
+            reg.path.display()
+        )));
+    }
 }
 
 // ---------------------------------------------------------------------------

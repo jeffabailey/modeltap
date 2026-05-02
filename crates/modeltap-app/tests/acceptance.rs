@@ -45,4 +45,5 @@ mod acceptance {
     pub mod us_u6_post_unify_no_restart;
     pub mod us_u7_all_unified_pseudo_slot;
     pub mod us_u8_all_unified_empty_state;
+    pub mod us_u9_detail_inode_proof;
 }
