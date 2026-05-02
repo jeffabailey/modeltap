@@ -40,6 +40,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use modeltap_core::domain::dedup_glyph::DedupGlyph;
 use modeltap_core::domain::RowIndicator;
 use modeltap_core::logic::compatibility::{
     compute_indicator, Inventory, InventoryEntry, PluginCapabilityMap,
@@ -144,7 +145,14 @@ fn awq_model_gets_red_bang_indicator_paired_with_symbol() {
 
     // Render: the row's first character is `!` AND the indicator span
     // carries Style::default().fg(Color::Red) — paired with the symbol.
-    let line = render_row_basic("TheBloke/foo-AWQ", 7_000_000_000, result, &[], false);
+    let line = render_row_basic(
+        "TheBloke/foo-AWQ",
+        7_000_000_000,
+        result,
+        &[],
+        DedupGlyph::Pending,
+        false,
+    );
     let glyph_span = &line.spans[0];
     assert_eq!(
         glyph_span.content.as_ref(),
@@ -172,6 +180,7 @@ fn awq_model_preserves_bang_symbol_under_no_color() {
         7_000_000_000,
         RowIndicator::FormatLocked,
         &[],
+        DedupGlyph::Pending,
         true, // no_color
     );
     let glyph_span = &line.spans[0];
@@ -293,7 +302,14 @@ fn empty_accepted_formats_produces_unknown_indicator_not_format_locked() {
     );
 
     // Render through render_row_basic — the row's first character is `?`.
-    let line = render_row_basic("mystery-model", 1_000_000_000, result, &[], false);
+    let line = render_row_basic(
+        "mystery-model",
+        1_000_000_000,
+        result,
+        &[],
+        DedupGlyph::Pending,
+        false,
+    );
     let glyph_span = &line.spans[0];
     assert_eq!(
         glyph_span.content.as_ref(),

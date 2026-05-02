@@ -2,7 +2,14 @@
 //! "Models in <tool> (<count>, <total> GB)" and a scroll-position indicator
 //! "<selected+1>/<total>" rendered in the bottom-right corner.
 
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
 use modeltap_core::domain::{classify_by_presence, other_tools_by_presence, ToolPresence};
+use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
+use modeltap_core::logic::dedup::{compute_dedup_glyph, InodeMap, ModelKey};
+use modeltap_core::types::{DisplayLabel, Format, ModelStatus};
+use modeltap_core::{DiscoveredModel, ToolId};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
@@ -38,6 +45,47 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             model_ids: t.model_ids.clone(),
         })
         .collect();
+
+    // Build a transient `Inventory` for the dedup-glyph classifier (step 01-05).
+    // Every entry has `content_hash: None` because the hash pool has not yet
+    // been wired (lands in step 01-07). With no hashes, `compute_dedup_glyph`
+    // returns `Pending` for every row, which is the correct first-paint state.
+    // After 01-07 wires real hashes the same call site will start producing
+    // `Hashing`/`Unique`/`DedupAble`/`AlreadyUnified`/`Failed`.
+    let dedup_inventory = build_dedup_inventory(state);
+    // No inode map and no in-progress/failed hashes at first paint. The
+    // hash-pool wiring (01-07) will populate these.
+    let dedup_inodes: InodeMap = InodeMap::default();
+    let in_progress: BTreeSet<ModelKey> = state
+        .hash_state
+        .in_progress
+        .iter()
+        .flat_map(|id| {
+            // Map each id-string to all (tool, id) keys that match across the
+            // current inventory. The hash-pool design (data-models.md) keys by
+            // raw id-string only; the classifier wants (tool, id). When the
+            // pool lands in 01-07 this set will be re-keyed as ModelKey
+            // upstream and this conversion will go away.
+            dedup_inventory
+                .entries
+                .iter()
+                .filter(move |e| &e.model.id_in_tool == id)
+                .map(|e| (e.tool, e.model.id_in_tool.clone()))
+        })
+        .collect();
+    let failed_keys: BTreeSet<ModelKey> = state
+        .hash_state
+        .failed
+        .iter()
+        .flat_map(|id| {
+            dedup_inventory
+                .entries
+                .iter()
+                .filter(move |e| &e.model.id_in_tool == id)
+                .map(|e| (e.tool, e.model.id_in_tool.clone()))
+        })
+        .collect();
+
     let no_color = no_color_active();
 
     // Visible window for rows.
@@ -54,7 +102,16 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
                 let size = tool.model_sizes_bytes.get(i).copied().unwrap_or(0);
                 let indicator = classify_by_presence(id, &inventory);
                 let also_in = other_tools_by_presence(id, tool.tool, &inventory);
-                let mut line = render_row_basic(id, size, indicator, &also_in, no_color);
+                let dedup = dedup_glyph_for_row(
+                    tool.tool,
+                    id,
+                    size,
+                    &dedup_inventory,
+                    &dedup_inodes,
+                    &in_progress,
+                    &failed_keys,
+                );
+                let mut line = render_row_basic(id, size, indicator, &also_in, dedup, no_color);
                 if i == state.selected_row {
                     let mut style = Style::default().add_modifier(Modifier::REVERSED);
                     if state.focus == FocusPane::Right {
@@ -117,5 +174,76 @@ fn format_size(bytes: u64) -> String {
         format!("{:.1} MB", bytes as f64 / MB as f64)
     } else {
         format!("{} B", bytes)
+    }
+}
+
+/// Build a transient `Inventory` from `state.real_tools_iter()` for the
+/// dedup-glyph classifier. Every entry has `content_hash: None` because the
+/// hash pool does not exist yet (lands in step 01-07). The render path
+/// recomputes this each frame; performance is fine because rows are bounded
+/// by `state.visible_rows` and tools are typically O(4).
+///
+/// We synthesize a thin `DiscoveredModel` per (tool, id, size) — only the
+/// fields the classifier inspects are populated; the rest get sensible
+/// defaults. When step 02-05 plumbs the real `DiscoveredModel` through to the
+/// right pane this synthesis can be deleted.
+fn build_dedup_inventory(state: &AppState) -> Inventory {
+    let mut entries: Vec<InventoryEntry> = Vec::new();
+    for view in state.real_tools_iter() {
+        for (idx, id) in view.model_ids.iter().enumerate() {
+            let size = view.model_sizes_bytes.get(idx).copied().unwrap_or(0);
+            entries.push(InventoryEntry {
+                tool: view.tool,
+                model: DiscoveredModel {
+                    id_in_tool: id.clone(),
+                    on_disk_path: PathBuf::new(),
+                    size_bytes: size,
+                    format: Format::Other,
+                    display_label: DisplayLabel::from(id.as_str()),
+                    status: ModelStatus::Healthy,
+                },
+                content_hash: None,
+            });
+        }
+    }
+    Inventory { entries }
+}
+
+/// Find the `InventoryEntry` for `(tool, id)` in `inventory` and run the
+/// dedup-glyph classifier on it. Returns `DedupGlyph::Pending` if the entry
+/// is not present (defensive — should not happen because we built the
+/// inventory from the same `state.real_tools_iter()`).
+fn dedup_glyph_for_row(
+    tool: ToolId,
+    id: &str,
+    size: u64,
+    inventory: &Inventory,
+    inodes: &InodeMap,
+    in_progress: &BTreeSet<ModelKey>,
+    failed: &BTreeSet<ModelKey>,
+) -> modeltap_core::DedupGlyph {
+    if let Some(entry) = inventory
+        .entries
+        .iter()
+        .find(|e| e.tool == tool && e.model.id_in_tool == id)
+    {
+        compute_dedup_glyph(entry, inventory, inodes, in_progress, failed)
+    } else {
+        // Fallback: synthesize a one-off entry. Pre-hash this still resolves
+        // to Pending. The branch only triggers if the dedup-inventory and the
+        // visible-row iteration disagree, which should be impossible.
+        let entry = InventoryEntry {
+            tool,
+            model: DiscoveredModel {
+                id_in_tool: id.to_string(),
+                on_disk_path: PathBuf::new(),
+                size_bytes: size,
+                format: Format::Other,
+                display_label: DisplayLabel::from(id),
+                status: ModelStatus::Healthy,
+            },
+            content_hash: None,
+        };
+        compute_dedup_glyph(&entry, inventory, inodes, in_progress, failed)
     }
 }
