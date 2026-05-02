@@ -4,12 +4,12 @@
 //! `Inventory`; updated by `update::update()`. The view function in
 //! `render::*` reads `&AppState` and writes ratatui widgets.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::domain::synthetic_slot::LeftPaneSlot;
-use modeltap_core::{DedupSummary, ToolId, ToolStatus};
+use modeltap_core::{ContentHash, DedupSummary, ToolId, ToolStatus};
 
 use crate::dialogs::cross_fs_choice::CrossFsChoiceDialog;
 pub use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsDecision, CrossFsMode};
@@ -93,6 +93,17 @@ pub struct HashPoolState {
     pub in_progress: BTreeSet<String>,
     /// Model ids whose hash failed. Drives the `-` + `!` decorator.
     pub failed: BTreeSet<String>,
+    /// Per-row SHA256 cache populated by `Msg::HashComputed`. Read by the
+    /// render-data assembly layer when building the `Inventory` argument to
+    /// `compute_dedup_glyph` and `dedup_summary` so a row's classification
+    /// reflects the just-computed hash without a re-discover. `BTreeMap` for
+    /// deterministic iteration order.
+    pub completed_hashes: BTreeMap<(ToolId, String), ContentHash>,
+    /// Per-row `(device, inode)` cache populated by `Msg::HashComputed`.
+    /// Same role as `completed_hashes` but for inode equality — feeds the
+    /// `InodeMap` argument that distinguishes `AlreadyUnified` (`#`) from
+    /// `DedupAble` (`=`).
+    pub inodes: BTreeMap<(ToolId, String), (u64, u64)>,
 }
 
 impl HashPoolState {
@@ -253,6 +264,13 @@ pub struct AppState {
     /// ~5 s after a successful unify; cleared by `Msg::SummaryDeltaExpired`.
     /// Step 01-03 never sets a non-`None` value.
     pub summary_delta: Option<SummaryDelta>,
+
+    /// Transient `(tool, model_id)` highlight applied by the renderer for
+    /// ~1 s after `Msg::UnifyHighlighted`. Cleared by
+    /// `Msg::UnifyHighlightExpired` (the composition root dispatches this
+    /// when the 1 s timer fires; lands in 01-08). Step 01-06 introduces the
+    /// field; render integration lands in a later step.
+    pub unify_highlight: Option<(ToolId, String)>,
 }
 
 impl Default for AppState {
@@ -279,6 +297,7 @@ impl Default for AppState {
             hash_state: HashPoolState::default(),
             dedup_summary: DedupSummary::default(),
             summary_delta: None,
+            unify_highlight: None,
         }
     }
 }
@@ -320,6 +339,7 @@ impl AppState {
             hash_state: HashPoolState::default(),
             dedup_summary: DedupSummary::default(),
             summary_delta: None,
+            unify_highlight: None,
         }
     }
 

@@ -7,12 +7,33 @@
 
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::logic::plan::UnifyPlan;
-use modeltap_core::ToolId;
+use modeltap_core::{ContentHash, ToolId};
 
 use crate::app_state::ToolView;
 use crate::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use crate::dialogs::running_tool_prompt::RunningToolDialog;
+use crate::effects::unify_outcome::UnifyOutcome;
 use crate::screens::detail::DetailScreenState;
+
+/// Reason a hash-pool worker reported a failure for a given (tool, model_id).
+/// Carried inside `Msg::HashFailed` so the renderer / observability layer can
+/// distinguish read errors from cancellation. Per BR-3 the classifier treats
+/// every failure mode identically (Unique sentinel + `!` decorator) — this
+/// taxonomy is for diagnostics only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HashFailureReason {
+    /// Read error / permission / EIO. The string is the underlying message
+    /// captured at the worker boundary (no chained source — pool workers
+    /// flatten errors before crossing the channel).
+    Io(String),
+    /// Pool was shut down before the hash completed (tear-down on quit /
+    /// rediscover). Not a true I/O failure; surfaced separately so the
+    /// observability layer does not log it as an error.
+    Cancelled,
+    /// Fallback bucket for failure modes that do not fit the above (panics
+    /// caught at the worker boundary, future taxonomy entries).
+    Other(String),
+}
 
 /// All the messages that can drive `update()`. Step 01-03 covers keyboard
 /// navigation; later steps add discovery-progress, action-completion, and
@@ -236,6 +257,71 @@ pub enum Msg {
     /// the original action despite the missing safety check (the user has
     /// acknowledged it).
     RunningToolProceedAnyway,
+
+    // -----------------------------------------------------------------------
+    // Step 01-06 — hash pool + unify completion (cross-tool-model-unify).
+    //
+    // The composition root spawns the background SHA256 hash pool (lands in
+    // 01-07) which dispatches these variants asynchronously. The pure update
+    // handlers mutate `state.hash_state` and recompute `state.dedup_summary`
+    // so the per-row dedup glyph and summary bar reflect the new
+    // classification. NFR: the recompute is a full pass; per-affected-key
+    // optimization is OUT OF SCOPE for v1.
+    // -----------------------------------------------------------------------
+    /// Composition root dispatches this when the hash pool assigns a worker
+    /// to a model. `update()` inserts `model_id` into
+    /// `state.hash_state.in_progress` so the renderer shows the `~` glyph.
+    HashStarted {
+        tool: ToolId,
+        model_id: String,
+    },
+    /// Composition root dispatches this when a worker successfully computes
+    /// a SHA256 hash. `update()` removes the model from `in_progress`,
+    /// increments `completed`, stores the hash + (device, inode) in the
+    /// hash-pool's caches, and recomputes `state.dedup_summary` (full pass).
+    HashComputed {
+        tool: ToolId,
+        model_id: String,
+        hash: ContentHash,
+        device: u64,
+        inode: u64,
+    },
+    /// Composition root dispatches this when a worker fails to compute a
+    /// SHA256 hash (read error, cancellation, etc.). Per BR-3 the
+    /// classifier treats failed entries as Unique with the `!` decorator
+    /// — carried by `state.hash_state.failed`. `update()` increments
+    /// `completed` (the worker IS done — just unsuccessfully) and
+    /// recomputes `state.dedup_summary`.
+    HashFailed {
+        tool: ToolId,
+        model_id: String,
+        reason: HashFailureReason,
+    },
+    /// 250ms throttled tick from the hash pool — only used to trigger a
+    /// re-render so updated `(completed/total)` counters are visible. Pure
+    /// state-noop; the renderer reads `state.hash_state` on its own.
+    HashProgressTick,
+    /// Composition root dispatches this when `actions::unify::run` returns.
+    /// `update()` refreshes the inode map for the affected `(tool, model_id)`
+    /// pairs so all of them now point at the canonical's inode, recomputes
+    /// `state.dedup_summary`, and sets `state.summary_delta = Some(...)` for
+    /// the transient "(was X GB)" right-pane footer.
+    UnifyApplied(UnifyOutcome),
+    /// Composition root dispatches this when the 5-second `summary_delta`
+    /// timer fires (lands in 01-08). `update()` clears `state.summary_delta`
+    /// to `None` so the "(was X GB)" annotation disappears.
+    SummaryDeltaExpired,
+    /// Composition root dispatches this immediately after a successful unify
+    /// to give the just-unified row a brief visual highlight (~1 s). The
+    /// renderer reads `state.unify_highlight` and applies a reverse-video
+    /// style. Cleared by `Msg::UnifyHighlightExpired`.
+    UnifyHighlighted {
+        tool: ToolId,
+        model_id: String,
+    },
+    /// Composition root dispatches this when the ~1s highlight timer fires.
+    /// `update()` clears `state.unify_highlight` to `None`.
+    UnifyHighlightExpired,
 
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,

@@ -52,6 +52,7 @@ fn dedup_able_renders_computing_while_hashing_in_flight() {
         completed: 2,
         in_progress: BTreeSet::new(),
         failed: BTreeSet::new(),
+        ..HashPoolState::default()
     };
     // Even if a stale Some(_) value were carried, the in-flight branch wins.
     state.dedup_summary = DedupSummary {
@@ -76,6 +77,7 @@ fn dedup_able_renders_zero_bytes_when_some_zero_and_complete() {
         completed: 3,
         in_progress: BTreeSet::new(),
         failed: BTreeSet::new(),
+        ..HashPoolState::default()
     };
     state.dedup_summary = DedupSummary {
         dedup_able_bytes: Some(0),
@@ -103,6 +105,7 @@ fn dedup_able_renders_formatted_bytes_when_some_nonzero() {
         completed: 4,
         in_progress: BTreeSet::new(),
         failed: BTreeSet::new(),
+        ..HashPoolState::default()
     };
     state.dedup_summary = DedupSummary {
         dedup_able_bytes: Some(2_500_000_000),
@@ -146,6 +149,7 @@ fn refresh_failed_suffix_preserved_with_computing_branch() {
         completed: 1,
         in_progress: BTreeSet::new(),
         failed: BTreeSet::new(),
+        ..HashPoolState::default()
     };
     state.refresh_failed_tools.insert(ToolId("ollama"));
 
@@ -170,6 +174,7 @@ fn refresh_failed_suffix_preserved_with_formatted_dedup() {
         completed: 2,
         in_progress: BTreeSet::new(),
         failed: BTreeSet::new(),
+        ..HashPoolState::default()
     };
     state.dedup_summary = DedupSummary {
         dedup_able_bytes: Some(750_000_000),

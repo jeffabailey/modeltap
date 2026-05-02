@@ -15,6 +15,7 @@
 
 pub mod app_state;
 pub mod dialogs;
+pub mod effects;
 pub mod keymap;
 pub mod layout;
 pub mod msg;

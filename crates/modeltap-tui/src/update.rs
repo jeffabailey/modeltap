@@ -4,15 +4,24 @@
 //! mutation of inputs, no clocks. The composition root interprets the
 //! returned `UpdateEffect` (write JSONL events, exit, dispatch zap-all, etc.).
 
-use modeltap_core::logic::plan::UnifyPlan;
-use modeltap_core::ToolId;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
-use crate::app_state::{AppState, FocusPane, Screen};
+use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
+use modeltap_core::logic::dedup::{dedup_summary, InodeMap, ModelKey};
+use modeltap_core::logic::plan::UnifyPlan;
+use modeltap_core::{
+    DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId,
+};
+
+use crate::app_state::{AppState, FocusPane, Screen, SummaryDelta};
 use crate::dialogs::cross_fs_choice::{CrossFsChoice, CrossFsChoiceDialog};
 use crate::dialogs::delete_one_confirm::{DeleteOneConfirmState, DeleteOneDecision};
 use crate::dialogs::running_tool_prompt::{PendingGatedAction, RunningToolDialog};
 use crate::dialogs::unify_confirm::{UnifyDecision, UnifyDialogState};
 use crate::dialogs::zap_confirm::{ZapConfirmState, ZapDecision};
+use crate::effects::unify_outcome::UnifyOutcome;
 use crate::msg::Msg;
 
 /// Side-effects the composition root must perform after this update. The
@@ -253,8 +262,185 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         Msg::RunningToolRetry => decide_running_tool(state, RunningToolKey::Retry),
         Msg::RunningToolCancel => decide_running_tool(state, RunningToolKey::Cancel),
         Msg::RunningToolProceedAnyway => decide_running_tool(state, RunningToolKey::ProceedAnyway),
+        // ----- Step 01-06: hash pool + unify completion ---------------------
+        Msg::HashStarted { tool: _, model_id } => {
+            (apply_hash_started(state, model_id), UpdateEffect::default())
+        }
+        Msg::HashComputed {
+            tool,
+            model_id,
+            hash,
+            device,
+            inode,
+        } => (
+            apply_hash_computed(state, tool, model_id, hash, device, inode),
+            UpdateEffect::default(),
+        ),
+        Msg::HashFailed {
+            tool: _,
+            model_id,
+            reason: _,
+        } => (apply_hash_failed(state, model_id), UpdateEffect::default()),
+        Msg::HashProgressTick => (state, UpdateEffect::default()),
+        Msg::UnifyApplied(outcome) => (apply_unify_outcome(state, outcome), UpdateEffect::default()),
+        Msg::SummaryDeltaExpired => (
+            AppState {
+                summary_delta: None,
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        Msg::UnifyHighlighted { tool, model_id } => (
+            AppState {
+                unify_highlight: Some((tool, model_id)),
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
+        Msg::UnifyHighlightExpired => (
+            AppState {
+                unify_highlight: None,
+                ..state
+            },
+            UpdateEffect::default(),
+        ),
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Step 01-06 — pure hash-pool / unify completion handlers.
+//
+// These helpers mutate `state.hash_state` and recompute
+// `state.dedup_summary` via the canonical `logic::dedup::dedup_summary` so
+// the per-row glyph (compute_dedup_glyph) and the summary bar agree on the
+// classification. The recompute is a full pass per the v1 spec — per-affected
+// key incremental reclassification is OUT OF SCOPE for v1 (perf path).
+// ---------------------------------------------------------------------------
+
+/// Insert `model_id` into `hash_state.in_progress`. The renderer reads this
+/// set to display the `~` glyph for actively-hashing rows.
+fn apply_hash_started(mut state: AppState, model_id: String) -> AppState {
+    state.hash_state.in_progress.insert(model_id);
+    state
+}
+
+/// Record a successful hash computation: drop from `in_progress`, advance
+/// `completed`, persist `(hash, device, inode)` for later glyph + summary
+/// computation, then recompute `state.dedup_summary` via a full pass over the
+/// derived inventory. Edge case: when `model_id` was never in `in_progress`
+/// (out-of-order Started/Completed delivery), this still records the outcome
+/// — the BTreeSet `remove` is a no-op for absent keys.
+fn apply_hash_computed(
+    mut state: AppState,
+    tool: ToolId,
+    model_id: String,
+    hash: modeltap_core::ContentHash,
+    device: u64,
+    inode: u64,
+) -> AppState {
+    state.hash_state.in_progress.remove(&model_id);
+    state.hash_state.completed = state.hash_state.completed.saturating_add(1);
+    let key = (tool, model_id.clone());
+    state.hash_state.completed_hashes.insert(key.clone(), hash);
+    state.hash_state.inodes.insert(key, (device, inode));
+    state.dedup_summary = recompute_dedup_summary(&state);
+    state
+}
+
+/// Record a failed hash computation: drop from `in_progress`, add to
+/// `failed`, advance `completed`. Per BR-3 (conservative-when-uncertain) the
+/// classifier treats failed entries as Unique with the `!` decorator — the
+/// recompute therefore omits any contribution from this row. Idempotent
+/// w.r.t. `failed` set membership; `completed` is also guarded against
+/// double-increment by checking the set BEFORE adding.
+fn apply_hash_failed(mut state: AppState, model_id: String) -> AppState {
+    state.hash_state.in_progress.remove(&model_id);
+    let was_new_failure = state.hash_state.failed.insert(model_id);
+    if was_new_failure {
+        state.hash_state.completed = state.hash_state.completed.saturating_add(1);
+    }
+    state.dedup_summary = recompute_dedup_summary(&state);
+    state
+}
+
+/// Apply a unify outcome: refresh the inode map for every affected pair so
+/// they all point at the canonical inode, capture the previous
+/// `dedup_able_bytes` for the transient "(was X GB)" footer, then recompute
+/// `state.dedup_summary` with the new inode map.
+///
+/// "Canonical inode" is derived as: the inode currently recorded in
+/// `hash_state.inodes` for the FIRST entry of `outcome.affected` that has a
+/// recorded inode. This mirrors the unify planner's canonical-selection
+/// (ADR-002) — every other affected pair is rewritten to that same `(device,
+/// inode)`. Pairs without any recorded inode are left untouched (the unify
+/// would not have proceeded for an un-stat'd row).
+fn apply_unify_outcome(mut state: AppState, outcome: UnifyOutcome) -> AppState {
+    let previous_dedup_able_bytes = state.dedup_summary.dedup_able_bytes.unwrap_or(0);
+
+    let canonical_inode = outcome
+        .affected
+        .iter()
+        .find_map(|key| state.hash_state.inodes.get(key).copied());
+
+    if let Some(canonical) = canonical_inode {
+        for key in &outcome.affected {
+            state.hash_state.inodes.insert(key.clone(), canonical);
+        }
+    }
+
+    state.dedup_summary = recompute_dedup_summary(&state);
+    state.summary_delta = Some(SummaryDelta {
+        previous_dedup_able_bytes,
+        expires_at: Instant::now() + Duration::from_secs(5),
+    });
+    state
+}
+
+/// Build a synthetic `Inventory` + `InodeMap` from the current `AppState`
+/// and call the canonical `logic::dedup::dedup_summary`. The synthetic
+/// inventory mirrors `state.real_tools_iter()` (each `ToolView` row becomes
+/// one `InventoryEntry`); per-row `content_hash` is read from
+/// `hash_state.completed_hashes`. The `InodeMap` is `hash_state.inodes`
+/// converted to the `ModelKey` shape.
+///
+/// `hashing_done` is `state.hash_state.is_complete()`. Per the
+/// `dedup_summary` contract, while not done the function returns
+/// `DedupSummary::default()` (all `None` — "computing...").
+fn recompute_dedup_summary(state: &AppState) -> modeltap_core::DedupSummary {
+    let mut entries: Vec<InventoryEntry> = Vec::new();
+    for view in state.real_tools_iter() {
+        for (idx, id_in_tool) in view.model_ids.iter().enumerate() {
+            let size_bytes = view
+                .model_sizes_bytes
+                .get(idx)
+                .copied()
+                .unwrap_or(0);
+            let key = (view.tool, id_in_tool.clone());
+            let content_hash = state.hash_state.completed_hashes.get(&key).copied();
+            entries.push(InventoryEntry {
+                tool: view.tool,
+                model: DiscoveredModel {
+                    id_in_tool: id_in_tool.clone(),
+                    on_disk_path: PathBuf::new(),
+                    size_bytes,
+                    format: Format::Other,
+                    display_label: DisplayLabel::from(id_in_tool.as_str()),
+                    status: ModelStatus::Healthy,
+                },
+                content_hash,
+            });
+        }
+    }
+    let inventory = Inventory { entries };
+
+    let mut inodes: InodeMap = HashMap::new();
+    for ((tool, id_in_tool), devino) in &state.hash_state.inodes {
+        let key: ModelKey = (*tool, id_in_tool.clone());
+        inodes.insert(key, *devino);
+    }
+
+    dedup_summary(&inventory, &inodes, state.hash_state.is_complete())
 }
 
 /// Toggle the layered help overlay (US-08). When `current_screen` is anything
