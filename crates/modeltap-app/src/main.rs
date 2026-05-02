@@ -250,20 +250,22 @@ fn resolve_terminal_cols(headless: bool) -> u16 {
 /// sorts alphabetically and lands the default selection on the first
 /// installed tool.
 ///
-/// Step 04-02 (cross-tool-model-unify) lands the renderer infrastructure
-/// for the `[All Unified]` synthetic slot (`render::all_unified` module +
-/// `right_pane` dispatch + `AppState::append_all_unified_slot` helper).
-/// Per the step's "no v1 regressions" gate, the actual slot population
-/// is deferred to 04-03 (alongside the us_u7 acceptance scenarios that
-/// drive the navigation contract; that step also updates the v1
-/// us_03 wrap-cycle assertion to acknowledge the new 5th slot).
+/// Step 04-03 (cross-tool-model-unify) wires the `[All Unified]` synthetic
+/// slot into the live `AppState`. The slot is appended AFTER every real tool
+/// (per ADR-014 ordering); navigation, render dispatch, and badge-count
+/// derivation were already in place from steps 04-01 and 04-02. The us_u7
+/// acceptance suite (now unignored) drives the contract; the v1 us_03
+/// wrap-cycle assertion was updated in lockstep to acknowledge the new
+/// 5th slot.
 fn build_app_state(summary: &InventorySummary) -> AppState {
     let tools: Vec<ToolView> = summary
         .outcomes
         .iter()
         .map(plugin_outcome_to_view)
         .collect();
-    AppState::new_with_default_selection(tools)
+    let mut state = AppState::new_with_default_selection(tools);
+    state.append_all_unified_slot();
+    state
 }
 
 /// Stable string label for a `Format` variant. Used in JSONL events; the TUI

@@ -1,16 +1,16 @@
-//! Acceptance scaffold for US-U7: `[All Unified]` pseudo-tool slot in left pane.
+//! Acceptance tests for US-U7: `[All Unified]` pseudo-tool slot in left pane.
 //!
 //! Per `docs/feature/cross-tool-model-unify/distill/features/master-acceptance.feature`
-//! tagged `@us-u7`. AC-U7.1..AC-U7.6.
+//! tagged `@us-u7`. AC-U7.1..AC-U7.6 + AC-CONS-2.
 //!
-//! These RED tests fail today because:
-//!   - `domain::synthetic_slot::SyntheticSlot::AllUnified` does not yet
-//!     exist (per data-models.md "domain::synthetic_slot NEW").
-//!   - `AppState.left_pane_slots` (replacing `tools`) is not yet refactored
-//!     (per ADR-014 "heterogeneous left-pane slot enum").
-//!   - `render::all_unified` does not yet exist (per component-boundaries.md).
-//!
-//! REMOVE #[ignore] in DELIVER step when each scenario goes green.
+//! Wired green at step 04-03:
+//!   - `domain::synthetic_slot::SyntheticSlot::AllUnified` exists.
+//!   - `AppState::append_all_unified_slot` appends a synthetic slot at the
+//!     end of `left_pane_slots` (called from `build_app_state` in main.rs).
+//!   - `render::all_unified` renders the right-pane filtered view.
+//!   - `render::left_pane::format_synthetic_row` derives the badge count from
+//!     the SAME `collect_unified_rows` source as the right-pane footer
+//!     (AC-CONS-2 single source of truth).
 //!
 //! Tags: @us-u7 @cross-artifact
 
@@ -98,12 +98,66 @@ fn build_pre_unified_two_tool(temp: &TempDir) -> (PathBuf, PathBuf) {
     (ollama_dir, hf_home)
 }
 
+/// Scrape the integer N out of `Unified: N models` in the right-pane footer.
+/// Returns None when the footer is not present.
+fn scrape_footer_unified_count(frame: &str) -> Option<u64> {
+    for line in frame.lines() {
+        // The footer reads:
+        //   `Unified: N models | Total reclaimed by unification: ...`
+        if let Some(rest) = line.split_once("Unified:").map(|(_, r)| r) {
+            let trimmed = rest.trim_start();
+            let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
+            if !digits.is_empty() {
+                if let Ok(n) = digits.parse::<u64>() {
+                    return Some(n);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Scrape the integer N out of `[All Unified] (N)` in the left pane.
+/// Returns None when the badge has not been wired (or shows `(?)`).
+fn scrape_badge_count(frame: &str) -> Option<u64> {
+    for line in frame.lines() {
+        if let Some(idx) = line.find("[All Unified]") {
+            let after = &line[idx + "[All Unified]".len()..];
+            // Look for `(N)` immediately after the slot label (single space).
+            let after = after.trim_start();
+            if let Some(stripped) = after.strip_prefix('(') {
+                let digits: String =
+                    stripped.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if !digits.is_empty() {
+                    if let Ok(n) = digits.parse::<u64>() {
+                        return Some(n);
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Count the number of right-pane rows whose body lines begin with the
+/// All-Unified row format. We use the `<size>  N tools  saves <…>` shape as
+/// the discriminator: every row in the All-Unified view contains the literal
+/// substring " tools  saves " (two spaces around "tools" per `format_row`).
+fn count_unified_rows(frame: &str) -> u64 {
+    let mut n: u64 = 0;
+    for line in frame.lines() {
+        if line.contains(" tools  saves ") {
+            n = n.saturating_add(1);
+        }
+    }
+    n
+}
+
 // ---------------------------------------------------------------------------
 // AC-U7.1: slot present in left pane below real tools.
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U7 RED — DELIVER must add SyntheticSlot::AllUnified to left pane"]
 fn all_unified_slot_appears_in_left_pane_below_real_tools() {
     let temp = tempfile::tempdir().expect("tempdir");
     let (ollama, hf) = build_pre_unified_two_tool(&temp);
@@ -119,22 +173,89 @@ fn all_unified_slot_appears_in_left_pane_below_real_tools() {
         "AC-U7.1: left pane must include '[All Unified]' slot, got:\n{}",
         frame
     );
+    // AC-U7.1 ordering: the synthetic slot must appear AFTER every real tool
+    // slot. We assert the slot label appears below at least one real tool
+    // identifier (e.g. "ollama") in the rendered frame's line order.
+    let lines: Vec<&str> = frame.lines().collect();
+    let pos_all_unified = lines
+        .iter()
+        .position(|l| l.contains("[All Unified]"))
+        .expect("[All Unified] line position");
+    let pos_ollama = lines
+        .iter()
+        .position(|l| l.contains("ollama"))
+        .expect("ollama row position");
+    assert!(
+        pos_all_unified > pos_ollama,
+        "AC-U7.1: [All Unified] must appear BELOW the real tool rows; \
+         all_unified at line {}, ollama at line {}, frame:\n{}",
+        pos_all_unified,
+        pos_ollama,
+        frame
+    );
 }
 
 // ---------------------------------------------------------------------------
-// AC-U7.2 + AC-U7.6: badge count agrees with summary bar.
+// AC-U7.2 + AC-U7.6 + AC-CONS-2: badge count agrees with right-pane footer
+// AND with the count of `#`-glyph rows. Single source of truth invariant.
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U7 RED — DELIVER must drive AllUnified.count from dedup_summary.unified_count"]
 fn all_unified_badge_matches_summary_bar_unified_count() {
-    panic!(
-        "AC-U7.2 + AC-U7.6 + AC-CONS-2 — DELIVER must wire \
-         SyntheticSlot::AllUnified.count from the same DedupSummary.\
-         unified_count that drives the summary bar's 'Unified: N'. Test \
-         (after wait-for-hashing): scrape badge '(N)' from left pane and \
-         'Unified: N' from summary bar; assert they are equal AND equal to \
-         the count of '#' rows."
+    let temp = tempfile::tempdir().expect("tempdir");
+    let (ollama, hf) = build_pre_unified_two_tool(&temp);
+    let (mut cmd, _temp) = modeltap_headless_at(&ollama, &hf);
+    // Wait for hashing so the dedup classifier has the data it needs, then
+    // navigate onto the [All Unified] slot to surface the right-pane footer.
+    //
+    // Slot order (alphabetical by ToolId): ["Atomic Chat", "hf",
+    // "lm-studio", "ollama", "[All Unified]"]. Default selection lands on
+    // the first INSTALLED tool. With this fixture, ollama and hf are
+    // installed; "hf" is the alphabetically-first installed tool (idx=1).
+    // Three `<right>` keystrokes advance from idx=1 to idx=4 ([All Unified]).
+    let script = "<hash-complete><right><right><right>q";
+    let assert = cmd
+        .env("MODELTAP_HEADLESS_INPUT", script)
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success();
+    let frame = frame_text(&String::from_utf8_lossy(&assert.get_output().stdout));
+
+    let badge = scrape_badge_count(&frame).unwrap_or_else(|| {
+        panic!(
+            "AC-U7.2 + AC-CONS-2: badge `[All Unified] (N)` must show a numeric \
+             count after <hash-complete>; got frame:\n{}",
+            frame
+        )
+    });
+    let footer = scrape_footer_unified_count(&frame).unwrap_or_else(|| {
+        panic!(
+            "AC-U7.6: right-pane footer `Unified: N models | ...` must be \
+             present after navigating to [All Unified]; got frame:\n{}",
+            frame
+        )
+    });
+    let row_count = count_unified_rows(&frame);
+
+    assert_eq!(
+        badge, footer,
+        "AC-CONS-2: badge count ({}) must equal right-pane footer count \
+         ({}); frame:\n{}",
+        badge, footer, frame
+    );
+    assert_eq!(
+        badge, row_count,
+        "AC-CONS-2: badge count ({}) must equal the number of unified rows \
+         ({}) rendered in the right pane; frame:\n{}",
+        badge, row_count, frame
+    );
+    // Sanity: the pre-unified two-tool fixture has exactly one shared inode
+    // → exactly one unified group.
+    assert_eq!(
+        badge, 1,
+        "AC-U7.2: pre-unified two-tool fixture has one shared inode, \
+         expected badge count 1; got {} in frame:\n{}",
+        badge, frame
     );
 }
 
@@ -143,14 +264,71 @@ fn all_unified_badge_matches_summary_bar_unified_count() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U7 RED — DELIVER must add render::all_unified for filtered right pane"]
 fn selecting_all_unified_slot_filters_right_pane_to_hash_rows() {
-    panic!(
-        "AC-U7.3 — DELIVER must wire: navigation onto SyntheticSlot::\
-         AllUnified causes the right-pane render to dispatch to render::\
-         all_unified (per component-boundaries.md). Test (after wait-for-\
-         hashing + navigation): right-pane row count equals dedup_summary.\
-         unified_count; every visible row corresponds to a '#'-glyph model."
+    let temp = tempfile::tempdir().expect("tempdir");
+    let (ollama, hf) = build_pre_unified_two_tool(&temp);
+    let (mut cmd, _temp) = modeltap_headless_at(&ollama, &hf);
+    let script = "<hash-complete><right><right><right>q";
+    let assert = cmd
+        .env("MODELTAP_HEADLESS_INPUT", script)
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success();
+    let frame = frame_text(&String::from_utf8_lossy(&assert.get_output().stdout));
+
+    // Right-pane title indicates dispatch to render::all_unified.
+    assert!(
+        frame.contains("[All Unified]"),
+        "AC-U7.3: navigating onto the [All Unified] slot must dispatch the \
+         right pane to render::all_unified (title `[All Unified]`); got \
+         frame:\n{}",
+        frame
+    );
+    // AC-U7.3 row-count invariant: every visible body row corresponds to a
+    // `#`-glyph (already-unified) model. The header `Models in [All Unified]
+    // (N)` advertises N rows; every row line carries " tools  saves ".
+    let header_count = {
+        // Scrape N out of `Models in [All Unified] (N)` — separate from the
+        // left-pane badge so a regression in either does not silently mask
+        // the other.
+        let mut found: Option<u64> = None;
+        for line in frame.lines() {
+            if let Some(idx) = line.find("Models in [All Unified]") {
+                let after = &line[idx + "Models in [All Unified]".len()..];
+                let after = after.trim_start();
+                if let Some(stripped) = after.strip_prefix('(') {
+                    let digits: String =
+                        stripped.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    if !digits.is_empty() {
+                        if let Ok(n) = digits.parse::<u64>() {
+                            found = Some(n);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        found
+    }
+    .unwrap_or_else(|| {
+        panic!(
+            "AC-U7.3: right-pane header `Models in [All Unified] (N)` must \
+             be present; got frame:\n{}",
+            frame
+        )
+    });
+    let row_count = count_unified_rows(&frame);
+    assert_eq!(
+        header_count, row_count,
+        "AC-U7.3: right-pane header advertises {} rows but {} body rows are \
+         visible; frame:\n{}",
+        header_count, row_count, frame
+    );
+    assert_eq!(
+        row_count, 1,
+        "AC-U7.3: pre-unified two-tool fixture has one shared inode → \
+         exactly one row in the [All Unified] view; got {} in frame:\n{}",
+        row_count, frame
     );
 }
 
@@ -160,13 +338,74 @@ fn selecting_all_unified_slot_filters_right_pane_to_hash_rows() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U7 RED — DELIVER must emit collect_unified_rows + footer total"]
 fn all_unified_view_row_format_and_footer_aggregates_totals() {
-    panic!(
-        "AC-U7.4 + AC-U7.5 — DELIVER must implement core::logic::dedup::\
-         collect_unified_rows (per data-models.md). Test asserts: each \
-         row shows name + size + 'N tools' + 'saves <bytes>', and the \
-         right-pane footer shows 'Unified: N models | Total reclaimed by \
-         unification: <SUM>' where SUM equals the sum of per-row 'saves'."
+    let temp = tempfile::tempdir().expect("tempdir");
+    let (ollama, hf) = build_pre_unified_two_tool(&temp);
+    let (mut cmd, _temp) = modeltap_headless_at(&ollama, &hf);
+    let script = "<hash-complete><right><right><right>q";
+    let assert = cmd
+        .env("MODELTAP_HEADLESS_INPUT", script)
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success();
+    let frame = frame_text(&String::from_utf8_lossy(&assert.get_output().stdout));
+
+    // AC-U7.4: at least one body row contains the row format
+    // `<name>  <size>  N tools  saves <bytes>`. The pre-unified fixture has
+    // a 4096-byte payload shared by 2 tools → "2 tools" + "saves 4096 B".
+    assert!(
+        frame.contains("2 tools"),
+        "AC-U7.4: row body must include 'N tools' (here N=2); got frame:\n{}",
+        frame
+    );
+    assert!(
+        frame.contains("saves "),
+        "AC-U7.4: row body must include 'saves <bytes>'; got frame:\n{}",
+        frame
+    );
+    // The shared payload size is 4096 bytes (sub-MB) → format_size renders
+    // as "4096 B"; saves_bytes = (2-1) * 4096 = 4096 → also "4096 B".
+    assert!(
+        frame.contains("4096 B"),
+        "AC-U7.4: shared 4096-byte payload must render as '4096 B' for both \
+         size and saves columns; got frame:\n{}",
+        frame
+    );
+
+    // AC-U7.5: footer aggregates totals — `Unified: N models | Total
+    // reclaimed by unification: <SUM>`. SUM equals the sum of per-row
+    // 'saves'. With one row and saves=4096, the total is also '4096 B'.
+    let footer_count = scrape_footer_unified_count(&frame).unwrap_or_else(|| {
+        panic!(
+            "AC-U7.5: footer `Unified: N models | ...` must be present; \
+             got frame:\n{}",
+            frame
+        )
+    });
+    assert_eq!(
+        footer_count, 1,
+        "AC-U7.5: footer should report 1 unified model for this fixture; \
+         got {} in frame:\n{}",
+        footer_count, frame
+    );
+    assert!(
+        frame.contains("Total reclaimed by unification:"),
+        "AC-U7.5: footer must include 'Total reclaimed by unification:'; \
+         got frame:\n{}",
+        frame
+    );
+    // The per-row saves sum equals the footer total. With one row at
+    // 4096 B saves, the total reclaimed must be '4096 B'. Assert the
+    // footer line carries that exact substring AFTER the marker so we do
+    // not accidentally match the row's saves field.
+    let footer_line = frame
+        .lines()
+        .find(|l| l.contains("Total reclaimed by unification:"))
+        .expect("footer line");
+    assert!(
+        footer_line.contains("4096 B"),
+        "AC-U7.5: footer total must equal sum of per-row saves (4096 B); \
+         got footer line: {}",
+        footer_line
     );
 }

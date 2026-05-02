@@ -169,27 +169,26 @@ fn right_arrow_switches_to_next_tool() {
     let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
     let frame = frame_text(&stdout);
 
-    // After Right Arrow, the next tool's header is shown. Tool order in the
-    // left pane is alphabetical by ToolId. Capital letters sort BEFORE
-    // lowercase in ASCII, so the order is:
-    //   "Atomic Chat", "hf", "lm-studio", "ollama".
+    // After Right Arrow, the next slot's header is shown. Left-pane slot
+    // order is alphabetical by ToolId for real tools, then the synthetic
+    // `[All Unified]` slot is appended last (US-U7, step 04-03):
+    //   "Atomic Chat", "hf", "lm-studio", "ollama", "[All Unified]".
     // Default selection lands on the alphabetically-first INSTALLED tool
-    // (ollama, the only installed tool here); Right Arrow wraps from
-    // position 3 to position 0 → "Atomic Chat".
+    // (ollama, the only installed tool here, at index 3). Right Arrow
+    // advances by one slot → index 4 → "[All Unified]".
     //
-    // Our representation: after Right Arrow the right-pane header changes
-    // away from "Models in ollama" — observable evidence that the selection
-    // moved.
+    // Observable evidence the selection moved: the right-pane header is no
+    // longer "Models in ollama" and instead shows the [All Unified] view.
     assert!(
         !frame.contains("Models in ollama"),
         "Right Arrow must move selection AWAY from default ollama, got frame:\n{}",
         frame
     );
-    // And lands on the next tool in cycle order — Atomic Chat is now the
-    // alphabetically-first ToolId.
+    // And lands on the next slot in cycle order — the synthetic
+    // [All Unified] slot is now appended after the real tools.
     assert!(
-        frame.contains("Models in Atomic Chat"),
-        "Right Arrow from ollama (last alphabetically) must wrap to Atomic Chat, got frame:\n{}",
+        frame.contains("Models in [All Unified]"),
+        "Right Arrow from ollama must advance to the [All Unified] slot, got frame:\n{}",
         frame
     );
 }
