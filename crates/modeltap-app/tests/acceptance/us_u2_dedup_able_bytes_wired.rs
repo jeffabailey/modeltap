@@ -133,7 +133,6 @@ fn capture_frame(fix: &DuplicateFixture) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U2 RED — DELIVER must wire summary_bar to core::logic::dedup"]
 fn summary_bar_shows_computing_while_hashing_pending() {
     let fix = build_duplicate_fixture();
     let frame = capture_frame(&fix);
@@ -148,7 +147,6 @@ fn summary_bar_shows_computing_while_hashing_pending() {
 }
 
 #[test]
-#[ignore = "US-U2 RED — DELIVER must remove the hardcoded literal at summary_bar.rs:36"]
 fn summary_bar_does_not_show_hardcoded_dedup_able_zero_during_hashing() {
     let fix = build_duplicate_fixture();
     let frame = capture_frame(&fix);
@@ -171,30 +169,39 @@ fn summary_bar_does_not_show_hardcoded_dedup_able_zero_during_hashing() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[ignore = "US-U2 RED — DELIVER must wire dedup_summary aggregate (data-models.md)"]
 fn summary_bar_value_equals_sum_of_dedup_able_row_sizes() {
     let fix = build_duplicate_fixture();
     // The fixture has exactly ONE duplicated model of `payload_size` bytes
     // across 2 tools — so post-hash, dedup_able_bytes == 1 * payload_size
     // (we'd reclaim one of the two copies).
     //
-    // This test will need to drive hashing-to-completion before reading the
-    // bar. The current walking-skeleton harness has no explicit
-    // "wait-for-hashes" token; DELIVER may extend the script tokenizer with
-    // a `<hash-complete>` sentinel (no new env-var seam — same one-line
-    // tokenizer addition flagged in US-U1's WS test).
-    //
-    // Until DELIVER lands, the assertion below is the spec: at the moment
-    // the bar says a non-computing value, that value must equal the
-    // payload size for our two-tool single-duplicate fixture.
-    let _expected_dedup_able = fix.payload_size;
-    let frame = capture_frame(&fix);
-    let _ = frame;
-    panic!(
-        "AC-U2.2 + AC-CONS-1 — DELIVER must add a 'wait-for-hashing' \
-         harness token and assert: summary-bar dedup-able bytes equals the \
-         sum of sizes of '=' rows ({}) for this fixture",
-        fix.payload_size
+    // Step 01-09 added the `<hash-complete>` script sentinel which blocks
+    // until the background hash pool reports completion, so we can
+    // deterministically observe the post-hash summary bar.
+    let (mut cmd, _temp) = modeltap_headless(&fix);
+    let assert = cmd
+        .env("MODELTAP_HEADLESS_INPUT", "<hash-complete>q")
+        .timeout(Duration::from_secs(20))
+        .assert()
+        .success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
+    let frame = frame_text(&stdout);
+    // `format_size(4096)` produces "4096 B" (4096 < 1_000_000 = MB).
+    let expected = format!("Dedup-able: {} B", fix.payload_size);
+    assert!(
+        frame.contains(&expected),
+        "AC-U2.2 + AC-CONS-1: summary-bar dedup-able bytes must equal the \
+         sum of sizes of '=' rows. Expected '{}' for two-tool single-duplicate \
+         fixture (payload_size={}), got frame:\n{}",
+        expected,
+        fix.payload_size,
+        frame
+    );
+    // AC-U2.3: post-hashing the bar must NOT still say "computing..."
+    assert!(
+        !frame.contains("Dedup-able: computing..."),
+        "AC-U2.3: post-hash bar must transition out of 'computing...', got:\n{}",
+        frame
     );
 }
 
@@ -233,7 +240,6 @@ fn build_unique_only_fixture() -> UniqueFixture {
 }
 
 #[test]
-#[ignore = "US-U2 RED — DELIVER must show honest 0 when classifier confirms no duplicates"]
 fn summary_bar_shows_honest_zero_when_no_duplicates_after_hashing() {
     let fix = build_unique_only_fixture();
     let temp = tempfile::tempdir().expect("tempdir for log");
@@ -248,13 +254,25 @@ fn summary_bar_shows_honest_zero_when_no_duplicates_after_hashing() {
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent")
         .env("MODELTAP_ATOMIC_CHAT_DIRS", "/nonexistent")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent")
-        .arg("--quit-after-paint")
-        .timeout(Duration::from_secs(5));
-    let _ = cmd.assert().success();
-    panic!(
-        "AC-U2.5 — DELIVER must extend harness with 'wait-for-hashing' \
-         token; then assert frame contains 'Dedup-able: 0 B' AND status \
-         line shows 'Hashing complete' for a no-duplicates install"
+        .env("MODELTAP_HEADLESS_INPUT", "<hash-complete>q")
+        .timeout(Duration::from_secs(20));
+    let assert = cmd.assert().success();
+    let stdout = String::from_utf8_lossy(&assert.get_output().stdout).to_string();
+    let frame = frame_text(&stdout);
+    // AC-U2.5: with only-unique blobs, post-hash the bar must show an
+    // honest zero ("Dedup-able: 0 B") — NOT the v1 hardcoded literal that
+    // appeared regardless of state, AND NOT the "computing..." placeholder
+    // that should only appear while hashing is in flight.
+    assert!(
+        frame.contains("Dedup-able: 0 B"),
+        "AC-U2.5: bar must show honest 'Dedup-able: 0 B' once hashing \
+         confirms no duplicates, got frame:\n{}",
+        frame
+    );
+    assert!(
+        !frame.contains("Dedup-able: computing..."),
+        "AC-U2.5: post-hash bar must transition out of 'computing...', got:\n{}",
+        frame
     );
 }
 

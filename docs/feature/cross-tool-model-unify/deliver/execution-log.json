@@ -142,6 +142,335 @@
       "s": "EXECUTED",
       "d": "PASS",
       "t": "2026-05-02T01:02:27Z"
+    },
+    {
+      "sid": "01-05",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:16:43Z"
+    },
+    {
+      "sid": "01-05",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: scenario gated by 01-07 hash pool to be deterministic",
+      "t": "2026-05-02T01:16:49Z"
+    },
+    {
+      "sid": "01-05",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:16:54Z"
+    },
+    {
+      "sid": "01-05",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:18:48Z"
+    },
+    {
+      "sid": "01-05",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:18:53Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:23:33Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: gated by 01-07 hash pool spawn + 01-09 harness extension",
+      "t": "2026-05-02T01:23:42Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:25:51Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:32:46Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:32:51Z"
+    },
+    {
+      "sid": "01-07",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:36:27Z"
+    },
+    {
+      "sid": "01-07",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: walking-skeleton activation lands at 01-12; this step builds the standalone hash_pool module only",
+      "t": "2026-05-02T01:36:29Z"
+    },
+    {
+      "sid": "01-07",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:38:10Z"
+    },
+    {
+      "sid": "01-07",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:43:07Z"
+    },
+    {
+      "sid": "01-07",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:43:44Z"
+    },
+    {
+      "sid": "01-08",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:47:47Z"
+    },
+    {
+      "sid": "01-08",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: walking-skeleton scenario @us-u1 requires <hash-complete> harness token (lands in 01-09) and walking-skeleton activation (lands in 01-12)",
+      "t": "2026-05-02T01:47:55Z"
+    },
+    {
+      "sid": "01-08",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T01:50:01Z"
+    },
+    {
+      "sid": "01-08",
+      "p": "GREEN",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: queue.rs regression fixed (25+ panics resolved); 6 acceptance tests still fail with assert_cmd timeout because Runtime drop blocks on in-flight spawn_blocking SHA256 hashing of 12.8GB devon-multi-tool fixture. Fix requires editing files outside dispatch boundary (headless.rs, interactive.rs, or worker.rs) \u2014 orchestrator must redispatch with expanded boundary.",
+      "t": "2026-05-02T02:00:18Z"
+    },
+    {
+      "sid": "01-08",
+      "p": "COMMIT",
+      "s": "SKIPPED",
+      "d": "BLOCKED_BY_DEPENDENCY: GREEN gate not satisfied (6 acceptance tests still failing); per anti-fraud rules cannot commit while cargo test --workspace reports failures. queue.rs + mod.rs fix and prior-dispatch wiring remain in working tree, unstaged.",
+      "t": "2026-05-02T02:00:25Z"
+    },
+    {
+      "sid": "01-08",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:02:26Z"
+    },
+    {
+      "sid": "01-08",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:02:53Z"
+    },
+    {
+      "sid": "01-09",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: walking-skeleton activation lands at 01-12",
+      "t": "2026-05-02T02:05:49Z"
+    },
+    {
+      "sid": "01-09",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:05:54Z"
+    },
+    {
+      "sid": "01-09",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:06:35Z"
+    },
+    {
+      "sid": "01-09",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:09:07Z"
+    },
+    {
+      "sid": "01-09",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:09:28Z"
+    },
+    {
+      "sid": "01-10",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:14:10Z"
+    },
+    {
+      "sid": "01-10",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: end-to-end scenario requires <hash-complete> harness token AND walking-skeleton activation (01-12)",
+      "t": "2026-05-02T02:14:18Z"
+    },
+    {
+      "sid": "01-10",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:16:24Z"
+    },
+    {
+      "sid": "01-10",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:22:46Z"
+    },
+    {
+      "sid": "01-10",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:23:01Z"
+    },
+    {
+      "sid": "01-11",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:27:29Z"
+    },
+    {
+      "sid": "01-11",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: end-to-end scenario gated by walking-skeleton activation (01-12)",
+      "t": "2026-05-02T02:27:39Z"
+    },
+    {
+      "sid": "01-11",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:30:19Z"
+    },
+    {
+      "sid": "01-11",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:36:58Z"
+    },
+    {
+      "sid": "01-11",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:37:15Z"
+    },
+    {
+      "sid": "01-12",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:40:00Z"
+    },
+    {
+      "sid": "01-12",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:40:50Z"
+    },
+    {
+      "sid": "01-12",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: activation step; behavioral coverage comes from the unignored acceptance scenario",
+      "t": "2026-05-02T02:40:51Z"
+    },
+    {
+      "sid": "01-12",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:55:25Z"
+    },
+    {
+      "sid": "01-12",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:57:34Z"
+    },
+    {
+      "sid": "01-12",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T02:57:59Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T16:33:48Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T16:35:06Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: unignore step; behavioral coverage is the unignored acceptance scenarios themselves",
+      "t": "2026-05-02T16:35:08Z"
+    },
+    {
+      "sid": "02-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-02T16:36:49Z"
     }
   ]
 }
