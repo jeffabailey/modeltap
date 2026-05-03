@@ -32,6 +32,11 @@ path = "src/lib.rs"
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
 tempfile = { workspace = true }
+# YAML parsing for the workflow_structure acceptance test (DELIVER step 01-07,
+# US-08 / ADR-010): reads .github/workflows/release.yml and asserts the
+# architectural invariants of the multi-job DAG (validate-tag → build →
+# publish-github-release) plus the C3 CI-parity gate ordering.
+serde_yaml = "0.9"
 
 # One acceptance scenario per [[test]] block. Each block points at the file
 # under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
@@ -65,3 +70,13 @@ path = "acceptance/release_process/lint_workflows.rs"
 [[test]]
 name = "release_process_release_prep"
 path = "acceptance/release_process/release_prep.rs"
+
+# DELIVER step 01-07 — Walking Skeleton workflow-structure assertion
+# (US-08 atomic publish, US-14 line budget, ADR-010 single-workflow DAG).
+# Parses .github/workflows/release.yml and asserts the architectural
+# invariants: tag trigger pattern, jobs.needs DAG, CI parity gate ordering
+# (fmt → clippy → test → build --release), per-job `# Purpose:` comments,
+# and that the file passes `xtask lint-workflows`.
+[[test]]
+name = "release_process_workflow_structure"
+path = "acceptance/release_process/workflow_structure.rs"

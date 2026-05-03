@@ -1,0 +1,155 @@
+name: release
+
+# Tag-triggered release pipeline (ADR-010 — single workflow, multi-job DAG).
+#
+# DELIVER step 01-07 — Walking Skeleton, single platform only
+# (x86_64-unknown-linux-gnu). Multi-arch matrix and tap-bump job land in
+# subsequent steps (01-08 bump-tap-formula, 02-01 multi-arch matrix).
+#
+# Architectural invariants enforced by tests/acceptance/release_process/
+# workflow_structure.rs and `cargo xtask lint-workflows`:
+#   - on.push.tags includes 'v*.*.*'
+#   - jobs.build needs validate-tag
+#   - jobs.publish-github-release needs [validate-tag, build]
+#   - CI parity gates run BEFORE cargo build --release (C3 / US-03)
+#   - every job has a `# Purpose:` comment immediately above its declaration
+#   - file ≤ 250 lines (US-14)
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+# Tag pushes for the same tag must NEVER cancel each other (a re-pushed tag
+# would otherwise abort an in-flight publish). We name the concurrency group
+# by tag so concurrent runs of DIFFERENT tags coexist.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  RUST_BACKTRACE: 1
+
+# SLSA L3 build provenance (US-09) lands in a later step. The `permissions:`
+# block here is the minimum required for the WS jobs: read repo contents and
+# write to GitHub Releases. id-token + attestations write are added when the
+# attest-build-provenance step is wired in.
+permissions:
+  contents: write
+
+jobs:
+  # Purpose: Refuse a tag whose value does not match Cargo.toml workspace.package.version (C1 / US-02 single source of truth).
+  validate-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate tag matches Cargo.toml workspace.package.version
+        run: cargo run --package xtask --quiet -- validate-tag --tag ${GITHUB_REF_NAME}
+
+  # Purpose: Run CI parity gates (fmt, clippy, test) BEFORE producing release artifacts, then build, strip, and tar a single-platform binary plus its sha256 sidecar.
+  build:
+    needs: validate-tag
+    runs-on: ubuntu-latest
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+
+      # ---- CI parity gates (C3 / US-03) -------------------------------------
+      # Order is load-bearing: workflow_structure.rs asserts the indices.
+      # Production builds NEVER run on unverified code.
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace --locked
+      # -----------------------------------------------------------------------
+
+      - name: Compute release version from tag
+        id: version
+        # Strip the leading `v` so VERSION matches Cargo.toml workspace.package.version.
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: cargo build --release
+        run: cargo build --release --package modeltap-app --locked --target "${TARGET}"
+
+      - name: Strip binary
+        run: strip "target/${TARGET}/release/modeltap"
+
+      - name: Package archive and sha256 sidecar
+        # Bare-hex sha256 (NOT GNU two-field format): just 64 hex chars + \n.
+        # End-user verification: `sha256sum -c` is NOT used; the formula reads
+        # the bare-hex content directly.
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.version.outputs.VERSION }}"
+          ARCHIVE="modeltap-${VERSION}-${TARGET}.tar.gz"
+          tar -C "target/${TARGET}/release" -czf "${ARCHIVE}" modeltap
+          sha256sum "${ARCHIVE}" | cut -d' ' -f1 > "${ARCHIVE}.sha256"
+          ls -la "${ARCHIVE}" "${ARCHIVE}.sha256"
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ env.TARGET }}
+          path: |
+            modeltap-*.tar.gz
+            modeltap-*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # Purpose: Publish a GitHub Release with the archive and sha256 sidecar; mark prerelease when the tag contains a hyphen (semver pre-release).
+  publish-github-release:
+    needs: [validate-tag, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Compute release version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract release notes from CHANGELOG.md
+        run: |
+          set -euo pipefail
+          cargo run --package xtask --quiet -- extract-changelog \
+            --version "${{ steps.version.outputs.VERSION }}" \
+            --input CHANGELOG.md \
+            --output RELEASE_NOTES.md
+
+      - name: Determine prerelease flag from tag
+        id: prerelease
+        # Hyphen in the tag (e.g. v0.0.1-rc1) marks a semver pre-release.
+        run: |
+          if [[ "${GITHUB_REF_NAME}" == *-* ]]; then
+            echo "FLAG=--prerelease" >> "$GITHUB_OUTPUT"
+          else
+            echo "FLAG=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file RELEASE_NOTES.md \
+            ${{ steps.prerelease.outputs.FLAG }} \
+            artifacts/modeltap-*.tar.gz \
+            artifacts/modeltap-*.tar.gz.sha256

@@ -817,6 +817,7 @@ version = "0.0.0"
 dependencies = [
  "assert_cmd",
  "predicates",
+ "serde_yaml",
  "tempfile",
 ]
 
