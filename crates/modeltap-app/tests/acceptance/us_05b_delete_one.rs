@@ -197,6 +197,10 @@ fn modeltap_headless_shared(fix: &SharedFixture) -> (Command, TempDir, PathBuf) 
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", &fix.hf_home);
     (cmd, log_dir_temp, log_file)
@@ -217,6 +221,10 @@ fn modeltap_headless_unique(fix: &UniqueFixture) -> (Command, TempDir, PathBuf) 
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
+        )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
         )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf");

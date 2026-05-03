@@ -73,6 +73,10 @@ fn modeltap_headless(ollama_dir: Option<&Path>) -> (Command, TempDir) {
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("HF_HOME", "/nonexistent/no-such-hf-cache");
     if let Some(dir) = ollama_dir {
@@ -287,6 +291,10 @@ fn successful_unify_shows_hardlink_count() {
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
+        )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
         )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
         .env("MODELTAP_HEADLESS_INPUT", "<enter>u<enter>q")

@@ -253,6 +253,7 @@ fn summary_bar_shows_honest_zero_when_no_duplicates_after_hashing() {
         .env("HF_HOME", "/nonexistent")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent")
         .env("MODELTAP_ATOMIC_CHAT_DIRS", "/nonexistent")
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent")
         .env("MODELTAP_HEADLESS_INPUT", "<hash-complete>q")
         .timeout(Duration::from_secs(20));

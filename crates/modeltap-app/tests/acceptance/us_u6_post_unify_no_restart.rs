@@ -38,6 +38,10 @@ fn modeltap_headless_at(ollama: &PathBuf, hf: &PathBuf) -> (Command, TempDir, Pa
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, temp, log_file)
 }
@@ -289,6 +293,10 @@ fn partial_unify_leaves_glyph_as_equals_and_unified_count_unchanged() {
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
+        )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
         )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
 

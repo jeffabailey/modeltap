@@ -35,6 +35,10 @@ fn modeltap_headless_at(ollama_dir: &PathBuf, hf_home: &PathBuf) -> (Command, Te
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, temp)
 }

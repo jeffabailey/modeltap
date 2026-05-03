@@ -64,8 +64,9 @@ fn build_unique_only_fixture() -> UniqueFixture {
 
 /// Build a `Command` configured for headless mode pointing at the unique
 /// fixture's ollama dir; every other tool is wired to a non-existent path so
-/// the only installed tool is ollama and the slot list is
-/// `["ollama", "[All Unified]"]`.
+/// the only installed tool is ollama. The slot list is
+/// `["Atomic Chat", "gpt4all", "hf", "lm-studio", "ollama", "[All Unified]"]`
+/// — ollama is the only one with `is_installed() == true`.
 fn modeltap_headless_unique(fix: &UniqueFixture) -> (Command, TempDir) {
     let temp = tempfile::tempdir().expect("tempdir for log");
     let log_dir = temp.path().join(".modeltap");
@@ -81,6 +82,10 @@ fn modeltap_headless_unique(fix: &UniqueFixture) -> (Command, TempDir) {
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
+        )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, temp)
 }
@@ -93,8 +98,8 @@ fn modeltap_headless_unique(fix: &UniqueFixture) -> (Command, TempDir) {
 /// to index 0 which is the synthetic `[All Unified]` slot is appended last
 /// AFTER the (existing) un-installed real tools, so we still need to navigate
 /// to it. The slot order is alphabetical-by-ToolId then synthetic appended:
-///   ["Atomic Chat", "hf", "lm-studio", "ollama", "[All Unified]"]
-/// → 4 `<right>` keystrokes from idx=0 to idx=4.
+///   ["Atomic Chat", "gpt4all", "hf", "lm-studio", "ollama", "[All Unified]"]
+/// → 5 `<right>` keystrokes from idx=0 to idx=5.
 fn modeltap_headless_empty() -> (Command, TempDir) {
     let temp = tempfile::tempdir().expect("tempdir for log");
     let log_dir = temp.path().join(".modeltap");
@@ -109,6 +114,10 @@ fn modeltap_headless_empty() -> (Command, TempDir) {
         .env(
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
+        )
+        .env(
+            "MODELTAP_GPT4ALL_DIRS",
+            "/nonexistent/no-such-gpt4all",
         )
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, temp)
@@ -131,9 +140,9 @@ fn empty_state_with_hashing_complete_shows_onboarding_guidance() {
     let fix = build_unique_only_fixture();
     let (mut cmd, _log_temp) = modeltap_headless_unique(&fix);
     // Slot order with this fixture (alphabetical by ToolId, synthetic last):
-    //   ["Atomic Chat", "hf", "lm-studio", "ollama", "[All Unified]"]
+    //   ["Atomic Chat", "gpt4all", "hf", "lm-studio", "ollama", "[All Unified]"]
     // Default selection: alphabetically-first INSTALLED tool. Only ollama is
-    // installed (idx=3). One `<right>` keystroke advances to idx=4 ([All
+    // installed (idx=4). One `<right>` keystroke advances to idx=5 ([All
     // Unified]). After `<hash-complete>` the single unique-blob job is
     // complete, so `is_complete() == true` AND `collect_unified_rows` is
     // empty (no duplicates → no unified groups).
@@ -191,16 +200,16 @@ fn empty_state_while_hashing_in_progress_shows_hashing_message() {
     let (mut cmd, _log_temp) = modeltap_headless_empty();
     // No real tool installed → `hash_state.total == 0` and
     // `is_complete() == false` (the predicate requires `total > 0`). Slot
-    // order is the four un-installed real tools followed by the synthetic
-    // `[All Unified]` slot at idx=4. Default selection lands on slot idx=0
+    // order is the five un-installed real tools followed by the synthetic
+    // `[All Unified]` slot at idx=5. Default selection lands on slot idx=0
     // (no tool is `is_installed()` so the constructor falls back to 0).
-    // Four `<right>` keystrokes advance from idx=0 to idx=4.
+    // Five `<right>` keystrokes advance from idx=0 to idx=5.
     //
     // No `<hash-complete>` — the empty install has zero hash jobs queued,
     // so `is_complete()` is permanently false. This is the deterministic
     // shape of "we have not finished checking" that AC-U8.2 forbids
     // collapsing into the "no models" message.
-    let script = "<right><right><right><right>q";
+    let script = "<right><right><right><right><right>q";
     let assert = cmd
         .env("MODELTAP_HEADLESS_INPUT", script)
         .timeout(Duration::from_secs(10))

@@ -1,0 +1,274 @@
+{
+  "feature_id": "gpt4all-plugin",
+  "created_at": "2026-05-01T00:00:00Z",
+  "paradigm": "object-oriented",
+  "mutation_strategy": "per-feature",
+  "context": {
+    "summary": "Add GPT4All as the 5th production plugin in modeltap (joining ollama, hf, lm-studio, atomic-chat). The Tool trait is frozen at 6 methods per ADR-001; no core changes; this slice exercises the US-18 plugin extensibility contract end-to-end on a real-world tool. Sole context document: docs/feature/gpt4all-plugin/discuss/intake-brief.md. DISCUSS / DESIGN / DISTILL waves are deliberately absent for this small plugin add.",
+    "template_plugin": "plugins/atomic-chat/",
+    "plugin_count_after": 5,
+    "intake_brief": "docs/feature/gpt4all-plugin/discuss/intake-brief.md"
+  },
+  "acceptance_criteria_catalog": {
+    "AC-G1.1": "gpt4all slot appears in the left pane (and Healthy in launch.inventory) when at least one default GPT4All dir exists OR MODELTAP_GPT4ALL_DIRS points to an existing dir.",
+    "AC-G1.2": "Each *.gguf file in a configured GPT4All dir produces one DiscoveredModel with id_in_tool = filename, format = Format::Gguf, size_bytes from filesystem metadata, display_label derived from the filename without the .gguf extension.",
+    "AC-G1.3": "When every configured dir is missing, discover() returns DiscoverError::NotInstalled (not Io); modeltap surfaces it as a benign NotInstalled state and gpt4all is NOT in launch.inventory.tool_errors.",
+    "AC-G1.4": "Files that aren't *.gguf (e.g., README.md, .DS_Store, downloads.json) are silently skipped and do not appear in discovery output.",
+    "AC-G1.5": "When BOTH the Python SDK dir (~/.cache/gpt4all) and the desktop GUI dir exist and both contain .gguf files, every file from both locations appears in the gpt4all model list.",
+    "AC-G2.1": "A GPT4All .gguf with the same SHA256 as an Ollama or HF blob is classified DedupAble (=) by the existing dedup engine without any plugin-side change (cross-tool unify path).",
+    "AC-G2.2": "delete_one removes a single targeted .gguf file from disk; delete_all removes every *.gguf from every configured GPT4All dir.",
+    "AC-G3.1": "link() creates a hardlink from the canonical source over the GPT4All target path; on EXDEV (cross-filesystem) it falls back to copy per ADR-008.",
+    "AC-G4.1": "MODELTAP_GPT4ALL_DIRS (colon-separated) overrides the per-OS default dirs entirely (used by acceptance tests with TempDir). Mirrors MODELTAP_ATOMIC_CHAT_DIRS / MODELTAP_LMSTUDIO_DIRS pattern.",
+    "AC-G5.1": "tools_registered in launch.inventory contains exactly 5 names (ollama, hf, lm-studio, Atomic Chat, gpt4all) when the test-fixtures feature is OFF; sorted alphabetically."
+  },
+  "phases": [
+    {
+      "name": "Phase 01 — GPT4All plugin (discovery + mutation + composition + acceptance)",
+      "description": "Single-phase plugin add. Each step is atomic and follows the plugins/atomic-chat shape: a Cargo.toml + src/{lib.rs, paths.rs, config.rs, discover.rs} crate that self-registers via inventory::submit!. The composition root picks it up via an `as _` import. The final step lights the per-AC acceptance file green by construction. This phase is structured so that an early kill (e.g. composition root drift) surfaces in step 01-04, well before the acceptance-test step.",
+      "steps": [
+        {
+          "step_id": "01-01",
+          "name": "Create plugins/gpt4all crate skeleton (Cargo.toml + lib.rs + inventory::submit!)",
+          "description": "Bootstrap the new crate at plugins/gpt4all/. Cargo.toml mirrors plugins/atomic-chat/Cargo.toml (modeltap-core path dep, async-trait, tokio workspace, walkdir, inventory, tracing, dirs, tempfile dev-dep). src/lib.rs declares the Gpt4AllPlugin struct, Tool impl with name() = ToolId(\"gpt4all\"), accepted_formats() = &[Format::Gguf], and stubbed discover/link/delete_one/delete_all returning NotYetImplemented. Single inventory::submit! block at the bottom. The crate compiles and registers but does NOT yet appear in the modeltap-app binary (composition root is wired in step 01-04). Add the crate to the workspace [members] list in /Cargo.toml.",
+          "acceptance_criteria": [],
+          "test_file": "plugins/gpt4all/src/lib.rs",
+          "scenario_line": null,
+          "acceptance_test_scenario": "(no acceptance scenario yet — skeleton only; first behavioral consumer is step 01-02)",
+          "quality_gates": [
+            "cargo build -p modeltap-plugin-gpt4all green",
+            "cargo clippy -p modeltap-plugin-gpt4all -- -D warnings clean",
+            "no unsafe_code (inherited #![forbid(unsafe_code)])"
+          ],
+          "implementation_notes": "Pin the package name as `modeltap-plugin-gpt4all` for naming parity with the four siblings. Pure scaffolding step — every Tool method is `Err(DiscoverError|LinkError|DeleteError::NotYetImplemented(\"...\"))` so the trait bound compiles cleanly. The inventory::submit! block belongs in lib.rs (NOT in a submodule) so a single `use modeltap_plugin_gpt4all as _;` in main.rs forces linker inclusion. Do NOT add the crate to crates/modeltap-app/Cargo.toml yet — that's step 01-04, and keeping it deferred means a typo in this step does not break the workspace test run.",
+          "dependencies": [],
+          "estimated_hours": 1.0,
+          "deliverables": [
+            "plugins/gpt4all/Cargo.toml",
+            "plugins/gpt4all/src/lib.rs"
+          ],
+          "files_to_modify": [
+            "Cargo.toml"
+          ]
+        },
+        {
+          "step_id": "01-02",
+          "name": "Implement default-path resolver and config (env-var override + per-OS defaults)",
+          "description": "Add plugins/gpt4all/src/paths.rs with HostOs enum and default_paths_from_home(os, home) -> Vec<PathBuf> returning BOTH the Python SDK dir (~/.cache/gpt4all) and the desktop GUI dir (~/Library/Application Support/nomic-ai/gpt4all-chat on macOS; ~/.local/share/nomic-ai/gpt4all-chat on Linux/WSL). Add plugins/gpt4all/src/config.rs with from_process_env reading MODELTAP_GPT4ALL_DIRS (colon-separated) and load_config(env) -> Config { search_paths }. Override pattern: env-var present → use exclusively; absent → per-OS defaults. Wire Gpt4AllPlugin::new() to consume load_config and store search_paths.",
+          "acceptance_criteria": [
+            "AC-G4.1"
+          ],
+          "test_file": "plugins/gpt4all/src/paths.rs",
+          "scenario_line": null,
+          "acceptance_test_scenario": "Unit tests in paths.rs cover macOS resolution (both dirs), Linux resolution (both dirs), absent $HOME (empty Vec). Unit tests in config.rs cover env-var-only, defaults-only, env-var-overrides-defaults.",
+          "quality_gates": [
+            "cargo test -p modeltap-plugin-gpt4all paths green",
+            "cargo test -p modeltap-plugin-gpt4all config green",
+            "no clippy warnings"
+          ],
+          "implementation_notes": "Per intake brief storage layout (verified 2026-05-02): always emit BOTH default dirs even when only one exists — discover_in handles the missing-dir case. Mirror plugins/atomic-chat/src/paths.rs structure exactly (HostOs enum, host_os() free function, default_paths_from_home(os, home) pure function, resolve_default_paths() production helper). The env-var override REPLACES defaults (not unions) — simpler than atomic-chat's TOML+env union, and matches MODELTAP_OLLAMA_DIR / MODELTAP_LMSTUDIO_DIRS pattern. No TOML config support in v1 (intake brief makes no mention).",
+          "dependencies": [
+            "01-01"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [
+            "plugins/gpt4all/src/paths.rs",
+            "plugins/gpt4all/src/config.rs"
+          ],
+          "files_to_modify": [
+            "plugins/gpt4all/src/lib.rs"
+          ]
+        },
+        {
+          "step_id": "01-03",
+          "name": "Implement discover() — walk *.gguf files in configured dirs",
+          "description": "Add plugins/gpt4all/src/discover.rs with discover_in(roots: &[PathBuf]) -> Result<Vec<DiscoveredModel>, DiscoverError>. For each existing root, enumerate top-level entries (depth = 1, follow_links = false), filter to *.gguf files (case-insensitive extension match), and emit one DiscoveredModel per file: id_in_tool = filename (with .gguf), on_disk_path = absolute path, size_bytes = std::fs::metadata().len(), format = Format::Gguf, display_label = filename without .gguf extension, status = ModelStatus::Healthy. When NO root exists, return DiscoverError::NotInstalled. Empty existing root → Ok(Vec::new()). Sort by id_in_tool. Wire from Tool::discover via tokio::task::spawn_blocking (per ADR-005, mirroring atomic-chat).",
+          "acceptance_criteria": [
+            "AC-G1.1",
+            "AC-G1.2",
+            "AC-G1.3",
+            "AC-G1.4",
+            "AC-G1.5"
+          ],
+          "test_file": "plugins/gpt4all/src/discover.rs",
+          "scenario_line": null,
+          "acceptance_test_scenario": "Unit tests cover: (1) two .gguf files in one root → 2 models, sorted; (2) all roots missing → NotInstalled; (3) empty existing root → Ok(empty); (4) non-.gguf files (README, .DS_Store, downloads.json) silently skipped; (5) two roots both populated → union of both, sorted; (6) size_bytes matches std::fs::metadata.",
+          "quality_gates": [
+            "cargo test -p modeltap-plugin-gpt4all discover green (≥ 5 unit tests)",
+            "no clippy warnings",
+            "discover never panics on permission-denied entries"
+          ],
+          "implementation_notes": "Simpler than atomic-chat — no manifest layer, no Corrupt status path. Pure flat directory walk. Use walkdir with max_depth(1) (mirrors atomic-chat's pattern) so a stray subdirectory of .gguf files inside the root does NOT recurse. Skip dotfiles by filtering file_name.starts_with('.'). Case-insensitive extension match: file_name.to_ascii_lowercase().ends_with(\".gguf\"). On std::fs::metadata error for an individual file, log via tracing::debug and skip the file (do NOT abort the scan and do NOT emit Corrupt — GPT4All has no manifest concept of corruption). The Tool::discover wrapper around spawn_blocking is identical to atomic-chat.",
+          "dependencies": [
+            "01-02"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [
+            "plugins/gpt4all/src/discover.rs"
+          ],
+          "files_to_modify": [
+            "plugins/gpt4all/src/lib.rs"
+          ]
+        },
+        {
+          "step_id": "01-04",
+          "name": "Wire gpt4all into composition root (Cargo.toml dep + main.rs use _ import)",
+          "description": "Add modeltap-plugin-gpt4all = { path = \"../../plugins/gpt4all\" } to crates/modeltap-app/Cargo.toml [dependencies] (NOT optional). Add `use modeltap_plugin_gpt4all as _;` to crates/modeltap-app/src/main.rs alongside the existing four `as _` plugin imports. Verify via `cargo run --bin modeltap -- --headless --quit-after-paint` that launch.inventory.tools_registered now contains \"gpt4all\" alongside the four existing plugins. No production-code changes beyond these two lines — inventory::iter pickup is automatic.",
+          "acceptance_criteria": [
+            "AC-G1.1",
+            "AC-G5.1"
+          ],
+          "test_file": "crates/modeltap-app/src/main.rs",
+          "scenario_line": null,
+          "acceptance_test_scenario": "After this step, a smoke `cargo run --bin modeltap -- --headless --quit-after-paint --no-default-features` writes a launch.log whose launch.inventory event lists exactly 5 tools_registered: [\"Atomic Chat\", \"gpt4all\", \"hf\", \"lm-studio\", \"ollama\"] (sorted).",
+          "quality_gates": [
+            "cargo build --workspace green",
+            "cargo build -p modeltap-app --no-default-features green (verifies gpt4all loads without test-fixtures feature)",
+            "no clippy warnings",
+            "smoke run writes launch.inventory with 5 tools_registered"
+          ],
+          "implementation_notes": "Two lines in two files. The composition root deliberately knows the static plugin set (per ADR-001); discovery via inventory::iter::<PluginFactory>() picks up the new factory automatically with no main.rs logic change. Add the dep BEFORE the test-fixtures fixture line in Cargo.toml so the production plugin grouping stays contiguous. If existing tests assert `tools_registered.len() == 4` anywhere, they MUST be updated in step 01-06 (architecture-test sweep) — do NOT silently weaken assertions in this step.",
+          "dependencies": [
+            "01-03"
+          ],
+          "estimated_hours": 0.75,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/Cargo.toml",
+            "crates/modeltap-app/src/main.rs"
+          ]
+        },
+        {
+          "step_id": "01-05",
+          "name": "Implement link() / delete_one() / delete_all() and unit-test them",
+          "description": "Replace the NotYetImplemented stubs in src/lib.rs with real implementations. link(canonical_src, model): hardlink canonical_src → model.on_disk_path; on EXDEV, fall back to std::fs::copy per ADR-008; return LinkOutcome with the resolved strategy. delete_one(model): std::fs::remove_file(&model.on_disk_path); return DeleteOutcome with the freed bytes. delete_all(): for each configured root that exists, enumerate *.gguf and remove each; return Vec<DeleteOutcome> in deletion order. All three methods wrap their I/O in tokio::task::spawn_blocking. Add a plugins/gpt4all/tests/mutation_test.rs with unit tests covering: hardlink success, EXDEV fallback to copy (using two tempdirs on same fs is fine — just verify the success path; injecting a real EXDEV in tests is out of scope), delete_one success, delete_one ENOENT → DeleteError::NotFound, delete_all empties the configured dirs.",
+          "acceptance_criteria": [
+            "AC-G2.2",
+            "AC-G3.1"
+          ],
+          "test_file": "plugins/gpt4all/tests/mutation_test.rs",
+          "scenario_line": null,
+          "acceptance_test_scenario": "Unit tests in plugins/gpt4all/tests/mutation_test.rs cover hardlink, delete_one happy path + ENOENT, delete_all clears every configured dir.",
+          "quality_gates": [
+            "cargo test -p modeltap-plugin-gpt4all green",
+            "no clippy warnings",
+            "EXDEV fallback path documented (even if not exercised in tests)"
+          ],
+          "implementation_notes": "Reuse the cross-fs hardlink helper if one already exists in modeltap-core (check `core::fs::hardlink_or_copy` or similar). Otherwise inline the std::fs::hard_link → io::ErrorKind::CrossesDevices match → std::fs::copy fallback per ADR-008. delete_all order: deterministic (sort filenames within each root, then iterate roots in config order) so the JSONL audit trail is reproducible. Do NOT recurse into subdirs in delete_all — GPT4All's storage is flat by design. Errors from individual files in delete_all are surfaced as a DeleteError::Partial { successes, failures } variant if it exists, OR as the first error encountered (match what existing plugins do — quick grep needed at implementation time).",
+          "dependencies": [
+            "01-04"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [
+            "plugins/gpt4all/tests/mutation_test.rs"
+          ],
+          "files_to_modify": [
+            "plugins/gpt4all/src/lib.rs"
+          ]
+        },
+        {
+          "step_id": "01-06",
+          "name": "Sweep architecture-test plugin-count assertions and headless plugin-env carving",
+          "description": "Two coordinated edits: (1) Update any architecture-lint test (likely crates/modeltap-app/tests/architecture.rs) that asserts a plugin count to expect 5 production plugins instead of 4. Search for `tools_registered.len() ==` and `plugin_count` literals across crates/modeltap-app/tests/. (2) Update the `modeltap_headless()` helper in tests/acceptance/us_atomic_chat_discovery.rs (and any other acceptance test that pins ALL plugin env vars to /nonexistent) to also pin MODELTAP_GPT4ALL_DIRS=/nonexistent/no-such-gpt4all so existing tests stay isolated from the developer's real $HOME after this plugin lands.",
+          "acceptance_criteria": [
+            "AC-G5.1"
+          ],
+          "test_file": "crates/modeltap-app/tests/architecture.rs",
+          "scenario_line": null,
+          "acceptance_test_scenario": "After this step, full workspace test (cargo test --workspace) is green: existing US-01..US-20 + US-05b + US-atomic-chat-discovery acceptance tests all pass with the new 5th plugin in place.",
+          "quality_gates": [
+            "cargo test --workspace green",
+            "no clippy warnings",
+            "every prior acceptance test still passes (zero regressions)"
+          ],
+          "implementation_notes": "Run `grep -rn 'tools_registered' crates/modeltap-app/tests/` and `grep -rn '/nonexistent/no-such-' crates/modeltap-app/tests/` to enumerate the surface area. Most likely 1–3 assertion sites + 1–2 env-var helpers. If a test uses a 4-element exact-equality on the sorted tools_registered list, expand to 5 elements with \"gpt4all\" inserted in alphabetical position (between \"Atomic Chat\" and \"hf\"). Do NOT touch test ASSERTIONS that exercise non-plugin-count behavior — keep the diff surgical. If grep finds zero plugin-count assertions, the step still owns the env-var carving change.",
+          "dependencies": [
+            "01-04"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/architecture.rs",
+            "crates/modeltap-app/tests/acceptance/us_atomic_chat_discovery.rs"
+          ]
+        },
+        {
+          "step_id": "01-07",
+          "name": "Add us_gpt4all_discovery acceptance test — green by construction",
+          "description": "Create crates/modeltap-app/tests/acceptance/us_gpt4all_discovery.rs mirroring us_atomic_chat_discovery.rs. Three scenarios: (1) gpt4all_models_are_discovered — fixture with 2 .gguf files in a TempDir, MODELTAP_GPT4ALL_DIRS=tempdir, assert models.log contains 2 entries with tool=\"gpt4all\", format=\"Gguf\", and size_bytes matches the fixture. (2) gpt4all_not_installed_shows_benign_message — MODELTAP_GPT4ALL_DIRS pinned at /nonexistent (default in modeltap_headless helper), assert \"gpt4all\" NOT in launch.inventory.tool_errors and zero models.log entries with tool=\"gpt4all\". (3) gpt4all_two_dirs_both_walked — two TempDirs, each with one .gguf, MODELTAP_GPT4ALL_DIRS=\"dir1:dir2\", assert 2 models surfaced. NO #[ignore] — tests should be green by construction on the back of 01-01..01-06.",
+          "acceptance_criteria": [
+            "AC-G1.1",
+            "AC-G1.2",
+            "AC-G1.3",
+            "AC-G1.4",
+            "AC-G1.5"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_gpt4all_discovery.rs",
+          "scenario_line": null,
+          "acceptance_test_scenario": "Three acceptance scenarios drive the modeltap headless binary against synthetic GPT4All fixtures and assert against launch.log + models.log JSONL events (driven port boundary).",
+          "quality_gates": [
+            "all 3 us_gpt4all_discovery tests green",
+            "no #[ignore] markers",
+            "no clippy warnings",
+            "test runtime < 10s per scenario (timeout matches us_atomic_chat_discovery)"
+          ],
+          "implementation_notes": "Copy us_atomic_chat_discovery.rs verbatim and adapt: replace tool name \"Atomic Chat\" → \"gpt4all\", env var name MODELTAP_ATOMIC_CHAT_DIRS → MODELTAP_GPT4ALL_DIRS, fixture writer to write a flat .gguf file (no model.yml subdir layout), and the third scenario pivots from yml-parse-error to two-dirs-both-walked (since GPT4All has no manifest layer to corrupt). Reuse the modeltap_headless() helper pattern; add MODELTAP_GPT4ALL_DIRS to its env-pin list (already done in 01-06). Add the test module to crates/modeltap-app/tests/acceptance/mod.rs (or whatever the existing module-list mechanism is — follow the us_atomic_chat_discovery precedent exactly).",
+          "dependencies": [
+            "01-05",
+            "01-06"
+          ],
+          "estimated_hours": 1.5,
+          "deliverables": [
+            "crates/modeltap-app/tests/acceptance/us_gpt4all_discovery.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/mod.rs"
+          ]
+        },
+        {
+          "step_id": "01-08",
+          "name": "Add cross-tool dedup acceptance test (gpt4all + ollama same SHA256 → unify)",
+          "description": "Add a single acceptance test crates/modeltap-app/tests/acceptance/us_gpt4all_cross_tool_unify.rs that verifies a GPT4All .gguf and an Ollama blob with identical SHA256 are classified DedupAble (=) by the existing dedup engine and can be unified via the existing actions::unify::run path. Fixture: write the same byte payload to both a TempDir-rooted GPT4All dir AND an Ollama blobs/sha256 dir; pin MODELTAP_GPT4ALL_DIRS and MODELTAP_OLLAMA_DIR; drive headless with --quit-after-paint AND a hash-complete sentinel; assert (a) both rows show the = glyph in the rendered right-pane snapshot OR models.log shows shared dedup_key, and (b) actions::unify::run produces one hardlink (verify via inode equality post-run).",
+          "acceptance_criteria": [
+            "AC-G2.1"
+          ],
+          "test_file": "crates/modeltap-app/tests/acceptance/us_gpt4all_cross_tool_unify.rs",
+          "scenario_line": null,
+          "acceptance_test_scenario": "GPT4All blob with same SHA256 as an Ollama blob is dedup-classified and unifies via the existing flow.",
+          "quality_gates": [
+            "us_gpt4all_cross_tool_unify test green",
+            "no #[ignore] marker",
+            "no clippy warnings",
+            "post-unify inode equality holds (proves hardlink succeeded)"
+          ],
+          "implementation_notes": "Reuse the cross-tool-model-unify hash-complete sentinel (per its roadmap step 01-09) so the test waits deterministically for SHA256 hashing to finish before asserting glyph state. The headless script pattern: '<wait-paint><hash-complete><snapshot-right-pane>' or scripted u-keypress for the unify path. Look at crates/modeltap-app/tests/acceptance/us_u1_walking_skeleton.rs for the exact sentinel syntax and assertion shape. If hash sentinel availability is uncertain, simpler variant: assert via models.log that both GPT4All and Ollama entries share the same dedup_key (computed by the dedup engine), then exit — skip the actual unify run. This step is small but exercises the FULL value proposition of adding GPT4All (cross-tool wins) so it is in-scope, not optional.",
+          "dependencies": [
+            "01-07"
+          ],
+          "estimated_hours": 2.0,
+          "deliverables": [
+            "crates/modeltap-app/tests/acceptance/us_gpt4all_cross_tool_unify.rs"
+          ],
+          "files_to_modify": [
+            "crates/modeltap-app/tests/acceptance/mod.rs"
+          ]
+        }
+      ]
+    }
+  ],
+  "out_of_scope": [
+    "LoRA / adapter file discovery (intake brief: only .gguf in v1)",
+    "Chat history / conversation file surfacing (irrelevant to model storage)",
+    "GPT4All downloads.json metadata cache parsing (filesystem size is sufficient)",
+    "Network probing or remote model catalog calls (discovery is local fs only)",
+    "Native Windows support (WSL only per project constraint #6 in CLAUDE.md)",
+    "[plugins.gpt4all] TOML config section (env var override is sufficient for v1; can be added later if user demand emerges)"
+  ],
+  "validation": {
+    "status": "approved",
+    "reviewed_at": "2026-05-01T00:00:00Z",
+    "reviewer": "auto-approved (small plugin add following established Tool trait contract per ADR-001)",
+    "verdict": "APPROVED",
+    "confidence": "high",
+    "rationale": "Plugin contract is frozen at 6 methods on the Tool trait per ADR-001. Architecture is unchanged. Acceptance scenarios mirror the existing us_atomic_chat_discovery.rs pattern. The plugins/atomic-chat/ template is well-established (newest production plugin, all conventions documented in its source). No DISCUSS/DESIGN/DISTILL waves are needed for this small, well-bounded plugin add. Roadmap follows the standard nw-deliver phase / step / dependency / quality-gate schema."
+  }
+}

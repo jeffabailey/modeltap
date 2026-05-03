@@ -1,0 +1,175 @@
+{
+  "schema_version": "3.0",
+  "feature_id": "gpt4all-plugin",
+  "project_id": "gpt4all-plugin",
+  "events": [
+    {
+      "sid": "01-01",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T02:55:46Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: skeleton step; first acceptance test is step 01-07",
+      "t": "2026-05-03T02:55:51Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: skeleton step with no behavior to test; trait signatures are checked at compile time",
+      "t": "2026-05-03T02:55:57Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T02:57:21Z"
+    },
+    {
+      "sid": "01-01",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T02:57:37Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:02:14Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: pure-function step; first acceptance test is 01-07",
+      "t": "2026-05-03T03:02:19Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:03:28Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:05:11Z"
+    },
+    {
+      "sid": "01-02",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:05:33Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:08:32Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: pure-function step; first acceptance test is 01-07",
+      "t": "2026-05-03T03:08:34Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "RED_UNIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:09:47Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:11:00Z"
+    },
+    {
+      "sid": "01-03",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:11:14Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:12:30Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: composition-root wiring; behavioral coverage from 01-07 acceptance test",
+      "t": "2026-05-03T03:12:33Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: 2-line wiring change with no new pure logic; tests are at 01-07 acceptance level",
+      "t": "2026-05-03T03:12:34Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "FAIL: cargo build --workspace PASS, cargo build -p modeltap-app --no-default-features PASS, cargo clippy --all-targets -- -D warnings PASS, cargo test --workspace = 120 passed/3 failed. All 3 failures are 4->5->6 plugin-count assertions assigned to step 01-06 per spec BOUNDARY_RULES (forbidden to update v1 test assertions in this step). Failing tests: us_18_plugin_trait::architecture_rule_r1_modeltap_core_has_no_concrete_plugin_dependency (registered.len()==5), us_18_plugin_trait::riley_reads_launch_inventory_lists_every_registered_plugin (tools_registered.len()==5), us_u8_all_unified_empty_state::empty_state_while_hashing_in_progress_shows_hashing_message (4x<right> keystroke script targets old [All Unified] idx=4, now at idx=5). Wiring itself verified correct: gpt4all appears in launch.inventory tools_registered list. Blocked-by-01-06 for workspace test pass.",
+      "t": "2026-05-03T03:15:05Z"
+    },
+    {
+      "sid": "01-04",
+      "p": "COMMIT",
+      "s": "EXECUTED",
+      "d": "PASS: commit 557af7c staged Cargo.toml + main.rs (both files_to_modify present, no Fixture Theater) + Cargo.lock (cargo-generated). Commit message follows conventional format with Step-ID: 01-04. Three pre-existing acceptance tests remain failing pending step 01-06 fix per spec BOUNDARY_RULES.",
+      "t": "2026-05-03T03:15:26Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "PREPARE",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:18:00Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "RED_ACCEPTANCE",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: regression-fix step; behavioral coverage from existing acceptance tests post-update",
+      "t": "2026-05-03T03:18:02Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "RED_UNIT",
+      "s": "SKIPPED",
+      "d": "NOT_APPLICABLE: regression-fix step; no new pure logic",
+      "t": "2026-05-03T03:18:03Z"
+    },
+    {
+      "sid": "01-06",
+      "p": "GREEN",
+      "s": "EXECUTED",
+      "d": "PASS",
+      "t": "2026-05-03T03:24:53Z"
+    }
+  ]
+}

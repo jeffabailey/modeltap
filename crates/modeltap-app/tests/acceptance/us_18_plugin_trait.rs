@@ -56,10 +56,14 @@ fn modeltap_headless() -> (Command, TempDir) {
         .env("HF_HOME", "/nonexistent/hf-home")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/lm-studio")
         .env("MODELTAP_LLAMA_CLI_DIRS", "/nonexistent/llama-cli")
-        // Real Atomic Chat plugin (the 5th production plugin); pin its data
+        // Real Atomic Chat plugin (a production plugin); pin its data
         // dir at /nonexistent so it surfaces as NotInstalled and the
         // fixture-only assertions below stay clean.
         .env("MODELTAP_ATOMIC_CHAT_DIRS", "/nonexistent/atomic-chat")
+        // gpt4all plugin (the 5th production plugin); pin its data dir at
+        // /nonexistent so the test isolates from the developer's real
+        // ~/.cache/gpt4all install.
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/gpt4all")
         // Opt INTO the atomic-chat test fixture for the US-18 scenarios.
         // The fixture's `discover()` short-circuits to `NotInstalled` unless
         // this env var is set, so prior acceptance tests (US-02/03/05/...)
@@ -236,13 +240,13 @@ fn architecture_rule_r1_modeltap_core_has_no_concrete_plugin_dependency() {
         .expect("launch.inventory.tools_registered must be an array");
     let registered: Vec<&str> = tools.iter().filter_map(|v| v.as_str()).collect();
 
-    // Production: ollama, hf, lm-studio, "Atomic Chat" (real).
-    // Test fixture: "atomic-chat" (lowercase). 5 total when the
+    // Production: ollama, hf, lm-studio, "Atomic Chat" (real), gpt4all.
+    // Test fixture: "atomic-chat" (lowercase). 6 total when the
     // test-fixtures feature is on.
     assert_eq!(
         registered.len(),
-        5,
-        "expected 5 registered plugins (4 production + 1 fixture), got {registered:?}"
+        6,
+        "expected 6 registered plugins (5 production + 1 fixture), got {registered:?}"
     );
     assert!(
         registered.contains(&"atomic-chat"),
@@ -283,15 +287,15 @@ fn riley_reads_launch_inventory_lists_every_registered_plugin() {
         .expect("launch.inventory.tools_registered must be an array");
     let tool_names: Vec<&str> = tools.iter().filter_map(|v| v.as_str()).collect();
 
-    // 4 production + 1 test fixture = 5. The real Atomic Chat plugin's
+    // 5 production + 1 test fixture = 6. The real Atomic Chat plugin's
     // ToolId is `"Atomic Chat"` (with space, capitalized) and is distinct
-    // from the fixture's `"atomic-chat"`.
+    // from the fixture's `"atomic-chat"`. gpt4all is the 5th production plugin.
     assert_eq!(
         tool_names.len(),
-        5,
+        6,
         "tools_registered must list every registered plugin, got {tool_names:?}"
     );
-    for required in &["Atomic Chat", "atomic-chat", "hf", "lm-studio", "ollama"] {
+    for required in &["Atomic Chat", "atomic-chat", "gpt4all", "hf", "lm-studio", "ollama"] {
         assert!(
             tool_names.contains(required),
             "tools_registered missing {required}, got {tool_names:?}"
