@@ -27,7 +27,9 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod delete;
 pub mod discover;
+pub mod link;
 pub mod paths;
 
 use std::path::{Path, PathBuf};
@@ -60,6 +62,18 @@ impl Gpt4AllPlugin {
         Self {
             search_paths: cfg.search_paths,
         }
+    }
+
+    /// Test-only constructor with explicit search paths. Mirrors the seam
+    /// `AtomicChatPlugin::new_with_search_paths` exposes — used by integration
+    /// tests that need a deterministic root without going through env vars.
+    pub fn new_with_search_paths(search_paths: Vec<PathBuf>) -> Self {
+        Self { search_paths }
+    }
+
+    /// Read-only access to the resolved search paths (for diagnostics/tests).
+    pub fn search_paths(&self) -> &[PathBuf] {
+        &self.search_paths
     }
 }
 
@@ -94,24 +108,49 @@ impl Tool for Gpt4AllPlugin {
 
     async fn link(
         &self,
-        _canonical_src: &Path,
-        _model: &ModelMeta,
+        canonical_src: &Path,
+        model: &ModelMeta,
     ) -> Result<LinkOutcome, LinkError> {
-        Err(LinkError::NotYetImplemented(
-            "gpt4all link arrives in a follow-up step".to_string(),
-        ))
+        // GPT4All's target IS the model's existing on-disk path — flat-file
+        // direct replacement (no manifest, no content-addressing). Per
+        // ADR-005 the hardlink + rename calls are sync, so wrap in
+        // spawn_blocking to avoid stalling the runtime thread.
+        let target = model.on_disk_path.clone();
+        let canonical = canonical_src.to_path_buf();
+        let id = model.id_in_tool.clone();
+        tokio::task::spawn_blocking(move || link::link_at(&canonical, &target, &id))
+            .await
+            .map_err(|join_err| {
+                LinkError::Io(std::io::Error::other(format!(
+                    "gpt4all link task panicked: {join_err}"
+                )))
+            })?
     }
 
-    async fn delete_one(&self, _model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {
-        Err(DeleteError::NotYetImplemented(
-            "gpt4all delete_one arrives in a follow-up step".to_string(),
-        ))
+    async fn delete_one(&self, model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {
+        // Per ADR-005: unlink is sync; wrap in spawn_blocking.
+        let target = model.on_disk_path.clone();
+        let id = model.id_in_tool.clone();
+        tokio::task::spawn_blocking(move || delete::delete_one_at(&target, &id))
+            .await
+            .map_err(|join_err| {
+                DeleteError::Io(std::io::Error::other(format!(
+                    "gpt4all delete_one task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn delete_all(&self) -> Result<Vec<DeleteOutcome>, DeleteError> {
-        Err(DeleteError::NotYetImplemented(
-            "gpt4all delete_all arrives in a follow-up step".to_string(),
-        ))
+        // Per ADR-005: directory walk + unlink loop is sync; wrap in
+        // spawn_blocking. Roots are cloned so the closure owns its inputs.
+        let roots = self.search_paths.clone();
+        tokio::task::spawn_blocking(move || delete::delete_all_at(&roots))
+            .await
+            .map_err(|join_err| {
+                DeleteError::Io(std::io::Error::other(format!(
+                    "gpt4all delete_all task panicked: {join_err}"
+                )))
+            })?
     }
 }
 
