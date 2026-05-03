@@ -10,6 +10,9 @@ members = [
     # 5th REAL production plugin — Atomic Chat (Jan-fork). Validates the US-18
     # plugin extensibility contract live: zero changes to modeltap-core.
     "plugins/atomic-chat",
+    # 6th REAL production plugin — GPT4All (Nomic AI local inference).
+    # Skeleton in step 01-01; composition-root wiring in step 01-04.
+    "plugins/gpt4all",
     # TEST-ONLY 5th-plugin fixture (US-18). Behind `[features] test-fixtures`
     # in modeltap-app so production binaries do NOT link it. Coexists with the
     # real `plugins/atomic-chat` above — the two register distinct ToolIds
