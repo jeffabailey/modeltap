@@ -29,7 +29,16 @@ impl std::str::FromStr for Version {
 pub enum VersionError {
     MissingField,
     ParseFailed(semver::Error),
-    NotMonotonic { current: Version, proposed: Version },
+    NotMonotonic {
+        current: Version,
+        proposed: Version,
+    },
+    /// The git tag the maintainer pushed does not equal `format!("v{version}")`.
+    /// Surfaced by `xtask::tag::assert_tag_matches` (DELIVER step 01-02).
+    TagMismatch {
+        tag: String,
+        version: Version,
+    },
 }
 
 impl std::fmt::Display for VersionError {
@@ -46,6 +55,12 @@ impl std::fmt::Display for VersionError {
                     f,
                     "proposed version {proposed} is not greater than current {current}"
                 )
+            }
+            VersionError::TagMismatch { tag, version } => {
+                // Exact phrasing required by US-02.AC-5 and walking-skeleton.feature
+                // scenario "Validate-tag rejects a tag that does not match the
+                // workspace version".
+                write!(f, "tag {tag} does not match workspace version {version}")
             }
         }
     }

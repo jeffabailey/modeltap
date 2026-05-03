@@ -1,0 +1,41 @@
+# Acceptance-test crate for the release-process feature.
+#
+# Wave: DELIVER (6 of 6) — added in step 01-02 (validate-tag).
+#
+# This crate hosts black-box acceptance tests that drive the `xtask` binary
+# via `cargo run --package xtask -- ...` against fixture Cargo.toml files
+# in tempdirs. It is excluded from default-members so plain `cargo test`
+# from a workspace crate does not transitively run these tests, but
+# `cargo test --workspace` DOES include them (per acceptance-test convention
+# specified in the roadmap).
+#
+# Layout note: the conventional `<crate>/tests/*.rs` integration-test layout
+# would force files to live at `tests/tests/*.rs` (because the crate IS named
+# `tests`). To honour the roadmap-specified file path
+# `tests/acceptance/release_process/validate_tag.rs`, we use explicit `[[test]]`
+# blocks. Each acceptance scenario gets its own block; one block per file.
+
+[package]
+name = "modeltap-acceptance"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Black-box acceptance tests for the modeltap release pipeline (xtask)."
+autotests = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }
+
+# One acceptance scenario per [[test]] block. Each block points at the file
+# under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
+# Cargo prints in test output.
+[[test]]
+name = "release_process_validate_tag"
+path = "acceptance/release_process/validate_tag.rs"

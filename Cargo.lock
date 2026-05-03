@@ -753,6 +753,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "modeltap-acceptance"
+version = "0.0.0"
+dependencies = [
+ "assert_cmd",
+ "predicates",
+ "tempfile",
+]
+
+[[package]]
 name = "modeltap-app"
 version = "0.1.0"
 dependencies = [
@@ -2238,6 +2247,7 @@ dependencies = [
 name = "xtask"
 version = "0.0.0"
 dependencies = [
+ "clap",
  "proptest",
  "semver",
  "toml_edit",

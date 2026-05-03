@@ -18,6 +18,28 @@ members = [
     # real `plugins/atomic-chat` above — the two register distinct ToolIds
     # ("atomic-chat" vs "Atomic Chat").
     "plugins/atomic-chat-fixture",
+    # Build-time tooling crate per ADR-011. Excluded from default-members so
+    # plain `cargo build` / `cargo test` skip it. Invoked via `cargo xtask`
+    # alias (see .cargo/config.toml).
+    "xtask",
+    # Black-box acceptance tests for the release pipeline (xtask). Excluded
+    # from default-members so plain `cargo test` from a runtime crate stays
+    # fast, but `cargo test --workspace` includes it. Added in DELIVER step
+    # 01-02 (validate-tag).
+    "tests",
+]
+# Per ADR-011: enumerate runtime crates so `cargo build` / `cargo test` skip
+# the xtask build-time tool. `cargo build --workspace` still builds everything.
+default-members = [
+    "crates/modeltap-core",
+    "crates/modeltap-tui",
+    "crates/modeltap-app",
+    "plugins/ollama",
+    "plugins/hf",
+    "plugins/lm-studio",
+    "plugins/atomic-chat",
+    "plugins/gpt4all",
+    "plugins/atomic-chat-fixture",
 ]
 
 [workspace.package]

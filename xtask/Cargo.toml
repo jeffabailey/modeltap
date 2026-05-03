@@ -13,6 +13,10 @@ description = "Build-time tooling for modeltap (release-prep, validate-tag, rend
 [dependencies]
 toml_edit = "0.22"
 semver = "1"
+# CLI parsing for the xtask subcommands. Added in DELIVER step 01-02 when the
+# first subcommand (`validate-tag`) graduated from the raw env::args dispatcher
+# in the DISTILL scaffold to a typed clap-derive parser.
+clap = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.4"
