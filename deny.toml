@@ -6,7 +6,14 @@
 
 [advisories]
 yanked = "deny"
-ignore = []
+ignore = [
+    # paste 1.0.15 is unmaintained (author archived dtolnay/paste).
+    # Pulled in transitively by ratatui v0.28.1 only — modeltap does not
+    # depend on paste directly. Unmaintained != vulnerable; ratatui is
+    # tracking the migration upstream. Re-evaluate when ratatui ships a
+    # release that drops paste (likely v0.30 or v1.0).
+    { id = "RUSTSEC-2024-0436", reason = "transitive via ratatui; unmaintained, not vulnerable" },
+]
 
 [licenses]
 allow = [
