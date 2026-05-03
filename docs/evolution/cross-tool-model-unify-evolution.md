@@ -25,7 +25,7 @@ Devon (the persona) can now press `[u]` from the main view on a row marked `=` a
 | Phase 2 — Execute | 26/26 steps full TDD (PREPARE/RED_ACCEPTANCE/RED_UNIT/GREEN/COMMIT) | ✓ |
 | Phase 3 — Refactor | 1 high-value refactor (`format_size` consolidation) | ✓ partial |
 | Phase 4 — Adversarial Review | APPROVED, 0 findings | ✓ |
-| Phase 5 — Mutation | 88.2% kill rate (30 killed / 4 missed / 2 unviable) — gate ≥80% | ✓ |
+| Phase 5 — Mutation | **100% kill rate** (31 killed / 0 missed / 2 unviable) on follow-up; initial run was 88.2% — 4 missed mutants in dedup.rs killed by `be8f3dd` | ✓ |
 | Phase 6 — Integrity Verification | exit 0, all 26 steps audit-clean | ✓ |
 | Phase 7 — Finalize | this document + final commit | (in progress) |
 
@@ -57,13 +57,17 @@ The walking-skeleton scenario `devon_reclaims_disk_by_unifying_a_duplicated_mode
 
 ## Mutation Coverage Notes
 
-4 missed mutants in `crates/modeltap-core/src/logic/dedup.rs`:
+Initial run: 4 missed mutants in `crates/modeltap-core/src/logic/dedup.rs`:
 - `:174:22` (`==` → `!=`) — self-skip in peer matching
 - `:174:37` (`&&` → `||`) — self-skip
 - `:174:62` (`==` → `!=`) — self-skip
 - `:294:42` (`&&` → `||`) — dedup_summary peer matching
 
-Future hardening: add edge-case unit tests for the self-skip + same-tool-skip branches in `compute_dedup_glyph` (e.g., target with same id_in_tool as a peer in a DIFFERENT tool — currently not asserted).
+**Resolved in commit `be8f3dd`** (post-Phase-7 follow-up):
+- The 3 `:174` mutants were dead code — the second consecutive same-tool guard subsumed the self-skip. Collapsed into one guard. Mutants killed by elimination.
+- The `:294` mutant killed by adding `unified_count_requires_at_least_two_entries_with_inode_data` test in `dedup_summary_test.rs` — pins the `entries_with_inode >= 2` requirement so a single inode-bearing entry doesn't falsely count as unified.
+
+Re-run kill rate: **100%** (31/31 viable mutants).
 
 ## Roadmap
 
