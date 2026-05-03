@@ -26,7 +26,10 @@
 
 #![forbid(unsafe_code)]
 
-use std::path::Path;
+pub mod config;
+pub mod paths;
+
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use modeltap_core::{
@@ -41,16 +44,22 @@ pub const TOOL_NAME: ToolId = ToolId("gpt4all");
 
 const ACCEPTED: &[Format] = &[Format::Gguf];
 
-/// The GPT4All plugin instance. Currently holds no state; later steps will
-/// add resolved search paths once `discover()` lands.
-pub struct Gpt4AllPlugin;
+/// The GPT4All plugin instance. Holds the resolved search paths produced by
+/// `config::load_from_process()` at construction time; `discover()` (step
+/// 01-03) will walk these paths.
+pub struct Gpt4AllPlugin {
+    #[allow(dead_code)] // wired into discover() in step 01-03
+    search_paths: Vec<PathBuf>,
+}
 
 impl Gpt4AllPlugin {
-    /// Construct using the production config resolution. Skeleton step has no
-    /// config to resolve yet; later steps will read env + TOML + per-OS
-    /// defaults the way `atomic-chat` does.
+    /// Construct using the production config resolution: reads
+    /// `MODELTAP_GPT4ALL_DIRS` and falls back to per-OS defaults when unset.
     pub fn new() -> Self {
-        Self
+        let cfg = config::load_from_process();
+        Self {
+            search_paths: cfg.search_paths,
+        }
     }
 }
 
