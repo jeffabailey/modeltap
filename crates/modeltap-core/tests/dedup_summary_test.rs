@@ -214,3 +214,44 @@ fn dedup_able_and_already_unified_coexist_in_same_inventory() {
         "(2-1)*4000 from GroupB"
     );
 }
+
+// --- Mutation-coverage hardening ------------------------------------------
+// These tests pin specific branch behaviors that earlier mutation-testing
+// runs flagged as missed. Each test is constructed so the branch's exact
+// boolean structure (`&&` vs `||`, `==` vs `!=`) matters: flipping any of
+// them would change the assertion outcome.
+
+#[test]
+fn unified_count_requires_at_least_two_entries_with_inode_data() {
+    // Two cross-tool entries share a content hash (so they're a candidate
+    // hash-group), but ONLY ONE has inode metadata recorded. The remaining
+    // entry's inode is unknown.
+    //
+    // The current `&& entries_with_inode >= 2` guard requires inode data
+    // from ≥2 entries before claiming a group is "already unified" — without
+    // that evidence the classifier is conservatively silent. Mutating the
+    // `&&` to `||` would let `inodes_seen.len() == 1` alone qualify the
+    // group as unified, which would falsely increment the count below.
+    let inventory = Inventory {
+        entries: vec![
+            entry("ollama", "llama3", "/o/llama3", 1000, Some(h(7))),
+            entry("hf", "llama-3.gguf", "/h/llama3", 1000, Some(h(7))),
+        ],
+    };
+    let mut inodes: InodeMap = HashMap::new();
+    // Only one of the two entries has inode info recorded.
+    inodes.insert(key("ollama", "llama3"), (1, 500));
+
+    let summary = dedup_summary(&inventory, &inodes, true);
+    assert_eq!(
+        summary.unified_count,
+        Some(0),
+        "single inode-bearing entry must not register as unified group; \
+         `entries_with_inode >= 2` is required"
+    );
+    assert_eq!(
+        summary.total_saved_by_unification,
+        Some(0),
+        "no saves can be attributed when the inode evidence is incomplete"
+    );
+}

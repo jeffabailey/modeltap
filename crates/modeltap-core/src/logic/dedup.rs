@@ -171,11 +171,12 @@ pub fn compute_dedup_glyph(
     let mut has_shared_inode_peer = false;
 
     for peer in &inventory.entries {
-        if peer.tool == target.tool && peer.model.id_in_tool == target.model.id_in_tool {
-            continue; // skip self
-        }
+        // Skip every same-tool peer — including self. Cross-tool dedup
+        // classification only considers entries owned by OTHER tools, so
+        // same-tool peers (and the target itself, which has the same tool)
+        // are uniformly excluded with one check.
         if peer.tool == target.tool {
-            continue; // same-tool peers don't drive cross-tool dedup classification
+            continue;
         }
         if !content_hash_matches(target_hash, peer.content_hash) {
             continue;
