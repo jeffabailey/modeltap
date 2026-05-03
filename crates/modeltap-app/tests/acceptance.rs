@@ -27,6 +27,7 @@ mod acceptance {
     pub mod us_19_cross_fs_fallback;
     pub mod us_20_cross_platform;
     pub mod us_atomic_chat_discovery;
+    pub mod us_gpt4all_discovery;
 
     // ---------------------------------------------------------------------
     // cross-tool-model-unify feature (DISTILL artifacts):
