@@ -25,6 +25,7 @@ use xtask::cargo_toml::{parse_workspace_version, Version};
 use xtask::changelog::{extract_section, ChangelogError};
 use xtask::formula::{is_valid_sha256, render, FormulaCtx, TargetEntry};
 use xtask::fs_adapter;
+use xtask::lint::lint as lint_workflow;
 use xtask::tag::assert_tag_matches;
 
 /// Build-time tooling for the modeltap release pipeline.
@@ -103,7 +104,10 @@ fn main() -> ExitCode {
             input,
             output,
         } => run_extract_changelog(&version, &input, &output),
-        Cmd::LintWorkflows { .. } => not_yet_implemented("lint-workflows"),
+        Cmd::LintWorkflows {
+            workflow,
+            max_lines,
+        } => run_lint_workflows(&workflow, max_lines),
     }
 }
 
@@ -195,6 +199,66 @@ fn run_extract_changelog(
     }
 
     ExitCode::SUCCESS
+}
+
+/// `lint-workflows` end-to-end:
+///   1. Read the workflow file via the `fs_adapter` seam.
+///   2. Run the pure `lint::lint` against the text + budget.
+///   3. Decide exit code:
+///        - parse error                    -> exit 2 (usage / input shape)
+///        - over_budget OR missing-purpose -> exit 1 with stderr diagnostic
+///        - clean                          -> exit 0
+///
+/// The diagnostic format on failure surfaces BOTH classes of issue when both
+/// are present, so the maintainer fixes everything in one CI iteration:
+///
+///   ```
+///   xtask lint-workflows: <path>: workflow has 270 lines, exceeds 250-line limit
+///   xtask lint-workflows: <path>: jobs missing `# Purpose:` comment: build, publish
+///   ```
+fn run_lint_workflows(workflow_path: &std::path::Path, max_lines: usize) -> ExitCode {
+    let text = match fs_adapter::read_to_string(workflow_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("xtask lint-workflows: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    let report = match lint_workflow(&text, max_lines) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("xtask lint-workflows: {}: {e}", workflow_path.display());
+            return ExitCode::from(2);
+        }
+    };
+
+    let mut had_failure = false;
+
+    if report.over_budget {
+        eprintln!(
+            "xtask lint-workflows: {}: workflow has {} lines, exceeds {}-line limit",
+            workflow_path.display(),
+            report.line_count,
+            max_lines
+        );
+        had_failure = true;
+    }
+
+    if !report.jobs_missing_purpose.is_empty() {
+        eprintln!(
+            "xtask lint-workflows: {}: jobs missing `# Purpose:` comment: {}",
+            workflow_path.display(),
+            report.jobs_missing_purpose.join(", ")
+        );
+        had_failure = true;
+    }
+
+    if had_failure {
+        ExitCode::from(1)
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// `render-formula` end-to-end:

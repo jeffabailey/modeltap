@@ -49,3 +49,11 @@ path = "acceptance/release_process/extract_changelog.rs"
 [[test]]
 name = "release_process_render_formula"
 path = "acceptance/release_process/render_formula.rs"
+
+# DELIVER step 01-05 — Walking Skeleton lint pure function + lint-workflows CLI
+# wiring (US-14). Three scenarios: valid workflow (exit 0), over-budget (exit
+# non-zero with line-count message), job missing `# Purpose:` comment (exit
+# non-zero identifying the offending job).
+[[test]]
+name = "release_process_lint_workflows"
+path = "acceptance/release_process/lint_workflows.rs"

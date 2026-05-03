@@ -21,6 +21,11 @@ clap = { workspace = true }
 # step 01-04 (render-formula) per ADR-014 (Tera-in-xtask vs inline shell).
 tera = { version = "1.20", default-features = false }
 serde = { workspace = true }
+# YAML parsing for the lint-workflows subcommand. Added in DELIVER step 01-05
+# (lint pure function + CLI wiring, US-14). Used to enumerate top-level
+# `jobs:` keys; the linter then locates each job's source declaration line
+# directly so it can inspect the immediately-preceding `# Purpose:` comment.
+serde_yaml = "0.9"
 
 [dev-dependencies]
 proptest = "1.4"

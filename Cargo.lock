@@ -2375,6 +2375,7 @@ dependencies = [
  "proptest",
  "semver",
  "serde",
+ "serde_yaml",
  "tera",
  "toml_edit",
 ]
