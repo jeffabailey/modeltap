@@ -18,6 +18,15 @@ impl std::fmt::Display for Version {
     }
 }
 
+// Serialize as the canonical semver string ("0.2.0", "0.0.1-rc1") so the Tera
+// template can reference `{{ version }}` directly. Implemented manually rather
+// than enabling `semver/serde` to keep the dependency graph minimal.
+impl serde::Serialize for Version {
+    fn serialize<S: serde::Serializer>(&self, ser: S) -> Result<S::Ok, S::Error> {
+        ser.collect_str(&self.0)
+    }
+}
+
 impl std::str::FromStr for Version {
     type Err = semver::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {

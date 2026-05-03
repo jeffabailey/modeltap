@@ -1,0 +1,83 @@
+{#
+ # Homebrew formula template for modeltap.
+ #
+ # Step 01-04 (Walking Skeleton, US-06 — TAP-BUMP). Per data-models.md §3.
+ #
+ # The Tera context (FormulaCtx) provides:
+ #   - version: "0.0.1-rc1" (semver, no v prefix)
+ #   - release_base_url: "https://github.com/jeffabailey/modeltap/releases/download/v{version}"
+ #   - targets: Vec<TargetEntry { triple, archive_name, sha256 }>
+ #
+ # The walking skeleton renders ONE target (`x86_64-unknown-linux-gnu`); R1
+ # renders all four. Each `on_{macos,linux} do { on_{arm,intel} do { ... } }`
+ # block is gated by an `{%- if -%}` guard that checks the triple. When a
+ # triple is absent from `targets`, its corresponding nested block is omitted
+ # entirely — no empty `on_arm do end` left behind.
+ #
+ # Homebrew DSL: a formula with only one platform block is valid; `brew install`
+ # on an unsupported platform fails informatively with "formula not available
+ # for this platform" (data-models.md §3 footnote).
+-#}
+class Modeltap < Formula
+  desc "TUI for managing local AI models across Ollama, HF, LM Studio, Atomic Chat"
+  homepage "https://github.com/jeffabailey/modeltap"
+  version "{{ version }}"
+  license "MIT OR Apache-2.0"
+
+{%- set has_arm_macos = false -%}
+{%- set has_intel_macos = false -%}
+{%- set has_arm_linux = false -%}
+{%- set has_intel_linux = false -%}
+{%- for t in targets -%}
+  {%- if t.triple == "aarch64-apple-darwin" -%}{%- set_global has_arm_macos = true -%}{%- endif -%}
+  {%- if t.triple == "x86_64-apple-darwin" -%}{%- set_global has_intel_macos = true -%}{%- endif -%}
+  {%- if t.triple == "aarch64-unknown-linux-gnu" -%}{%- set_global has_arm_linux = true -%}{%- endif -%}
+  {%- if t.triple == "x86_64-unknown-linux-gnu" -%}{%- set_global has_intel_linux = true -%}{%- endif -%}
+{%- endfor %}
+
+{%- if has_arm_macos or has_intel_macos %}
+  on_macos do
+{%- for t in targets %}
+{%- if t.triple == "aarch64-apple-darwin" %}
+    on_arm do
+      url "{{ release_base_url }}/{{ t.archive_name }}"
+      sha256 "{{ t.sha256 }}"
+    end
+{%- endif %}
+{%- if t.triple == "x86_64-apple-darwin" %}
+    on_intel do
+      url "{{ release_base_url }}/{{ t.archive_name }}"
+      sha256 "{{ t.sha256 }}"
+    end
+{%- endif %}
+{%- endfor %}
+  end
+{%- endif %}
+
+{%- if has_arm_linux or has_intel_linux %}
+  on_linux do
+{%- for t in targets %}
+{%- if t.triple == "aarch64-unknown-linux-gnu" %}
+    on_arm do
+      url "{{ release_base_url }}/{{ t.archive_name }}"
+      sha256 "{{ t.sha256 }}"
+    end
+{%- endif %}
+{%- if t.triple == "x86_64-unknown-linux-gnu" %}
+    on_intel do
+      url "{{ release_base_url }}/{{ t.archive_name }}"
+      sha256 "{{ t.sha256 }}"
+    end
+{%- endif %}
+{%- endfor %}
+  end
+{%- endif %}
+
+  def install
+    bin.install "modeltap"
+  end
+
+  test do
+    assert_match "modeltap #{version}", shell_output("#{bin}/modeltap --version")
+  end
+end

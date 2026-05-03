@@ -17,6 +17,10 @@ semver = "1"
 # first subcommand (`validate-tag`) graduated from the raw env::args dispatcher
 # in the DISTILL scaffold to a typed clap-derive parser.
 clap = { workspace = true }
+# Tera template engine + serde for FormulaCtx serialization. Added in DELIVER
+# step 01-04 (render-formula) per ADR-014 (Tera-in-xtask vs inline shell).
+tera = { version = "1.20", default-features = false }
+serde = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.4"

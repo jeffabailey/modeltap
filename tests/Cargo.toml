@@ -44,3 +44,8 @@ path = "acceptance/release_process/validate_tag.rs"
 [[test]]
 name = "release_process_extract_changelog"
 path = "acceptance/release_process/extract_changelog.rs"
+
+# DELIVER step 01-04 — Walking Skeleton TAP-BUMP activity (US-06, render-formula).
+[[test]]
+name = "release_process_render_formula"
+path = "acceptance/release_process/render_formula.rs"
