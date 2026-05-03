@@ -41,10 +41,7 @@ fn modeltap_headless_at(ollama: &PathBuf, hf: &PathBuf) -> (Command, TempDir, Pa
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
-        .env(
-            "MODELTAP_GPT4ALL_DIRS",
-            "/nonexistent/no-such-gpt4all",
-        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, temp, log_file)
 }
@@ -242,7 +239,9 @@ fn pressing_u_on_unique_row_shows_status_hint_no_dialog() {
     let frame = frame_text(&String::from_utf8_lossy(&assert.get_output().stdout));
     let lower = frame.to_lowercase();
     assert!(
-        lower.contains("unique") || lower.contains("no copies") || lower.contains("nothing to unify"),
+        lower.contains("unique")
+            || lower.contains("no copies")
+            || lower.contains("nothing to unify"),
         "AC-U4.4: u on a unique row must show a 'no copies in other tools' \
          hint in the status line, got:\n{}",
         frame
@@ -289,8 +288,11 @@ fn pressing_u_on_pending_hash_row_shows_still_computing_hint() {
     // headless driver to process the `u` token before the worker publishes
     // `HashComputed`.
     let payload_size: usize = 16 * 1024 * 1024;
-    fs::write(blobs.join(format!("sha256-{}", blob)), vec![0xABu8; payload_size])
-        .expect("write large blob");
+    fs::write(
+        blobs.join(format!("sha256-{}", blob)),
+        vec![0xABu8; payload_size],
+    )
+    .expect("write large blob");
     let m = ollama_dir
         .join("manifests")
         .join("registry.ollama.ai")

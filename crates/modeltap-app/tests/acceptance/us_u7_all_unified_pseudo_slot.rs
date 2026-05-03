@@ -36,10 +36,7 @@ fn modeltap_headless_at(ollama: &PathBuf, hf: &PathBuf) -> (Command, TempDir) {
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
-        .env(
-            "MODELTAP_GPT4ALL_DIRS",
-            "/nonexistent/no-such-gpt4all",
-        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, temp)
 }
@@ -130,8 +127,10 @@ fn scrape_badge_count(frame: &str) -> Option<u64> {
             // Look for `(N)` immediately after the slot label (single space).
             let after = after.trim_start();
             if let Some(stripped) = after.strip_prefix('(') {
-                let digits: String =
-                    stripped.chars().take_while(|c| c.is_ascii_digit()).collect();
+                let digits: String = stripped
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
                 if !digits.is_empty() {
                     if let Ok(n) = digits.parse::<u64>() {
                         return Some(n);
@@ -301,8 +300,10 @@ fn selecting_all_unified_slot_filters_right_pane_to_hash_rows() {
                 let after = &line[idx + "Models in [All Unified]".len()..];
                 let after = after.trim_start();
                 if let Some(stripped) = after.strip_prefix('(') {
-                    let digits: String =
-                        stripped.chars().take_while(|c| c.is_ascii_digit()).collect();
+                    let digits: String = stripped
+                        .chars()
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect();
                     if !digits.is_empty() {
                         if let Ok(n) = digits.parse::<u64>() {
                             found = Some(n);

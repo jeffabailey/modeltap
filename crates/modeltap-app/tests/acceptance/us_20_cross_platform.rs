@@ -55,10 +55,7 @@ fn modeltap_with_platform(platform: &str) -> (Command, TempDir, PathBuf) {
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
-        .env(
-            "MODELTAP_GPT4ALL_DIRS",
-            "/nonexistent/no-such-gpt4all",
-        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
     (cmd, log_dir_temp, log_file)
 }

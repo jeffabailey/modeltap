@@ -121,10 +121,7 @@ mod tests {
         // topology. The seed canonical is the first tool in `tools` — its
         // identity does not matter because `tools_unified` is empty (no inode
         // rewrite is performed).
-        let seed_canonical = tools
-            .first()
-            .map(|(t, _)| *t)
-            .unwrap_or(ToolId("ollama"));
+        let seed_canonical = tools.first().map(|(t, _)| *t).unwrap_or(ToolId("ollama"));
         let seed_outcome = UnifyOutcome {
             tools_unified: Vec::new(),
             bytes_reclaimed: 0,

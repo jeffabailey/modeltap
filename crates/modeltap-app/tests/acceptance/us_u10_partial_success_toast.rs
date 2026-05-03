@@ -189,10 +189,7 @@ fn partial_success_toast_shows_per_target_outcomes_and_retry_footer() {
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
-        .env(
-            "MODELTAP_GPT4ALL_DIRS",
-            "/nonexistent/no-such-gpt4all",
-        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
 
     let regs = serde_json::json!({
@@ -294,10 +291,7 @@ fn total_failure_toast_shows_zero_of_n_and_glyph_remains_equals() {
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
-        .env(
-            "MODELTAP_GPT4ALL_DIRS",
-            "/nonexistent/no-such-gpt4all",
-        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
         .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
 
     // For total-failure we make hf the canonical (blob alphabetically smaller

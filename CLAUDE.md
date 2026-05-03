@@ -37,6 +37,18 @@ Internal structure is composition over inheritance (Rust has no inheritance). Le
 5. **Single-model delete (`delete_one`) is in-scope** in addition to whole-tool zap. Per F4 update. The `Tool` trait MUST expose both.
 6. **WSL-only on Windows.** Architecturally identical to Linux paths.
 
+## CI Lint Discipline (MANDATORY before `git push`)
+
+CI runs `cargo fmt --all -- --check` and `cargo clippy --workspace --all-targets -- -D warnings` on stable Rust. Per-step crafters use `cargo fmt -p <crate>` to keep diffs surgical, but this leaves cross-crate formatting drift.
+
+**Before any `git push` to main**, run:
+
+```sh
+cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+```
+
+If `cargo fmt --all` produces a diff, commit it as a single `chore: cargo fmt --all` commit before pushing. CI's clippy may also surface lints from a newer Rust stable than the local toolchain — fix forward (do not `#[allow(...)]` blanket-suppress).
+
 ## Layout
 
 ```

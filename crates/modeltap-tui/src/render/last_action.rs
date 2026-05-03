@@ -76,4 +76,3 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, action: &LastAction) {
         frame.render_widget(Paragraph::new(trimmed), row);
     }
 }
-

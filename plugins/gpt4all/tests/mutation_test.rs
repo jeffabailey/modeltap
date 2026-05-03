@@ -23,8 +23,8 @@ use std::fs;
 use std::path::Path;
 
 use modeltap_core::{
-    DedupKey, DeleteError, DiscoverError, DisplayLabel, Format, LinkResult, ModelMeta,
-    ModelStatus, Tool,
+    DedupKey, DeleteError, DiscoverError, DisplayLabel, Format, LinkResult, ModelMeta, ModelStatus,
+    Tool,
 };
 use modeltap_plugin_gpt4all::{Gpt4AllPlugin, TOOL_NAME};
 
@@ -219,7 +219,10 @@ async fn delete_all_removes_every_gguf_across_every_configured_root() {
 
     for outcome in &outcomes {
         assert_eq!(outcome.tool, TOOL_NAME);
-        assert!(outcome.file_deleted, "file_deleted must be true: {outcome:?}");
+        assert!(
+            outcome.file_deleted,
+            "file_deleted must be true: {outcome:?}"
+        );
         assert!(outcome.registration_removed);
         assert!(outcome.bytes_freed > 0, "bytes_freed > 0: {outcome:?}");
     }
@@ -270,7 +273,10 @@ async fn delete_all_preserves_non_gguf_files_and_does_not_recurse_subdirs() {
     // Survivors still present.
     assert!(!root.join("model.gguf").exists(), "victim must be gone");
     assert!(root.join("README.md").exists(), "README preserved");
-    assert!(root.join("downloads.json").exists(), "downloads.json preserved");
+    assert!(
+        root.join("downloads.json").exists(),
+        "downloads.json preserved"
+    );
     assert!(root.join(".DS_Store").exists(), "dotfile preserved");
     assert!(buried.exists(), "buried .gguf must NOT be recursed into");
 }
@@ -304,9 +310,9 @@ async fn tool_discover_returns_models_from_configured_root() {
 /// can suppress this tool from the inventory pane).
 #[tokio::test]
 async fn tool_discover_returns_not_installed_when_no_root_exists() {
-    let plugin = Gpt4AllPlugin::new_with_search_paths(vec![
-        std::path::PathBuf::from("/nonexistent/no-such-gpt4all-root"),
-    ]);
+    let plugin = Gpt4AllPlugin::new_with_search_paths(vec![std::path::PathBuf::from(
+        "/nonexistent/no-such-gpt4all-root",
+    )]);
     let err = plugin.discover().await.expect_err("must error");
     assert!(matches!(err, DiscoverError::NotInstalled));
 }
@@ -359,4 +365,3 @@ fn plugin_search_paths_reflects_constructor_argument() {
         "must NOT return Default::default() PathBufs"
     );
 }
-

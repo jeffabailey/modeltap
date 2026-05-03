@@ -168,7 +168,12 @@ mod tests {
         std::fs::write(sub.join("buried.gguf"), b"GGUFx").unwrap();
 
         let models = discover_in(&[root]).expect("ok");
-        assert_eq!(models.len(), 1, "only top-level .gguf counts; got {:?}", models);
+        assert_eq!(
+            models.len(),
+            1,
+            "only top-level .gguf counts; got {:?}",
+            models
+        );
         assert_eq!(models[0].id_in_tool, "real-model.gguf");
     }
 

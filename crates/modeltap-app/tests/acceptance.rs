@@ -39,6 +39,7 @@ mod acceptance {
     // time as each scenario goes green. Walking-skeleton scenario lives in
     // us_u1_walking_skeleton.rs.
     // ---------------------------------------------------------------------
+    pub mod us_u10_partial_success_toast;
     pub mod us_u1_walking_skeleton;
     pub mod us_u2_dedup_able_bytes_wired;
     pub mod us_u3_row_dedup_glyphs;
@@ -48,5 +49,4 @@ mod acceptance {
     pub mod us_u7_all_unified_pseudo_slot;
     pub mod us_u8_all_unified_empty_state;
     pub mod us_u9_detail_inode_proof;
-    pub mod us_u10_partial_success_toast;
 }

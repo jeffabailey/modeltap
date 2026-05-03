@@ -28,9 +28,7 @@ use modeltap_app::hash_pool::spawn;
 use modeltap_app::hash_pool_wiring::build_hash_jobs;
 use modeltap_app::sha256_cache::Sha256Cache;
 use modeltap_core::ports::{HashProgress, Hasher};
-use modeltap_core::{
-    ContentHash, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId,
-};
+use modeltap_core::{ContentHash, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId};
 use modeltap_tui::msg::Msg;
 use modeltap_tui::{update, AppState};
 use tokio_util::sync::CancellationToken;

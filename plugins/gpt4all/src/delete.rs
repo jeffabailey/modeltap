@@ -272,7 +272,10 @@ mod tests {
              (NotFound mutation would falsely set this true)"
         );
         assert_eq!(outcome.bytes_freed, 0, "no bytes freed on hard failure");
-        assert!(dir.exists(), "directory must still exist (we did not unlink it)");
+        assert!(
+            dir.exists(),
+            "directory must still exist (we did not unlink it)"
+        );
     }
 
     /// Happy-path counterpart: when the file IS on disk, `delete_one_plan`
@@ -313,8 +316,8 @@ mod tests {
         let dir = tmp.path().join("a-directory");
         std::fs::create_dir(&dir).unwrap();
 
-        let err = delete_one_at(&dir, "a-directory")
-            .expect_err("remove_file on a directory must fail");
+        let err =
+            delete_one_at(&dir, "a-directory").expect_err("remove_file on a directory must fail");
         match err {
             DeleteError::NotFound(_) => {
                 panic!("must NOT be classified as NotFound — directory exists")

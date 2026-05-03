@@ -295,7 +295,14 @@ fn riley_reads_launch_inventory_lists_every_registered_plugin() {
         6,
         "tools_registered must list every registered plugin, got {tool_names:?}"
     );
-    for required in &["Atomic Chat", "atomic-chat", "gpt4all", "hf", "lm-studio", "ollama"] {
+    for required in &[
+        "Atomic Chat",
+        "atomic-chat",
+        "gpt4all",
+        "hf",
+        "lm-studio",
+        "ollama",
+    ] {
         assert!(
             tool_names.contains(required),
             "tools_registered missing {required}, got {tool_names:?}"

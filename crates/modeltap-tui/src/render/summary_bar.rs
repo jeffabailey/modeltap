@@ -134,4 +134,3 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let row = Rect::new(area.x, area.y, row_w.min(area.width), 1);
     frame.render_widget(Paragraph::new(trimmed), row);
 }
-

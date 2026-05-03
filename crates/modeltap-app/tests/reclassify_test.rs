@@ -241,16 +241,8 @@ fn partial_unify_only_advances_inodes_for_successful_tools() {
         .inodes
         .get(&(ollama, "m".to_string()))
         .copied();
-    let after_hf_inode = after
-        .hash_state
-        .inodes
-        .get(&(hf, "m".to_string()))
-        .copied();
-    let after_lm_inode = after
-        .hash_state
-        .inodes
-        .get(&(lm, "m".to_string()))
-        .copied();
+    let after_hf_inode = after.hash_state.inodes.get(&(hf, "m".to_string())).copied();
+    let after_lm_inode = after.hash_state.inodes.get(&(lm, "m".to_string())).copied();
     assert_eq!(
         after_ollama_inode, after_hf_inode,
         "AC-U6.3: ollama+hf inodes must match after partial success"
@@ -372,11 +364,7 @@ fn reclassify_after_unify_completes_within_200ms_for_50_models() {
         .iter()
         .map(|(id, sz)| (id.as_str(), *sz))
         .collect();
-    let state = make_state(
-        vec![(ollama, ollama_pairs), (hf, hf_pairs)],
-        hashes,
-        inodes,
-    );
+    let state = make_state(vec![(ollama, ollama_pairs), (hf, hf_pairs)], hashes, inodes);
 
     let summary = UnifyReclassifySummary {
         succeeded_tools: vec![ollama, hf],

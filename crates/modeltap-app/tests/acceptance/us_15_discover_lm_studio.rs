@@ -76,10 +76,7 @@ fn modeltap_headless() -> (Command, TempDir) {
             "MODELTAP_ATOMIC_CHAT_DIRS",
             "/nonexistent/no-such-atomic-chat",
         )
-        .env(
-            "MODELTAP_GPT4ALL_DIRS",
-            "/nonexistent/no-such-gpt4all",
-        );
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all");
     (cmd, log_dir_temp)
 }
 

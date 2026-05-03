@@ -133,11 +133,11 @@ impl Hasher for Sha2Hasher {
             }
             hasher.update(&buf[..n]);
             bytes_hashed += n as u64;
-            let pct = if total == 0 {
-                100u8
-            } else {
-                ((bytes_hashed.saturating_mul(100)) / total).min(100) as u8
-            };
+            let pct = bytes_hashed
+                .saturating_mul(100)
+                .checked_div(total)
+                .map(|p| p.min(100) as u8)
+                .unwrap_or(100u8);
             progress(HashProgress {
                 percent_complete: pct,
                 bytes_hashed,

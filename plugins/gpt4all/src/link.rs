@@ -265,7 +265,10 @@ mod tests {
         std::fs::write(&canonical, b"payload").unwrap();
         // Target's parent ("nested/sub") does NOT exist yet.
         let target = tmp.path().join("nested").join("sub").join("model.gguf");
-        assert!(!target.parent().unwrap().exists(), "precondition: parent missing");
+        assert!(
+            !target.parent().unwrap().exists(),
+            "precondition: parent missing"
+        );
 
         let outcome = perform_link(&canonical, &target, TOOL_NAME, "model.gguf")
             .expect("link must succeed by creating missing parent");
@@ -284,8 +287,7 @@ mod tests {
         std::fs::write(&canonical, b"payload").unwrap();
         let target = tmp.path().join("model.gguf");
 
-        let outcome = perform_link(&canonical, &target, TOOL_NAME, "model.gguf")
-            .expect("link ok");
+        let outcome = perform_link(&canonical, &target, TOOL_NAME, "model.gguf").expect("link ok");
         let reported_inode = match outcome.result {
             LinkResult::HardLinked { inode, .. } => inode,
             other => panic!("expected HardLinked, got {:?}", other),

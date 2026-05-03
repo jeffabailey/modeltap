@@ -111,4 +111,3 @@ fn format_synthetic_row(syn: &SyntheticSlot, state: &AppState) -> String {
         }
     }
 }
-

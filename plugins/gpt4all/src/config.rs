@@ -133,8 +133,11 @@ mod tests {
         };
         assert_eq!(cfg.search_paths(), stored.as_slice());
         assert_eq!(cfg.search_paths().len(), 2);
-        assert_ne!(cfg.search_paths()[0], PathBuf::new(),
-            "getter must not return Default::default() PathBufs");
+        assert_ne!(
+            cfg.search_paths()[0],
+            PathBuf::new(),
+            "getter must not return Default::default() PathBufs"
+        );
     }
 
     /// Behavior 5 — `parse_colon_paths` MUST drop empty segments from
@@ -199,8 +202,11 @@ mod tests {
             "must parse colon list verbatim, in order"
         );
         assert_ne!(paths.len(), 0, "Some(vec![]) mutation must die");
-        assert_ne!(paths[0], PathBuf::new(),
-            "Some(vec![Default::default()]) mutation must die");
+        assert_ne!(
+            paths[0],
+            PathBuf::new(),
+            "Some(vec![Default::default()]) mutation must die"
+        );
     }
 
     /// Behavior 8 — `from_process_env` returns `None` when the env var is

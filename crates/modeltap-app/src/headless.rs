@@ -528,8 +528,11 @@ fn apply_effect(
         // (no link is performed for the canonical itself); without it the
         // reclassify pass would leave the canonical's inode entry on its
         // pre-unify (distinct) inode and the row glyph would stay `=`.
-        *state =
-            reclassify::reclassify_after_unify(std::mem::take(state), &outcome, plan.canonical.tool);
+        *state = reclassify::reclassify_after_unify(
+            std::mem::take(state),
+            &outcome,
+            plan.canonical.tool,
+        );
 
         let last_action = build_unify_last_action(&outcome, target_name);
         let (next, _) = update(std::mem::take(state), Msg::SetLastAction(last_action));
