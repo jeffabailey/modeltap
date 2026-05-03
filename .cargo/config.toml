@@ -1,0 +1,25 @@
+# Cargo aliases per ADR-011.
+#
+# `cargo xtask <subcommand>` invokes the `xtask` workspace member, which is
+# excluded from default-members so plain `cargo build` / `cargo test` do NOT
+# compile it. The `--quiet` keeps invocation banners out of release-pipeline
+# stdout (extract-changelog and validate-tag write structured output).
+
+[alias]
+xtask = "run --package xtask --quiet --"
+
+# Pin the macOS linker to Apple clang at its absolute path. Without this,
+# `cc` resolves through `$PATH` and on dev machines that have pyenv-installed
+# Python with the `cc` package, the pyenv shim intercepts the linker invocation
+# and rejects rustc's `*.o` arguments as unknown subcommands. CI runners are
+# unaffected (no pyenv shim), so the override is harmless there.
+[target.aarch64-apple-darwin]
+linker = "/usr/bin/cc"
+
+[target.x86_64-apple-darwin]
+linker = "/usr/bin/cc"
+
+# Note: build-script linking still uses `cc` from `$PATH` and is NOT affected
+# by `[target.*].linker` overrides above. If your `cc` is a pyenv shim, run
+# cargo with `PATH=/usr/bin:$PATH cargo …` (or remove the shim with
+# `rm ~/.pyenv/shims/cc && pyenv rehash`).
