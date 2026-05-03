@@ -1,4 +1,6 @@
 # modeltap
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjeffabailey%2Fmodeltap.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjeffabailey%2Fmodeltap?ref=badge_shield)
+
 
 Terminal UI for discovering, inspecting, and cleaning up local AI model files
 across multiple tools (Ollama, Hugging Face cache, LM Studio, Atomic Chat).
@@ -55,3 +57,6 @@ binary in production.
 ## License
 
 Apache-2.0 OR MIT (per workspace `Cargo.toml`).
+
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjeffabailey%2Fmodeltap.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjeffabailey%2Fmodeltap?ref=badge_large)
