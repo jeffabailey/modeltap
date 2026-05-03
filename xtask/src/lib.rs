@@ -34,3 +34,15 @@ pub mod formula;
 pub mod fs_adapter;
 pub mod lint;
 pub mod tag;
+
+// Adapter modules introduced in DELIVER step 01-06 (release-prep, US-01).
+// Each is a thin shell-out wrapper per component-boundaries.md §2.3:
+//   - git_adapter   wraps `git status --porcelain` (clean-tree check)
+//   - cargo_adapter wraps `cargo fmt|clippy|test` (CI parity gates) and a
+//                   toml_edit-based `[workspace.package].version` mutator
+//   - cliff_adapter generates CHANGELOG.md sections from `git log` (pure-Rust
+//                   stand-in for git-cliff; see component-boundaries.md §8 for
+//                   the future swap to the real `git-cliff` binary)
+pub mod cargo_adapter;
+pub mod cliff_adapter;
+pub mod git_adapter;

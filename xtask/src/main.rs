@@ -21,10 +21,13 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use xtask::cargo_toml::{parse_workspace_version, Version};
+use xtask::cargo_adapter;
+use xtask::cargo_toml::{assert_monotonic, parse_workspace_version, Version};
 use xtask::changelog::{extract_section, ChangelogError};
+use xtask::cliff_adapter;
 use xtask::formula::{is_valid_sha256, render, FormulaCtx, TargetEntry};
 use xtask::fs_adapter;
+use xtask::git_adapter;
 use xtask::lint::lint as lint_workflow;
 use xtask::tag::assert_tag_matches;
 
@@ -91,7 +94,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match cli.command {
         Cmd::ValidateTag { tag } => run_validate_tag(&tag),
-        Cmd::ReleasePrep { .. } => not_yet_implemented("release-prep"),
+        Cmd::ReleasePrep { version } => run_release_prep(&version),
         Cmd::RenderFormula {
             version,
             template,
@@ -401,9 +404,112 @@ fn collect_targets_from_sidecar_dir(
     Ok(targets)
 }
 
-fn not_yet_implemented(subcommand: &str) -> ExitCode {
-    panic!(
-        "Not yet implemented — RED scaffold. The `{subcommand}` subcommand \
-         graduates from RED to GREEN in a later DELIVER step."
-    );
+/// `release-prep` end-to-end (DELIVER step 01-06, US-01):
+///   1. Refuse on dirty working tree.
+///   2. Parse the current `[workspace.package].version` from `./Cargo.toml`.
+///   3. Refuse non-monotonic bump (proposed must be strictly greater).
+///   4. Mutate `Cargo.toml` to the new version (`cargo_adapter`).
+///   5. Regenerate `CHANGELOG.md` from conventional commits since `v<current>`
+///      via `cliff_adapter`.
+///   6. Run CI parity gates in order: `cargo fmt --check` → `cargo clippy` →
+///      `cargo test`. Halt non-zero on first failure, naming the failed gate.
+///   7. Print next-step instructions (commit, push, open PR) to stdout.
+///
+/// Exit codes:
+///   - 0  on success.
+///   - 1  for refusals (dirty tree, non-monotonic bump, gate failure).
+///   - 2  for I/O / parse errors that prevent reasoning about the workspace.
+fn run_release_prep(version_str: &str) -> ExitCode {
+    let repo = std::path::Path::new(".");
+    let cargo_toml_path = repo.join("Cargo.toml");
+
+    // 1. Dirty-tree check (refuse with NO file modification).
+    match git_adapter::is_dirty(repo) {
+        Ok(false) => {}
+        Ok(true) => {
+            eprintln!("working tree is dirty: commit or stash first");
+            return ExitCode::from(1);
+        }
+        Err(e) => {
+            eprintln!("xtask release-prep: {e}");
+            return ExitCode::from(2);
+        }
+    }
+
+    // 2. Parse current version.
+    let cargo_toml_text = match fs_adapter::read_to_string(&cargo_toml_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("xtask release-prep: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let current = match parse_workspace_version(&cargo_toml_text) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("xtask release-prep: cannot parse workspace version: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    // Parse proposed version.
+    let proposed: Version = match version_str.parse() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("xtask release-prep: --version is not a valid semver: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    // 3. Monotonic-bump check.
+    if let Err(e) = assert_monotonic(&current, &proposed) {
+        eprintln!("{e}");
+        return ExitCode::from(1);
+    }
+
+    // 4. Mutate Cargo.toml.
+    if let Err(e) = cargo_adapter::set_workspace_version(&cargo_toml_path, &proposed) {
+        eprintln!("xtask release-prep: failed to update Cargo.toml: {e}");
+        return ExitCode::from(2);
+    }
+
+    // 5. Regenerate CHANGELOG.md from commits since the previous tag. We pass
+    //    `Some("v<current>")` so the changelog covers commits between the
+    //    previous release tag and HEAD. If the tag does not exist (e.g. first
+    //    release), we fall back to "all commits".
+    let since_tag = format!("v{current}");
+    let cliff_result = cliff_adapter::regenerate_changelog(repo, &proposed, Some(&since_tag));
+    if cliff_result.is_err() {
+        // Tag may not exist — retry with no since_tag (all commits).
+        if let Err(e) = cliff_adapter::regenerate_changelog(repo, &proposed, None) {
+            eprintln!("xtask release-prep: failed to regenerate CHANGELOG.md: {e}");
+            return ExitCode::from(2);
+        }
+    }
+
+    // 6. CI parity gates in strict order.
+    for gate in ["fmt", "clippy", "test"] {
+        if let Err(e) = cargo_adapter::run_gate(gate, repo) {
+            // Identify the failed gate (AC: "the message identifies which gate failed").
+            eprintln!("xtask release-prep: CI parity gate failed: {}", e.gate());
+            eprintln!("xtask release-prep: {e}");
+            return ExitCode::from(1);
+        }
+    }
+
+    // 7. Next-step instructions.
+    println!("release-prep: success.");
+    println!();
+    println!("Next steps:");
+    println!("  1. Review the diff: git diff Cargo.toml CHANGELOG.md");
+    println!("  2. Commit the bump: git commit -am \"chore: prepare {proposed}\"");
+    println!("  3. Push the branch: git push -u origin HEAD");
+    println!("  4. Open a PR for review and merge.");
+
+    ExitCode::SUCCESS
 }
+
+// `not_yet_implemented` was the RED scaffold for subcommands awaiting their
+// DELIVER step. As of step 01-06 every Cmd variant has a concrete handler, so
+// the helper has been removed (graduating from RED to GREEN means deleting
+// the panic — there is nothing left to NotImplemented).

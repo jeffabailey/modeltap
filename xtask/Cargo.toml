@@ -29,3 +29,8 @@ serde_yaml = "0.9"
 
 [dev-dependencies]
 proptest = "1.4"
+# Tempdirs for git_adapter / cargo_adapter / cliff_adapter integration unit
+# tests. Added in DELIVER step 01-06 (release-prep, US-01) — those adapters
+# shell out to real git/cargo so their unit tests need real tempdirs to be
+# meaningful.
+tempfile = { workspace = true }

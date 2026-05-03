@@ -57,3 +57,11 @@ path = "acceptance/release_process/render_formula.rs"
 [[test]]
 name = "release_process_lint_workflows"
 path = "acceptance/release_process/lint_workflows.rs"
+
+# DELIVER step 01-06 — Walking Skeleton PREP activity (US-01, release-prep).
+# Four scenarios: happy path (Cargo.toml + CHANGELOG.md mutated, exit 0),
+# dirty tree refusal, non-monotonic bump refusal, gate-failure exits non-zero
+# naming the failed gate.
+[[test]]
+name = "release_process_release_prep"
+path = "acceptance/release_process/release_prep.rs"

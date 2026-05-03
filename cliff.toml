@@ -1,0 +1,56 @@
+# cliff.toml — configuration for the future `git-cliff` swap.
+#
+# Status (DELIVER step 01-06): authored at repo root per
+# component-boundaries.md §8 to lock in the keep-a-changelog grouping
+# convention, but NOT YET CONSUMED by xtask. The walking-skeleton
+# release-prep uses a pure-Rust changelog generator
+# (xtask::cliff_adapter::regenerate_changelog) that implements the same
+# grouping. When git-cliff is added as a build-time dependency, the body
+# template, regex, and section ordering here become authoritative and
+# `cliff_adapter` shrinks to a single shell-out (`git-cliff --tag <X.Y.Z>
+# --output CHANGELOG.md`).
+#
+# Convention: keep-a-changelog (https://keepachangelog.com).
+#   feat:     -> Added
+#   fix:      -> Fixed
+#   refactor: -> Changed
+#   perf:     -> Performance
+#   docs:     -> Documentation
+#   chore/everything else -> Misc
+
+[changelog]
+header = """
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+"""
+body = """
+{% if version %}\
+## [{{ version | trim_start_matches(pat="v") }}]
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}
+"""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = false
+commit_parsers = [
+  { message = "^feat", group = "Added" },
+  { message = "^fix", group = "Fixed" },
+  { message = "^refactor", group = "Changed" },
+  { message = "^perf", group = "Performance" },
+  { message = "^docs", group = "Documentation" },
+  { message = ".*", group = "Misc" },
+]
+filter_commits = false
+tag_pattern = "v[0-9]*"
+sort_commits = "newest"
