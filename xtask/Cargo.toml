@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Build-time tooling for modeltap (release-prep, validate-tag, render-formula, extract-changelog, lint-workflows)."
+
+# Dependencies added incrementally per DELIVER step as each subcommand's GREEN
+# implementation lands. Step 01-01 added `toml_edit` + `semver` for the
+# parse_workspace_version / assert_monotonic pure functions, and `proptest`
+# (dev-only) for the monotonic-bump invariant property test.
+
+[dependencies]
+toml_edit = "0.22"
+semver = "1"
+
+[dev-dependencies]
+proptest = "1.4"
