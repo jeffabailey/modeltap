@@ -21,7 +21,8 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 
-use xtask::cargo_toml::parse_workspace_version;
+use xtask::cargo_toml::{parse_workspace_version, Version};
+use xtask::changelog::{extract_section, ChangelogError};
 use xtask::fs_adapter;
 use xtask::tag::assert_tag_matches;
 
@@ -90,7 +91,11 @@ fn main() -> ExitCode {
         Cmd::ValidateTag { tag } => run_validate_tag(&tag),
         Cmd::ReleasePrep { .. } => not_yet_implemented("release-prep"),
         Cmd::RenderFormula { .. } => not_yet_implemented("render-formula"),
-        Cmd::ExtractChangelog { .. } => not_yet_implemented("extract-changelog"),
+        Cmd::ExtractChangelog {
+            version,
+            input,
+            output,
+        } => run_extract_changelog(&version, &input, &output),
         Cmd::LintWorkflows { .. } => not_yet_implemented("lint-workflows"),
     }
 }
@@ -125,6 +130,64 @@ fn run_validate_tag(tag: &str) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+/// `extract-changelog` end-to-end:
+///   1. Parse `--version` as semver via the same `Version` newtype the rest of
+///      xtask uses.
+///   2. Read `--input` (typically CHANGELOG.md) via the `fs_adapter` seam.
+///   3. Run the pure `extract_section` against the text.
+///   4. On success: write the body to `--output`. On `SectionNotFound`: print
+///      `"CHANGELOG.md has no [<version>] section"` to stderr, exit non-zero,
+///      and write NO output file.
+///
+/// We deliberately extract BEFORE opening the output file so a failed
+/// extraction never leaves a partial RELEASE_NOTES.md behind (US-05
+/// @infrastructure-failure scenario requires "no RELEASE_NOTES.md file is
+/// written" on missing section).
+fn run_extract_changelog(
+    version_str: &str,
+    input: &std::path::Path,
+    output: &std::path::Path,
+) -> ExitCode {
+    let version: Version = match version_str.parse() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("xtask extract-changelog: --version is not a valid semver: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    let text = match fs_adapter::read_to_string(input) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("xtask extract-changelog: {e}");
+            return ExitCode::from(2);
+        }
+    };
+
+    let body = match extract_section(&text, &version) {
+        Ok(b) => b,
+        Err(ChangelogError::SectionNotFound) => {
+            // Use the input file's display name (e.g. "CHANGELOG.md") so the
+            // message matches the maintainer's mental model rather than a
+            // hard-coded literal. The walking-skeleton failure scenario invokes
+            // with `--input CHANGELOG.md`, so the produced message reads
+            // "CHANGELOG.md has no [0.2.0] section".
+            eprintln!("{} has no [{}] section", input.display(), version);
+            return ExitCode::from(1);
+        }
+    };
+
+    if let Err(e) = std::fs::write(output, body) {
+        eprintln!(
+            "xtask extract-changelog: failed to write {}: {e}",
+            output.display()
+        );
+        return ExitCode::from(2);
+    }
+
+    ExitCode::SUCCESS
 }
 
 fn not_yet_implemented(subcommand: &str) -> ExitCode {

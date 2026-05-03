@@ -39,3 +39,8 @@ tempfile = { workspace = true }
 [[test]]
 name = "release_process_validate_tag"
 path = "acceptance/release_process/validate_tag.rs"
+
+# DELIVER step 01-03 — Walking Skeleton PUBLISH activity (US-05).
+[[test]]
+name = "release_process_extract_changelog"
+path = "acceptance/release_process/extract_changelog.rs"
