@@ -23,7 +23,8 @@ use std::fs;
 use std::path::Path;
 
 use modeltap_core::{
-    DedupKey, DeleteError, DisplayLabel, Format, LinkResult, ModelMeta, ModelStatus, Tool,
+    DedupKey, DeleteError, DiscoverError, DisplayLabel, Format, LinkResult, ModelMeta,
+    ModelStatus, Tool,
 };
 use modeltap_plugin_gpt4all::{Gpt4AllPlugin, TOOL_NAME};
 
@@ -272,5 +273,90 @@ async fn delete_all_preserves_non_gguf_files_and_does_not_recurse_subdirs() {
     assert!(root.join("downloads.json").exists(), "downloads.json preserved");
     assert!(root.join(".DS_Store").exists(), "dotfile preserved");
     assert!(buried.exists(), "buried .gguf must NOT be recursed into");
+}
+
+// -- T7: Tool::discover surfaces real models from the configured root ------
+
+/// `Tool::discover()` MUST walk the configured search paths and return the
+/// real `.gguf` files. A mutation of `discover() -> Ok(vec![])` would lie
+/// about an empty tool — silently breaking the inventory pane. This test
+/// pins discover() to its observable contract: writing two .gguf files
+/// under a root MUST surface two `DiscoveredModel`s in sorted order.
+#[tokio::test]
+async fn tool_discover_returns_models_from_configured_root() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().to_path_buf();
+    write_file(&root.join("phi-3.gguf"), b"PP");
+    write_file(&root.join("llama-3.gguf"), b"LL");
+
+    let plugin = Gpt4AllPlugin::new_with_search_paths(vec![root]);
+    let models = plugin.discover().await.expect("discover ok");
+
+    assert_eq!(models.len(), 2, "expected 2 models, got {:?}", models);
+    let ids: Vec<&str> = models.iter().map(|m| m.id_in_tool.as_str()).collect();
+    assert_eq!(ids, vec!["llama-3.gguf", "phi-3.gguf"]);
+}
+
+// -- T8: Tool::discover NotInstalled when no roots exist -------------------
+
+/// `Tool::discover()` MUST return `DiscoverError::NotInstalled` when none of
+/// the configured roots exist. Pins the negative branch (so the orchestrator
+/// can suppress this tool from the inventory pane).
+#[tokio::test]
+async fn tool_discover_returns_not_installed_when_no_root_exists() {
+    let plugin = Gpt4AllPlugin::new_with_search_paths(vec![
+        std::path::PathBuf::from("/nonexistent/no-such-gpt4all-root"),
+    ]);
+    let err = plugin.discover().await.expect_err("must error");
+    assert!(matches!(err, DiscoverError::NotInstalled));
+}
+
+// -- T9: Tool::accepted_formats returns [Gguf] -----------------------------
+
+/// `Tool::accepted_formats()` MUST report `[Format::Gguf]` — GPT4All's
+/// runtime is llama.cpp-derived and only loads GGUF blobs. Mutating it to
+/// `Vec::leak(Vec::new())` would tell the unify orchestrator that GPT4All
+/// accepts NOTHING, blocking every install. Pins the static format list.
+#[test]
+fn tool_accepted_formats_reports_only_gguf() {
+    let plugin = Gpt4AllPlugin::new_with_search_paths(vec![]);
+    let formats = plugin.accepted_formats();
+    assert_eq!(formats, &[Format::Gguf]);
+    assert!(!formats.is_empty(), "must NOT be empty");
+}
+
+// -- T10: Tool::name returns the canonical TOOL_NAME -----------------------
+
+/// `Tool::name()` MUST return the canonical `TOOL_NAME` so the inventory
+/// router can find this plugin. Mutating it to a different ToolId would
+/// silently un-register the plugin.
+#[test]
+fn tool_name_returns_canonical_tool_name() {
+    let plugin = Gpt4AllPlugin::new_with_search_paths(vec![]);
+    assert_eq!(plugin.name(), TOOL_NAME);
+    assert_eq!(plugin.name().0, "gpt4all");
+}
+
+// -- T11: Gpt4AllPlugin::search_paths reflects what was set ----------------
+
+/// `Gpt4AllPlugin::search_paths()` MUST return the paths that were passed
+/// to the constructor. Mutating it to `Vec::leak(Vec::new())` or
+/// `Vec::leak(vec![Default::default()])` would lie to diagnostics callers
+/// and to the discovery walk.
+#[test]
+fn plugin_search_paths_reflects_constructor_argument() {
+    let configured = vec![
+        std::path::PathBuf::from("/seed/gpt4all/one"),
+        std::path::PathBuf::from("/seed/gpt4all/two"),
+    ];
+    let plugin = Gpt4AllPlugin::new_with_search_paths(configured.clone());
+    let got = plugin.search_paths();
+    assert_eq!(got, configured.as_slice());
+    assert_eq!(got.len(), 2);
+    assert_ne!(
+        got[0],
+        std::path::PathBuf::new(),
+        "must NOT return Default::default() PathBufs"
+    );
 }
 

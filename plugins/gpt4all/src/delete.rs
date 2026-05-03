@@ -193,3 +193,134 @@ fn delete_one_plan(plan: Plan) -> DeleteOutcome {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `delete_one_plan` MUST distinguish a plan whose file vanished
+    /// (race-condition: file gone between enumerate and unlink) from a plan
+    /// that succeeds. Race outcome: `file_deleted=false`, `bytes_freed=0`,
+    /// `registration_removed=true`.
+    ///
+    /// Mutating the `e.kind() == NotFound` guard would route the race case
+    /// either to the success branch (true) — which would set
+    /// `file_deleted=true`, lying about the unlink — or to the generic Io
+    /// branch (false / `!=`) — which would set `registration_removed=false`,
+    /// breaking idempotency reporting. This test pins the race contract.
+    #[test]
+    fn delete_one_plan_treats_vanished_file_as_already_gone_with_zero_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Plan claims a 9999-byte file, but the file does NOT exist on disk.
+        // (Same shape as the enumerate-then-someone-else-unlinks race.)
+        let plan = Plan {
+            file_path: tmp.path().join("vanished.gguf"),
+            id_in_tool: "vanished.gguf".to_string(),
+            size_bytes: 9_999,
+        };
+
+        let outcome = delete_one_plan(plan);
+
+        assert_eq!(outcome.tool, TOOL_NAME);
+        assert_eq!(outcome.model_id_in_tool, "vanished.gguf");
+        assert!(
+            !outcome.file_deleted,
+            "file_deleted must be FALSE — we did not unlink anything"
+        );
+        assert!(
+            outcome.registration_removed,
+            "registration_removed must be TRUE — intent satisfied (file already gone)"
+        );
+        assert_eq!(
+            outcome.bytes_freed, 0,
+            "bytes_freed must be 0 — enumerate-time size is misleading post-race"
+        );
+    }
+
+    /// `delete_one_plan` MUST surface a non-NotFound IO failure as a
+    /// hard-failure outcome — `file_deleted=false`, `registration_removed=false`
+    /// — so the orchestrator can produce a "partial" verdict. Mutating the
+    /// `e.kind() == NotFound` guard to `true` would route every error to the
+    /// NotFound branch (which sets `registration_removed=true`), silently
+    /// claiming a successful deregistration on a real failure. This test
+    /// kills that mutation by passing a directory (remove_file → IsADirectory
+    /// or PermissionDenied, both non-NotFound).
+    #[test]
+    fn delete_one_plan_returns_hard_failure_outcome_for_non_not_found_io_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Plan points at a directory — remove_file fails with non-NotFound.
+        let dir = tmp.path().join("a-directory.gguf");
+        std::fs::create_dir(&dir).unwrap();
+        let plan = Plan {
+            file_path: dir.clone(),
+            id_in_tool: "a-directory.gguf".to_string(),
+            size_bytes: 42,
+        };
+
+        let outcome = delete_one_plan(plan);
+
+        assert!(
+            !outcome.file_deleted,
+            "file_deleted must be false on hard failure"
+        );
+        // CRITICAL: with the mutation `e.kind() == NotFound -> true`, the
+        // error would be classified as NotFound and registration_removed
+        // would be true. Pin it to false.
+        assert!(
+            !outcome.registration_removed,
+            "registration_removed must be FALSE for non-NotFound IO error \
+             (NotFound mutation would falsely set this true)"
+        );
+        assert_eq!(outcome.bytes_freed, 0, "no bytes freed on hard failure");
+        assert!(dir.exists(), "directory must still exist (we did not unlink it)");
+    }
+
+    /// Happy-path counterpart: when the file IS on disk, `delete_one_plan`
+    /// unlinks it and reports `file_deleted=true`, `bytes_freed=size`.
+    /// Together with the race test above, this pins both arms of the
+    /// `e.kind() == NotFound` guard.
+    #[test]
+    fn delete_one_plan_unlinks_existing_file_and_reports_bytes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("present.gguf");
+        std::fs::write(&path, vec![0xABu8; 1234]).unwrap();
+        let plan = Plan {
+            file_path: path.clone(),
+            id_in_tool: "present.gguf".to_string(),
+            size_bytes: 1234,
+        };
+
+        let outcome = delete_one_plan(plan);
+
+        assert!(outcome.file_deleted, "must unlink the real file");
+        assert!(outcome.registration_removed);
+        assert_eq!(outcome.bytes_freed, 1234);
+        assert!(!path.exists(), "file must be gone");
+    }
+
+    /// `delete_one_at` MUST surface a non-NotFound IO error as
+    /// `DeleteError::Io`, NOT as `DeleteError::NotFound`. Mutating the
+    /// `e.kind() == NotFound` match guard to `true` would re-route every
+    /// IO error to NotFound — silently masking real failures (permission
+    /// denied, disk error) as "nothing to do". This test pins the
+    /// non-NotFound arm by passing a path that fails the unlink for a
+    /// reason OTHER than NotFound: the path is a non-empty directory.
+    #[test]
+    fn delete_one_at_returns_io_error_when_unlink_fails_for_non_not_found_reason() {
+        let tmp = tempfile::tempdir().unwrap();
+        // remove_file on a directory fails with an OS error that is NOT
+        // ErrorKind::NotFound — typically IsADirectory or PermissionDenied.
+        let dir = tmp.path().join("a-directory");
+        std::fs::create_dir(&dir).unwrap();
+
+        let err = delete_one_at(&dir, "a-directory")
+            .expect_err("remove_file on a directory must fail");
+        match err {
+            DeleteError::NotFound(_) => {
+                panic!("must NOT be classified as NotFound — directory exists")
+            }
+            DeleteError::Io(_) => {} // expected
+            other => panic!("expected DeleteError::Io, got {:?}", other),
+        }
+    }
+}

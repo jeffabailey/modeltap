@@ -138,4 +138,50 @@ mod tests {
         assert!(default_paths_from_home(HostOs::MacOs, None).is_empty());
         assert!(default_paths_from_home(HostOs::Linux, None).is_empty());
     }
+
+    /// Behavior 4 — `resolve_default_paths()` MUST return TWO non-empty
+    /// paths anchored at the real `$HOME` (Python SDK + desktop app).
+    /// Mutating it to `vec![]` or `vec![Default::default()]` would either
+    /// produce no defaults at all or a single empty `PathBuf`, both of
+    /// which would wreck discovery on a fresh install.
+    ///
+    /// Skipped if `dirs::home_dir()` returns `None` (no $HOME available
+    /// in the test environment) — in that case `resolve_default_paths()`
+    /// legitimately returns an empty Vec and the mutation would be
+    /// equivalent to the real behavior.
+    #[test]
+    fn resolve_default_paths_returns_two_paths_under_real_home() {
+        let Some(home) = dirs::home_dir() else {
+            eprintln!("skip: no $HOME in test environment");
+            return;
+        };
+        let paths = resolve_default_paths();
+        assert_eq!(
+            paths.len(),
+            2,
+            "resolve_default_paths must return both Python SDK and desktop app paths; got {:?}",
+            paths
+        );
+        // First path: Python SDK at ~/.cache/gpt4all (same on macOS and Linux).
+        assert_eq!(
+            paths[0],
+            home.join(".cache").join("gpt4all"),
+            "first path must be the Python SDK location"
+        );
+        // Second path: desktop app — varies by OS, but must NOT be empty
+        // and MUST include the home prefix and the "nomic-ai" segment.
+        assert!(
+            paths[1].starts_with(&home),
+            "second path must be rooted at $HOME"
+        );
+        assert!(
+            paths[1].components().any(|c| c.as_os_str() == "nomic-ai"),
+            "second path must contain the 'nomic-ai' segment; got {:?}",
+            paths[1]
+        );
+        // Both paths must be non-empty (kills the `Default::default()` mutant
+        // which would yield `PathBuf::new()`).
+        assert!(!paths[0].as_os_str().is_empty());
+        assert!(!paths[1].as_os_str().is_empty());
+    }
 }
