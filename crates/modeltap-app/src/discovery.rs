@@ -154,7 +154,7 @@ pub async fn run_discovery(plugins: Vec<Box<dyn Tool>>) -> InventorySummary {
 
     // Sort outcomes by tool name so the launch.timing event is deterministic
     // regardless of which plugin finished first.
-    outcomes.sort_by(|a, b| a.tool.to_string().cmp(&b.tool.to_string()));
+    outcomes.sort_by_key(|a| a.tool.to_string());
 
     InventorySummary { outcomes }
 }

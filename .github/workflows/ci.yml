@@ -61,7 +61,6 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
-          arguments: --config cargo-deny.toml
 
   k3-bench:
     # Step 01-01 placeholder: the real K3 fixture lands in step 02-04 once the
