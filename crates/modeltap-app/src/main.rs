@@ -25,6 +25,7 @@ use modeltap_app::refresh;
 // the linker elides the plugin crates and inventory::iter::<PluginFactory>()
 // returns empty (per ADR-001 §"Plugin registration mechanism" caveat).
 use modeltap_plugin_atomic_chat as _;
+use modeltap_plugin_gpt4all as _;
 use modeltap_plugin_hf as _;
 use modeltap_plugin_lm_studio as _;
 use modeltap_plugin_ollama as _;

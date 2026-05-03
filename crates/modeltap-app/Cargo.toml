@@ -40,6 +40,7 @@ modeltap-plugin-lm-studio = { path = "../../plugins/lm-studio" }
 # 5th REAL production plugin — Atomic Chat (Jan-fork). This is the live
 # end-to-end proof of the US-18 plugin extensibility contract.
 modeltap-plugin-atomic-chat = { path = "../../plugins/atomic-chat" }
+modeltap-plugin-gpt4all = { path = "../../plugins/gpt4all" }
 
 # US-18 5th-plugin certification fixture. Linked behind the `test-fixtures`
 # Cargo feature so production binaries (built with `--release` and no

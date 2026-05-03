@@ -766,6 +766,7 @@ dependencies = [
  "modeltap-core",
  "modeltap-plugin-atomic-chat",
  "modeltap-plugin-atomic-chat-fixture",
+ "modeltap-plugin-gpt4all",
  "modeltap-plugin-hf",
  "modeltap-plugin-lm-studio",
  "modeltap-plugin-ollama",
