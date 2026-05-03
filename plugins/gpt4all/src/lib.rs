@@ -27,6 +27,7 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod discover;
 pub mod paths;
 
 use std::path::{Path, PathBuf};
@@ -45,10 +46,9 @@ pub const TOOL_NAME: ToolId = ToolId("gpt4all");
 const ACCEPTED: &[Format] = &[Format::Gguf];
 
 /// The GPT4All plugin instance. Holds the resolved search paths produced by
-/// `config::load_from_process()` at construction time; `discover()` (step
-/// 01-03) will walk these paths.
+/// `config::load_from_process()` at construction time; `discover()` walks
+/// these paths via `discover::discover_in`.
 pub struct Gpt4AllPlugin {
-    #[allow(dead_code)] // wired into discover() in step 01-03
     search_paths: Vec<PathBuf>,
 }
 
@@ -80,9 +80,16 @@ impl Tool for Gpt4AllPlugin {
     }
 
     async fn discover(&self) -> Result<Vec<DiscoveredModel>, DiscoverError> {
-        Err(DiscoverError::Io(std::io::Error::other(
-            "gpt4all discover arrives in step 01-02",
-        )))
+        let roots = self.search_paths.clone();
+        // Per ADR-005: directory walk is sync, so wrap in spawn_blocking to
+        // avoid stalling the runtime thread.
+        tokio::task::spawn_blocking(move || discover::discover_in(&roots))
+            .await
+            .map_err(|join_err| {
+                DiscoverError::Io(std::io::Error::other(format!(
+                    "gpt4all discovery task panicked: {join_err}"
+                )))
+            })?
     }
 
     async fn link(
