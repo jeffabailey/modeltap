@@ -46,3 +46,10 @@ pub mod tag;
 pub mod cargo_adapter;
 pub mod cliff_adapter;
 pub mod git_adapter;
+
+// Adapter module introduced in DELIVER step 01-08 (bump-tap-formula, US-06,
+// WS exit gate). Thin wrapper around the `gh` CLI for the two operations the
+// tap-bump step needs: list-PRs-by-head (idempotent retry detection) and
+// create-PR (cross-repo seam against the homebrew-modeltap tap repo). See
+// component-boundaries.md §2.3 (gh_adapter row) for the full surface.
+pub mod gh_adapter;

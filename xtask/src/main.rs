@@ -27,6 +27,7 @@ use xtask::changelog::{extract_section, ChangelogError};
 use xtask::cliff_adapter;
 use xtask::formula::{is_valid_sha256, render, FormulaCtx, TargetEntry};
 use xtask::fs_adapter;
+use xtask::gh_adapter;
 use xtask::git_adapter;
 use xtask::lint::lint as lint_workflow;
 use xtask::tag::assert_tag_matches;
@@ -88,6 +89,41 @@ enum Cmd {
         #[arg(long = "max-lines")]
         max_lines: usize,
     },
+    /// Clone the tap repository, write the rendered formula into
+    /// `Formula/modeltap.rb`, commit with message `modeltap <version>`, and
+    /// force-push branch `bump/v<version>` to the tap remote. With
+    /// `--open-pr`, also shells out to `gh pr create` (requires an
+    /// authenticated `gh` and a real GitHub remote — gated under the
+    /// workflow's `bump-tap-formula` job).
+    BumpTapFormula {
+        /// Release version, e.g. `0.0.1-rc1`. Becomes both the commit
+        /// message suffix (`modeltap <version>`) AND the branch suffix
+        /// (`bump/v<version>`).
+        #[arg(long)]
+        version: String,
+        /// Tap-repo remote URL. Production: `https://github.com/jeffabailey
+        /// /homebrew-modeltap.git`. Tests: `file://${TMPDIR}/tap-fake.git`.
+        #[arg(long = "tap-repo-url")]
+        tap_repo_url: String,
+        /// Path to the rendered Formula/modeltap.rb file produced by
+        /// `xtask render-formula`. The bump step copies this file (NOT
+        /// re-renders it) into the tap working tree.
+        #[arg(long)]
+        formula: PathBuf,
+        /// Open a PR via `gh pr create` after pushing. Requires authenticated
+        /// `gh`. Default false so local acceptance tests against ephemeral
+        /// file:// remotes don't try to call live GitHub.
+        #[arg(long = "open-pr", default_value_t = false)]
+        open_pr: bool,
+        /// Tap repository slug (`<owner>/<repo>`) for `gh pr create`. Only
+        /// consulted when `--open-pr` is set; defaulted so local runs need
+        /// only `--tap-repo-url`.
+        #[arg(
+            long = "tap-repo-slug",
+            default_value = "jeffabailey/homebrew-modeltap"
+        )]
+        tap_repo_slug: String,
+    },
 }
 
 fn main() -> ExitCode {
@@ -111,6 +147,13 @@ fn main() -> ExitCode {
             workflow,
             max_lines,
         } => run_lint_workflows(&workflow, max_lines),
+        Cmd::BumpTapFormula {
+            version,
+            tap_repo_url,
+            formula,
+            open_pr,
+            tap_repo_slug,
+        } => run_bump_tap_formula(&version, &tap_repo_url, &formula, open_pr, &tap_repo_slug),
     }
 }
 
@@ -513,3 +556,188 @@ fn run_release_prep(version_str: &str) -> ExitCode {
 // DELIVER step. As of step 01-06 every Cmd variant has a concrete handler, so
 // the helper has been removed (graduating from RED to GREEN means deleting
 // the panic — there is nothing left to NotImplemented).
+
+/// `bump-tap-formula` end-to-end (DELIVER step 01-08, US-06 / WS exit gate):
+///   1. Validate `--formula` exists and is readable (no partial state on bad
+///      input — we abort BEFORE touching the tap repo).
+///   2. Clone `--tap-repo-url` into a fresh tempdir (NOT the workspace).
+///   3. Check out branch `bump/v<version>` (orphaned from origin/main; we
+///      force-push it next so any pre-existing branch is overwritten).
+///   4. Write `--formula` content to `Formula/modeltap.rb` in the working
+///      tree (mkdir -p Formula/ first).
+///   5. Commit with message `modeltap <version>` (no other files touched —
+///      the bump branch's diff vs main is the formula change).
+///   6. `git push --force-with-lease origin bump/v<version>` so re-runs
+///      idempotently overwrite the branch (US-12 retry semantics).
+///   7. With `--open-pr`: shell out to `gh pr create` against the tap
+///      repo's main branch. Without it: print "PR step skipped" and exit 0.
+///
+/// Exit codes:
+///   - 0  on success.
+///   - 1  for git/gh failures with the underlying tool's stderr surfaced.
+///   - 2  for I/O / input-validation errors (missing formula file, etc.).
+///
+/// Why force-push-with-lease: GH Actions retries on transient failures may
+/// leave a stale `bump/v<version>` branch from the prior attempt. The
+/// `--force-with-lease` form is safer than `--force` because it refuses to
+/// overwrite if a third party has pushed to the branch between attempts (a
+/// rare but possible race for a multi-maintainer tap repo).
+fn run_bump_tap_formula(
+    version: &str,
+    tap_repo_url: &str,
+    formula_path: &std::path::Path,
+    open_pr: bool,
+    tap_repo_slug: &str,
+) -> ExitCode {
+    // 1. Validate formula input exists. The walking-skeleton fixture-theater
+    //    guard: refuse BEFORE we touch the tap repo so a bad input never
+    //    leaves a half-pushed branch behind.
+    let formula_text = match fs_adapter::read_to_string(formula_path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!(
+                "xtask bump-tap-formula: cannot read formula {}: {e}",
+                formula_path.display()
+            );
+            return ExitCode::from(2);
+        }
+    };
+
+    // 2. Clone the tap repo into a fresh tempdir (NOT the workspace — we do
+    //    NOT want to leak refs into the modeltap working tree).
+    let workdir = match tempfile::tempdir() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("xtask bump-tap-formula: cannot create tempdir: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let tap_clone = workdir.path().join("tap");
+    if let Err(e) = run_git(workdir.path(), &["clone", "--quiet", tap_repo_url, "tap"]) {
+        eprintln!("xtask bump-tap-formula: clone {tap_repo_url}: {e}");
+        return ExitCode::from(1);
+    }
+
+    // 3. Branch.
+    let branch = format!("bump/v{version}");
+    if let Err(e) = run_git(&tap_clone, &["checkout", "-B", &branch]) {
+        eprintln!("xtask bump-tap-formula: checkout -B {branch}: {e}");
+        return ExitCode::from(1);
+    }
+
+    // 4. Write Formula/modeltap.rb (mkdir -p first).
+    let formula_dir = tap_clone.join("Formula");
+    if let Err(e) = std::fs::create_dir_all(&formula_dir) {
+        eprintln!(
+            "xtask bump-tap-formula: cannot mkdir {}: {e}",
+            formula_dir.display()
+        );
+        return ExitCode::from(2);
+    }
+    let dest = formula_dir.join("modeltap.rb");
+    if let Err(e) = std::fs::write(&dest, &formula_text) {
+        eprintln!(
+            "xtask bump-tap-formula: cannot write {}: {e}",
+            dest.display()
+        );
+        return ExitCode::from(2);
+    }
+
+    // 5. Commit. We stage ONLY Formula/modeltap.rb so any incidental file in
+    //    the tap repo's working tree (e.g., a stray .DS_Store) does not leak
+    //    into the bump commit.
+    if let Err(e) = run_git(&tap_clone, &["add", "Formula/modeltap.rb"]) {
+        eprintln!("xtask bump-tap-formula: git add: {e}");
+        return ExitCode::from(1);
+    }
+    let commit_msg = format!("modeltap {version}");
+    if let Err(e) = run_git_with_identity(&tap_clone, &["commit", "--quiet", "-m", &commit_msg]) {
+        eprintln!("xtask bump-tap-formula: git commit: {e}");
+        return ExitCode::from(1);
+    }
+
+    // 6. Push --force-with-lease.
+    if let Err(e) = run_git(
+        &tap_clone,
+        &["push", "--force-with-lease", "--quiet", "origin", &branch],
+    ) {
+        eprintln!("xtask bump-tap-formula: git push: {e}");
+        return ExitCode::from(1);
+    }
+
+    // 7. Optional PR creation.
+    if open_pr {
+        let body = format!(
+            "Automated formula bump for `v{version}`.\n\n\
+             Generated by `xtask bump-tap-formula` from the modeltap release \
+             pipeline (`.github/workflows/release.yml`).\n",
+        );
+        match gh_adapter::pr_create(&commit_msg, &body, &branch, tap_repo_slug) {
+            Ok(pr) => {
+                println!("bump-tap-formula: opened PR (state={})", pr.state);
+            }
+            Err(e) => {
+                eprintln!("xtask bump-tap-formula: gh pr create: {e}");
+                return ExitCode::from(1);
+            }
+        }
+    } else {
+        println!("bump-tap-formula: pushed branch {branch}; PR step skipped (no --open-pr).");
+    }
+
+    ExitCode::SUCCESS
+}
+
+/// Shell out to `git` in `cwd`. Returns the captured stderr in the error
+/// case so the maintainer sees the underlying diagnostic. `git` is found via
+/// PATH — the workflow runner has it pre-installed; the developer machine
+/// also has it.
+///
+/// We do NOT route this through `xtask::git_adapter` because the adapter
+/// currently only exposes `is_dirty`. Adding clone/checkout/add/commit/push
+/// wrappers that are each used exactly once here would inflate the adapter
+/// surface for no test benefit (the acceptance tests exercise the
+/// orchestration, not individual git verbs).
+fn run_git(cwd: &std::path::Path, args: &[&str]) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .map_err(|e| format!("failed to launch git: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} exited with code {}: {}",
+            args.join(" "),
+            output.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Same as `run_git` but injects a deterministic author identity. The bump
+/// commit MUST have an identity set (otherwise `git commit` errors with
+/// "Please tell me who you are"). In the workflow, the identity comes from
+/// `GH_TAP_TOKEN`'s associated user; in local acceptance runs against a
+/// throwaway tap repo, we set a fixed `modeltap-bot` identity so the test
+/// run is hermetic regardless of the developer's `~/.gitconfig`.
+fn run_git_with_identity(cwd: &std::path::Path, args: &[&str]) -> Result<(), String> {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .env("GIT_AUTHOR_NAME", "modeltap-bot")
+        .env("GIT_AUTHOR_EMAIL", "modeltap-bot@example.invalid")
+        .env("GIT_COMMITTER_NAME", "modeltap-bot")
+        .env("GIT_COMMITTER_EMAIL", "modeltap-bot@example.invalid")
+        .output()
+        .map_err(|e| format!("failed to launch git: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "git {} exited with code {}: {}",
+            args.join(" "),
+            output.status.code().unwrap_or(-1),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    Ok(())
+}

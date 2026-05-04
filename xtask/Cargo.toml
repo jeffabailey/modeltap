@@ -26,11 +26,21 @@ serde = { workspace = true }
 # `jobs:` keys; the linter then locates each job's source declaration line
 # directly so it can inspect the immediately-preceding `# Purpose:` comment.
 serde_yaml = "0.9"
+# JSON parsing for the gh_adapter (gh pr list/create returns JSON). Added in
+# DELIVER step 01-08 (bump-tap-formula, US-06). Workspace-version not used
+# here because xtask is the only consumer and binds to the dedicated 1.x
+# series; if more crates need serde_json later, promote to workspace dep.
+serde_json = { workspace = true }
+# Tempdirs are used at runtime by `bump-tap-formula` to clone the tap repo
+# into a throwaway directory (added DELIVER step 01-08, US-06 / WS exit gate).
+# Previously dev-only for git_adapter / cargo_adapter / cliff_adapter unit
+# tests — now promoted to runtime; the dev-dep entry below is retained so
+# tests that need it don't have to re-declare it.
+tempfile = { workspace = true }
 
 [dev-dependencies]
 proptest = "1.4"
 # Tempdirs for git_adapter / cargo_adapter / cliff_adapter integration unit
-# tests. Added in DELIVER step 01-06 (release-prep, US-01) — those adapters
-# shell out to real git/cargo so their unit tests need real tempdirs to be
-# meaningful.
+# tests. Now also used at runtime (see [dependencies] above) — the dev-dep
+# entry is harmless duplication.
 tempfile = { workspace = true }

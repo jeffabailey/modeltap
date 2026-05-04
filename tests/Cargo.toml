@@ -80,3 +80,23 @@ path = "acceptance/release_process/release_prep.rs"
 [[test]]
 name = "release_process_workflow_structure"
 path = "acceptance/release_process/workflow_structure.rs"
+
+# DELIVER step 01-08 — Walking Skeleton TAP-BUMP activity (US-06,
+# bump-tap-formula). Five scenarios covering the cross-repo seam against an
+# ephemeral file:// tap-fake bare repo per DWD-02: happy push, idempotent
+# re-run with force-with-lease, unreachable-remote failure, formula content
+# fidelity round-trip, missing --formula input.
+[[test]]
+name = "release_process_bump_tap_formula"
+path = "acceptance/release_process/bump_tap_formula.rs"
+
+# DELIVER step 01-08 — Walking Skeleton EXIT GATE end-to-end smoke. Wires
+# validate-tag → extract-changelog → render-formula → bump-tap-formula
+# against ephemeral modeltap-fake (working) + tap-fake (bare) repos and
+# asserts the rendered formula round-trips through the full pipeline into
+# the tap repo's bump branch with version + sha256 preserved verbatim. Also
+# asserts the production release.yml declares the bump-tap-formula job
+# with `needs: publish-github-release` (atomic-publish extension to US-06).
+[[test]]
+name = "release_process_walking_skeleton_e2e"
+path = "acceptance/release_process/walking_skeleton_e2e.rs"

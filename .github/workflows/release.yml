@@ -2,15 +2,18 @@ name: release
 
 # Tag-triggered release pipeline (ADR-010 — single workflow, multi-job DAG).
 #
-# DELIVER step 01-07 — Walking Skeleton, single platform only
-# (x86_64-unknown-linux-gnu). Multi-arch matrix and tap-bump job land in
-# subsequent steps (01-08 bump-tap-formula, 02-01 multi-arch matrix).
+# DELIVER step 01-08 closes the Walking Skeleton: tag → validate → build →
+# publish → tap-bump end-to-end on a single platform (x86_64-linux). Multi-
+# arch matrix and SLSA provenance land in step 02-01 / 02-03.
 #
 # Architectural invariants enforced by tests/acceptance/release_process/
-# workflow_structure.rs and `cargo xtask lint-workflows`:
+# workflow_structure.rs, walking_skeleton_e2e.rs, and `cargo xtask
+# lint-workflows`:
 #   - on.push.tags includes 'v*.*.*'
 #   - jobs.build needs validate-tag
 #   - jobs.publish-github-release needs [validate-tag, build]
+#   - jobs.bump-tap-formula needs publish-github-release (US-08 atomic
+#     publish guarantee extends to tap-bump; step 01-08)
 #   - CI parity gates run BEFORE cargo build --release (C3 / US-03)
 #   - every job has a `# Purpose:` comment immediately above its declaration
 #   - file ≤ 250 lines (US-14)
@@ -153,3 +156,50 @@ jobs:
             ${{ steps.prerelease.outputs.FLAG }} \
             artifacts/modeltap-*.tar.gz \
             artifacts/modeltap-*.tar.gz.sha256
+
+  # Purpose: Render the Homebrew formula from the published archive sha256 sidecars and open a PR against the homebrew-modeltap tap repo (US-06 / WS exit gate).
+  bump-tap-formula:
+    needs: publish-github-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout modeltap (for the Tera template + xtask)
+        uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Download release artifacts (archives + sha256 sidecars)
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Compute release version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Render Formula/modeltap.rb from sha256 sidecars
+        run: |
+          set -euo pipefail
+          mkdir -p Formula
+          cargo run --package xtask --quiet -- render-formula \
+            --version "${{ steps.version.outputs.VERSION }}" \
+            --template release/templates/modeltap.rb.tera \
+            --output Formula/modeltap.rb \
+            --sha256-dir artifacts \
+            --release-base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+
+      - name: Bump tap formula and open PR
+        env:
+          # Cross-repo write needs a PAT with `repo` scope on the tap repo.
+          # `secrets.GITHUB_TOKEN` cannot reach jeffabailey/homebrew-modeltap.
+          GH_TOKEN: ${{ secrets.GH_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          cargo run --package xtask --quiet -- bump-tap-formula \
+            --version "${{ steps.version.outputs.VERSION }}" \
+            --tap-repo-url "https://x-access-token:${GH_TOKEN}@github.com/jeffabailey/homebrew-modeltap.git" \
+            --formula Formula/modeltap.rb \
+            --tap-repo-slug jeffabailey/homebrew-modeltap \
+            --open-pr
