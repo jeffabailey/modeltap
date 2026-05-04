@@ -15,39 +15,10 @@
 //   3. A job is missing its `# Purpose:` comment                                 -> exit non-zero
 //      and the message identifies the offending job by name.
 
-use std::path::PathBuf;
-use std::process::Command;
-
 use assert_cmd::prelude::OutputAssertExt;
+use modeltap_acceptance::xtask_in;
 use predicates::str::contains;
 use tempfile::TempDir;
-
-/// Path to the modeltap workspace's root Cargo.toml. Resolved at compile time
-/// from `CARGO_MANIFEST_DIR` of THIS crate (`tests/`), one level up.
-fn workspace_manifest() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop(); // tests/ -> workspace root
-    p.push("Cargo.toml");
-    p
-}
-
-/// Build a `Command` that invokes `cargo run --manifest-path <ws> --package xtask
-/// --quiet -- <args>` with the given working directory.
-fn xtask_in(workdir: &std::path::Path, args: &[&str]) -> Command {
-    let mut cmd = Command::new(env!("CARGO"));
-    cmd.arg("run")
-        .arg("--manifest-path")
-        .arg(workspace_manifest())
-        .arg("--package")
-        .arg("xtask")
-        .arg("--quiet")
-        .arg("--");
-    for a in args {
-        cmd.arg(a);
-    }
-    cmd.current_dir(workdir);
-    cmd
-}
 
 /// Build a synthetic release.yml that:
 ///   - is `total_lines` lines long (counting blanks + comments + content),

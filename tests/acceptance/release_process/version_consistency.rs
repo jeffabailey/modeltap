@@ -279,7 +279,12 @@ fn version_string_threads_through_all_six_consumers_for_workspace_version() {
 fn semver_strategy() -> impl Strategy<Value = String> {
     let core = (0u32..=9, 0u32..=99, 0u32..=999)
         .prop_map(|(maj, min, patch)| format!("{maj}.{min}.{patch}"));
-    let pre = proptest::option::of("[a-z][a-z0-9]{0,4}(\\.[0-9]{1,3})?");
+    // SemVer 2.0.0 forbids leading zeros in *numeric* pre-release identifiers
+    // ("096" is invalid; "abc.096" is invalid because ".096" is the second
+    // dot-separated identifier and is purely numeric). To dodge that rule
+    // entirely we keep every segment alphanumeric-with-required-letter, so no
+    // identifier is ever purely numeric.
+    let pre = proptest::option::of("[a-z][a-z0-9]{0,4}(\\.[a-z][a-z0-9]{0,2})?");
     (core, pre).prop_map(|(core, pre_opt)| match pre_opt {
         Some(pre) => format!("{core}-{pre}"),
         None => core,

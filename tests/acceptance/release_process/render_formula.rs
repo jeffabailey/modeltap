@@ -14,48 +14,9 @@
 // `cargo test --workspace` builds everything in one pass and the test honours
 // the same `cargo xtask` alias the maintainer uses locally.
 
-use std::path::PathBuf;
-use std::process::Command;
-
 use assert_cmd::prelude::OutputAssertExt;
+use modeltap_acceptance::{template_path, xtask_in};
 use tempfile::TempDir;
-
-/// Path to the modeltap workspace's root Cargo.toml. Resolved at compile time
-/// from `CARGO_MANIFEST_DIR` of THIS crate (`tests/`), one level up.
-fn workspace_manifest() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop(); // tests/ -> workspace root
-    p.push("Cargo.toml");
-    p
-}
-
-/// Path to the in-repo Tera template that the rendered formula is built from.
-/// Lives at `release/templates/modeltap.rb.tera` (relative to workspace root).
-fn template_path() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop(); // tests/ -> workspace root
-    p.push("release/templates/modeltap.rb.tera");
-    p
-}
-
-/// Build a `Command` that invokes
-/// `cargo run --manifest-path <ws> --package xtask --quiet -- <args>` with the
-/// given working directory.
-fn xtask_in(workdir: &std::path::Path, args: &[&str]) -> Command {
-    let mut cmd = Command::new(env!("CARGO"));
-    cmd.arg("run")
-        .arg("--manifest-path")
-        .arg(workspace_manifest())
-        .arg("--package")
-        .arg("xtask")
-        .arg("--quiet")
-        .arg("--");
-    for a in args {
-        cmd.arg(a);
-    }
-    cmd.current_dir(workdir);
-    cmd
-}
 
 // =============================================================================
 // Scenario: Render-formula produces a single-platform formula for the WS

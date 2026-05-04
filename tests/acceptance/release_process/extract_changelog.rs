@@ -14,41 +14,10 @@
 // `cargo test --workspace` builds everything in one pass and the test honours
 // the same `cargo xtask` alias the maintainer uses locally.
 
-use std::path::PathBuf;
-use std::process::Command;
-
 use assert_cmd::prelude::OutputAssertExt;
+use modeltap_acceptance::xtask_in;
 use predicates::str::contains;
 use tempfile::TempDir;
-
-/// Path to the modeltap workspace's root Cargo.toml. Resolved at compile time
-/// from `CARGO_MANIFEST_DIR` of THIS crate (`tests/`), one level up.
-fn workspace_manifest() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop(); // tests/ -> workspace root
-    p.push("Cargo.toml");
-    p
-}
-
-/// Build a `Command` that invokes `cargo run --manifest-path <ws> --package xtask
-/// --quiet -- <args>` with the given working directory. Using `--manifest-path`
-/// rather than relying on cwd lets the test set its own `current_dir` to the
-/// fixture tempdir without confusing cargo about which workspace to compile.
-fn xtask_in(workdir: &std::path::Path, args: &[&str]) -> Command {
-    let mut cmd = Command::new(env!("CARGO"));
-    cmd.arg("run")
-        .arg("--manifest-path")
-        .arg(workspace_manifest())
-        .arg("--package")
-        .arg("xtask")
-        .arg("--quiet")
-        .arg("--");
-    for a in args {
-        cmd.arg(a);
-    }
-    cmd.current_dir(workdir);
-    cmd
-}
 
 /// Write a fixture CHANGELOG.md to the tempdir containing two sections, with
 /// distinguishable bodies so we can assert "no leakage from adjacent sections".

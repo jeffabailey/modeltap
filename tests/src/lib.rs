@@ -146,6 +146,65 @@ pub fn seed_modeltap_fake_workspace(repo: &Path, version: &str) {
     std::fs::write(repo.join("CHANGELOG.md"), changelog).expect("write CHANGELOG.md");
 }
 
+/// Create a tempdir containing only a minimal workspace `Cargo.toml` whose
+/// `[workspace.package].version` equals `version`. Returns the owning `TempDir`
+/// so callers control the lifetime. Used by the small acceptance suites
+/// (`validate_tag`, plus any future test that only needs the workspace-version
+/// surface and not git or CHANGELOG state).
+pub fn fixture_workspace(version: &str) -> tempfile::TempDir {
+    let tempdir = tempfile::tempdir().expect("create tempdir");
+    let cargo_toml = format!(
+        "[workspace]\n\
+         resolver = \"2\"\n\
+         members = []\n\
+         \n\
+         [workspace.package]\n\
+         version = \"{version}\"\n\
+         edition = \"2021\"\n",
+    );
+    std::fs::write(tempdir.path().join("Cargo.toml"), cargo_toml)
+        .expect("write fixture Cargo.toml");
+    tempdir
+}
+
+/// Seed the modeltap-fake working repo with a Cargo.toml whose
+/// `[workspace.package].version` matches `version`, plus a CHANGELOG.md
+/// containing one "Walking-skeleton release-candidate." section for that
+/// version, plus a single-target sha256 sidecar in
+/// `artifacts/modeltap-<version>-x86_64-unknown-linux-gnu.tar.gz.sha256`
+/// (walking-skeleton shape — one triple).
+///
+/// This is the WS / recovery-test seed; multi-arch tests use
+/// `seed_modeltap_fake_workspace` (which uses a "Multi-arch release-candidate."
+/// blurb) + per-target `write_sidecar` directly so they can stage 4 sidecars
+/// in one shot.
+pub fn seed_modeltap_fake_single_target(repo: &Path, version: &str, sha256_hex: &str) {
+    let cargo_toml = format!(
+        "[workspace]\n\
+         resolver = \"2\"\n\
+         members = []\n\
+         \n\
+         [workspace.package]\n\
+         version = \"{version}\"\n\
+         edition = \"2021\"\n",
+    );
+    std::fs::write(repo.join("Cargo.toml"), cargo_toml).expect("write Cargo.toml");
+
+    let changelog = format!(
+        "# Changelog\n\n\
+         All notable changes are documented here.\n\n\
+         ## [{version}]\n\n\
+         ### Added\n\n\
+         - Walking-skeleton release-candidate.\n",
+    );
+    std::fs::write(repo.join("CHANGELOG.md"), changelog).expect("write CHANGELOG.md");
+
+    let triple = "x86_64-unknown-linux-gnu";
+    let artifacts = repo.join("artifacts");
+    std::fs::create_dir_all(&artifacts).expect("mkdir artifacts");
+    write_sidecar(&artifacts, version, triple, sha256_hex);
+}
+
 /// The four supported release targets, paired with structurally distinct
 /// sha256 fixtures (last byte encodes the kind: `aa`=mac_arm, `bb`=mac_intel,
 /// `cc`=linux_intel, `dd`=linux_arm) so round-trip assertions can prove each
