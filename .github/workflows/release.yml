@@ -264,3 +264,20 @@ jobs:
             --formula Formula/modeltap.rb \
             --tap-repo-slug jeffabailey/homebrew-modeltap \
             --open-pr
+
+      # Arm GitHub auto-merge on the freshly-opened tap PR (US-11). Squash
+      # strategy keeps tap-repo main at one commit per release. The merge
+      # fires only after `brew test-bot` reports green — that gate is the
+      # tap-repo branch-protection rule (one-time setup, documented in
+      # RELEASING.md by step 03-03). If the tap repo has not enabled
+      # auto-merge at the repo level, `gh` exits with "Auto-merge is not
+      # allowed for this repository" and this step fails LOUDLY (no silent
+      # success) — the maintainer must enable auto-merge in repo settings.
+      - name: Arm auto-merge on tap PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr merge --auto --squash \
+            --repo jeffabailey/homebrew-modeltap \
+            "bump/v${{ steps.version.outputs.VERSION }}"

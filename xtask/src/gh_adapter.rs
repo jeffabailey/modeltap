@@ -84,6 +84,51 @@ impl std::error::Error for GhError {
     }
 }
 
+/// Merge strategy passed to `gh pr merge`. The `--squash` form (US-11 — single
+/// commit on tap main per release) is the only one currently used by the
+/// release pipeline; `Merge` and `Rebase` are exposed for completeness so the
+/// adapter is general-purpose without inflating call-site complexity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MergeStrategy {
+    Squash,
+    Merge,
+    Rebase,
+}
+
+impl MergeStrategy {
+    /// CLI flag the strategy renders to (`--squash`, `--merge`, `--rebase`).
+    /// Pure function — used by `pr_merge_auto_args` and tested directly.
+    pub fn flag(self) -> &'static str {
+        match self {
+            MergeStrategy::Squash => "--squash",
+            MergeStrategy::Merge => "--merge",
+            MergeStrategy::Rebase => "--rebase",
+        }
+    }
+}
+
+/// Build the argv vector for `gh pr merge --auto <strategy> --repo <repo>
+/// <branch>`. Pure function — no I/O. Factored out so unit tests can assert
+/// the exact argv without invoking gh.
+///
+/// The `--auto` flag arms GitHub's auto-merge: the merge fires only after all
+/// required status checks (per tap-repo branch protection) pass. For the
+/// release pipeline, that gate is `brew test-bot` (US-11 + ADR-013). If the
+/// tap repo does not have auto-merge enabled at the repo level, `gh` exits
+/// non-zero with "Auto-merge is not allowed for this repository" — surfaced
+/// verbatim through `GhError::NonZeroExit`.
+pub fn pr_merge_auto_args(branch: &str, repo: &str, strategy: MergeStrategy) -> Vec<OsString> {
+    vec![
+        OsString::from("pr"),
+        OsString::from("merge"),
+        OsString::from("--auto"),
+        OsString::from(strategy.flag()),
+        OsString::from("--repo"),
+        OsString::from(repo),
+        OsString::from(branch),
+    ]
+}
+
 /// Build the argv vector for `gh pr list --head <ref> --repo <repo>
 /// --json number,title,state`. Pure function — no I/O. Factored out so unit
 /// tests can assert the exact argv without invoking gh.
@@ -187,6 +232,39 @@ pub fn pr_create(
     })
 }
 
+/// `gh pr merge --auto <strategy> --repo <repo> <branch>` → arms GitHub
+/// auto-merge on the named PR (US-11). Returns `Ok(())` on success.
+///
+/// The PR is identified by branch name rather than PR number — `gh` resolves
+/// the branch to the most recent open PR with that head ref. This lets the
+/// release pipeline call this AFTER `gh pr create` without parsing the
+/// created PR's URL/number from gh's stdout.
+///
+/// Common failure modes surfaced through `GhError::NonZeroExit`:
+///   - `Auto-merge is not allowed for this repository`: tap repo does not
+///     have auto-merge enabled at the repo level. One-time fix: enable in
+///     repo settings (documented in RELEASING.md, step 03-03).
+///   - `Pull request is not mergeable`: branch protection rejects the merge
+///     (e.g., required status check still failing). Auto-merge will fire
+///     once the checks turn green.
+///   - `HTTP 401`: GH_TAP_TOKEN expired or lacks `repo` scope on the tap.
+pub fn pr_merge_auto(branch: &str, repo: &str, strategy: MergeStrategy) -> Result<(), GhError> {
+    let args = pr_merge_auto_args(branch, repo, strategy);
+    let output = Command::new("gh")
+        .args(&args)
+        .output()
+        .map_err(GhError::LaunchFailed)?;
+
+    if !output.status.success() {
+        return Err(GhError::NonZeroExit {
+            code: output.status.code().unwrap_or(-1),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,6 +298,34 @@ mod tests {
                 "number,title,state",
             ]
         );
+    }
+
+    #[test]
+    fn pr_merge_auto_args_constructs_expected_argv_for_squash() {
+        let args = pr_merge_auto_args(
+            "bump/v0.0.1-rc1",
+            "jeffabailey/homebrew-modeltap",
+            MergeStrategy::Squash,
+        );
+        assert_eq!(
+            argv_strings(&args),
+            vec![
+                "pr",
+                "merge",
+                "--auto",
+                "--squash",
+                "--repo",
+                "jeffabailey/homebrew-modeltap",
+                "bump/v0.0.1-rc1",
+            ]
+        );
+    }
+
+    #[test]
+    fn merge_strategy_renders_expected_cli_flag() {
+        assert_eq!(MergeStrategy::Squash.flag(), "--squash");
+        assert_eq!(MergeStrategy::Merge.flag(), "--merge");
+        assert_eq!(MergeStrategy::Rebase.flag(), "--rebase");
     }
 
     #[test]

@@ -159,6 +159,19 @@ path = "acceptance/release_process/multi_arch_e2e.rs"
 name = "release_process_version_consistency"
 path = "acceptance/release_process/version_consistency.rs"
 
+# DELIVER step 03-01 — Auto-merge wiring for the tap-bump PR (US-11).
+# Three structural assertions on `.github/workflows/release.yml`:
+#   A-1 + A-2. bump-tap-formula job invokes `gh pr merge --auto --squash`
+#              against jeffabailey/homebrew-modeltap targeting the bump branch
+#              for the current version.
+#   A-3. The auto-merge step runs AFTER the bump-and-open-PR step (GitHub
+#        rejects --auto on a PR that does not yet exist).
+#   A-4. @requires_external smoke (#[ignore]d): live tap-repo round-trip,
+#        gated on MODELTAP_LIVE_SMOKE=1.
+[[test]]
+name = "release_process_auto_merge"
+path = "acceptance/release_process/auto_merge.rs"
+
 # DELIVER step 02-03 — SLSA L3 build-provenance attestation (US-09, ADR-013).
 # Five invariants on `.github/workflows/release.yml`:
 #   S-1. build job declares job-level `permissions:` with `id-token: write`,
