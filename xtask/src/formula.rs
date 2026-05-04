@@ -479,6 +479,97 @@ end
     // input set.
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: TargetKind::triple emits the EXACT canonical triple
+    // string for each variant. These pin the strings so the following mutants
+    // are killed:
+    //   - replace TargetKind::triple -> &'static str with ""
+    //   - replace TargetKind::triple -> &'static str with "xyzzy"
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn target_kind_triple_returns_canonical_string_for_each_variant() {
+        assert_eq!(TargetKind::MacArm.triple(), "aarch64-apple-darwin");
+        assert_eq!(TargetKind::MacIntel.triple(), "x86_64-apple-darwin");
+        assert_eq!(TargetKind::LinuxArm.triple(), "aarch64-unknown-linux-gnu");
+        assert_eq!(TargetKind::LinuxIntel.triple(), "x86_64-unknown-linux-gnu");
+    }
+
+    #[test]
+    fn target_kind_triple_round_trips_through_from_triple() {
+        for kind in TargetKind::all() {
+            let triple = kind.triple();
+            assert_eq!(
+                TargetKind::from_triple(triple),
+                Some(kind),
+                "triple() must be the inverse of from_triple() for {kind:?}"
+            );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: Display + Error::source for FormulaError.
+    //
+    // Pins the EXACT format text and the source-chain so the following mutants
+    // are killed:
+    //   - <impl Display for FormulaError>::fmt -> Ok(Default::default())
+    //   - <impl Error for FormulaError>::source -> None
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn display_for_invalid_sidecar_uses_exact_phrasing() {
+        let err = FormulaError::InvalidSidecar {
+            filename: "modeltap-0.2.0-x86_64-apple-darwin.tar.gz.sha256".to_owned(),
+        };
+        assert_eq!(
+            format!("{err}"),
+            "sidecar modeltap-0.2.0-x86_64-apple-darwin.tar.gz.sha256 is not a bare 64-char lowercase hex sha256"
+        );
+    }
+
+    #[test]
+    fn display_for_tera_starts_with_exact_prefix_and_includes_inner() {
+        // Build a real tera::Error by triggering a parse failure.
+        let mut tera = tera::Tera::default();
+        let inner = tera
+            .add_raw_template("bad", "{%- if foo \nbroken")
+            .expect_err("parse must fail");
+        let inner_msg = inner.to_string();
+        let err = FormulaError::Tera(inner);
+        let msg = format!("{err}");
+        assert!(
+            msg.starts_with("formula template render failed: "),
+            "Tera Display must use exact prefix, got: {msg}"
+        );
+        assert!(
+            msg.contains(&inner_msg),
+            "Tera Display must include underlying tera error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn source_returns_inner_for_tera_only() {
+        use std::error::Error as _;
+
+        let mut tera = tera::Tera::default();
+        let inner = tera
+            .add_raw_template("bad", "{%- if foo \nbroken")
+            .expect_err("parse must fail");
+        let tera_err = FormulaError::Tera(inner);
+        assert!(
+            tera_err.source().is_some(),
+            "Tera variant must expose its inner tera::Error via source()"
+        );
+
+        let invalid = FormulaError::InvalidSidecar {
+            filename: "bad.sha256".to_owned(),
+        };
+        assert!(
+            invalid.source().is_none(),
+            "InvalidSidecar must not have a source"
+        );
+    }
+
     #[test]
     fn render_round_trip_preserves_every_sha256_verbatim() {
         let template = include_str!("../../release/templates/modeltap.rb.tera");

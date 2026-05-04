@@ -307,6 +307,190 @@ jobs:
     // emit a synthetic workflow with each job preceded by a purpose comment.
     // -------------------------------------------------------------------------
 
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: LintError Display.
+    //
+    // Pins the EXACT format text so the following mutant is killed:
+    //   - <impl Display for LintError>::fmt -> Ok(Default::default())
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn display_for_parse_error_uses_exact_phrasing() {
+        let err = LintError::ParseError("unexpected character at line 3".to_owned());
+        assert_eq!(
+            format!("{err}"),
+            "workflow parse error: unexpected character at line 3"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: line_count > max_lines uses STRICT `>`, not `>=`.
+    //
+    // A workflow whose line_count EQUALS max_lines must NOT be over_budget.
+    // This kills `replace > with >=` at xtask/src/lint.rs:114.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn over_budget_is_false_when_line_count_equals_max_lines_exactly() {
+        let yaml = "\
+name: release
+jobs:
+  # Purpose: x
+  validate-tag:
+    runs-on: ubuntu-latest
+";
+        // Verify the pre-condition: this YAML is exactly 5 lines.
+        let report = lint(yaml, 999).expect("valid yaml");
+        assert_eq!(report.line_count, 5, "fixture must be exactly 5 lines");
+
+        // Boundary case: max_lines == line_count -> NOT over budget.
+        let report = lint(yaml, 5).expect("valid yaml");
+        assert!(
+            !report.over_budget,
+            "line_count == max_lines must NOT be over_budget (strict >)"
+        );
+
+        // Adjacent case: max_lines == line_count - 1 -> over budget.
+        let report = lint(yaml, 4).expect("valid yaml");
+        assert!(
+            report.over_budget,
+            "line_count == max_lines + 1 must be over_budget"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: count_lines uses `+ 1` for missing trailing newline,
+    // not `- 1` or `* 1`. We construct inputs whose expected line count
+    // distinguishes all three operators (the "+" mutant is killed by any test
+    // where adding 1 vs subtracting/multiplying by 1 changes the result).
+    //
+    // Kills:
+    //   - replace + with - in count_lines (xtask/src/lint.rs:130)
+    //   - replace + with * in count_lines (xtask/src/lint.rs:130)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn count_lines_treats_missing_trailing_newline_as_one_extra_line() {
+        // Two lines, NO trailing newline. nl=1 (one '\n'), so:
+        //   correct (+):  1 + 1 = 2
+        //   mutant (-):   1 - 1 = 0
+        //   mutant (*):   1 * 1 = 1
+        // The assertion `line_count == 2` distinguishes all three operators.
+        let yaml = "name: release\njobs: {}";
+        let report = lint(yaml, 999).expect("valid yaml");
+        assert_eq!(
+            report.line_count, 2,
+            "two lines without trailing newline must count as 2 (nl=1, +1 for last)"
+        );
+    }
+
+    #[test]
+    fn count_lines_with_trailing_newline_does_not_add_extra() {
+        // Two lines, trailing newline: nl=2, ends_with('\n') -> 2.
+        // The trailing-newline branch never executes the +1, so this test
+        // doesn't help distinguish + vs - vs * (it doesn't run that arm).
+        // It DOES however pin the no-trailing-newline branch's correctness.
+        let yaml = "name: release\njobs: {}\n";
+        let report = lint(yaml, 999).expect("valid yaml");
+        assert_eq!(
+            report.line_count, 2,
+            "two lines with trailing newline must count as 2 (nl=2, no add)"
+        );
+    }
+
+    #[test]
+    fn count_lines_for_three_lines_no_trailing_newline_is_three() {
+        // Three lines, no trailing newline: nl=2, +1 -> 3.
+        // +: 2+1 = 3 (correct).
+        // -: 2-1 = 1 (wrong).
+        // *: 2*1 = 2 (wrong).
+        let yaml = "name: release\njobs: {}\n# trailer";
+        let report = lint(yaml, 999).expect("valid yaml");
+        assert_eq!(
+            report.line_count, 3,
+            "three lines without trailing newline must count as 3 (nl=2, +1 for last)"
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: find_job_declaration_line uses `c.is_whitespace() ||
+    // c == '\r'` (DISJUNCTION), and the iter::position predicate composition
+    // including the starts_with check. The `||` mutant becomes `&&`, which
+    // makes the predicate FAR more restrictive.
+    //
+    // Strategy: a workflow whose first job-declaration line ends with PLAIN
+    // characters after the `:` that satisfy `is_whitespace()` (a space) but
+    // NOT `== '\r'`. Under `||`: passes. Under `&&`: fails (missing job).
+    //
+    // Kills:
+    //   - replace || with && in find_job_declaration_line (xtask/src/lint.rs:145)
+    //   - replace == with != in find_job_declaration_line (xtask/src/lint.rs:145)
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn find_job_declaration_handles_trailing_space_after_colon() {
+        // Job line has a TRAILING SPACE after the colon — not a CR. With `||`
+        // the predicate accepts it (is_whitespace == true). With `&&` (mutant)
+        // it would require BOTH whitespace AND `\r`, which a plain space fails.
+        // The job is then treated as not-found and surfaces as missing-purpose
+        // with usize::MAX index — which would FLIP this assertion.
+        let yaml =
+            "name: release\njobs:\n  # Purpose: x\n  validate-tag: \n    runs-on: ubuntu-latest\n";
+        let report = lint(yaml, 999).expect("valid yaml");
+        // With correct `||`: validate-tag is found, has Purpose comment above
+        // -> empty missing list.
+        // With `&&` mutant: validate-tag is NOT found (decl_idx None) -> pushed
+        // as missing with usize::MAX -> jobs_missing_purpose contains it.
+        assert!(
+            report.jobs_missing_purpose.is_empty(),
+            "validate-tag must be found despite trailing space after colon, got: {:?}",
+            report.jobs_missing_purpose
+        );
+    }
+
+    #[test]
+    fn find_job_declaration_rejects_lines_containing_non_whitespace_after_colon() {
+        // After `validate-tag:` there is a non-whitespace, non-CR character
+        // (`x`). Under `==`: c == '\r' is false AND c.is_whitespace() is false
+        // -> predicate false -> declaration NOT matched -> reported missing.
+        // Under `!=` (mutant): c != '\r' is true for 'x' (since 'x' != '\r')
+        // -> predicate true -> declaration matched -> no missing entry.
+        //
+        // YAML where the parser sees a top-level job whose source line has a
+        // SCALAR VALUE after `:` (so the chars after the `:` are all
+        // non-whitespace, non-CR). The parser accepts this as
+        // `jobs: { validate-tag: scalar }`; the linter must NOT match the
+        // declaration line because the chars after `:` violate the
+        // whitespace-or-CR rule.
+        let yaml = "\
+name: release
+jobs:
+  # Purpose: x
+  validate-tag: scalar_value
+";
+        let report = lint(yaml, 999).expect("YAML must parse: scalar value after key");
+        // Sanity check: parser sees the job in its map.
+        assert!(
+            !report.jobs_missing_purpose.is_empty() || report.line_count > 0,
+            "report should be populated; got: {report:?}"
+        );
+        // With correct `==`: validate-tag's source line has trailing chars
+        // that are NOT whitespace and NOT '\r' -> declaration NOT matched ->
+        // pushed with usize::MAX -> appears in missing list.
+        // With mutant `!=`: every char != '\r' (true for 's','c',...) ->
+        // declaration matched at correct index, comment IS above -> NOT in
+        // missing list.
+        assert!(
+            report
+                .jobs_missing_purpose
+                .contains(&"validate-tag".to_owned()),
+            "validate-tag's decl line ends with `: scalar_value` (non-whitespace), \
+             so the predicate must reject it (decl not found) and mark it missing; \
+             got: {:?}",
+            report.jobs_missing_purpose
+        );
+    }
+
     proptest::proptest! {
         #[test]
         fn workflow_within_budget_with_purpose_comments_is_clean(

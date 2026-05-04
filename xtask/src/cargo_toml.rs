@@ -218,6 +218,92 @@ version = "not-a-semver"
         );
     }
 
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: Display + Error::source for VersionError.
+    //
+    // These pin the EXACT format text and the source-chain wiring so the
+    // following mutations are killed:
+    //   - <impl Display for VersionError>::fmt -> Ok(Default::default())
+    //   - <impl Error for VersionError>::source -> None
+    //   - delete match arm VersionError::ParseFailed(e) in source
+    // -------------------------------------------------------------------------
+
+    use std::error::Error as _;
+
+    #[test]
+    fn display_for_missing_field_is_exact_text() {
+        let err = VersionError::MissingField;
+        assert_eq!(
+            format!("{err}"),
+            "[workspace.package].version field is missing"
+        );
+    }
+
+    #[test]
+    fn display_for_parse_failed_includes_underlying_error() {
+        let semver_err = semver::Version::parse("not-a-semver").expect_err("must fail");
+        let inner_msg = semver_err.to_string();
+        let err = VersionError::ParseFailed(semver_err);
+        let msg = format!("{err}");
+        assert!(
+            msg.starts_with("failed to parse semver version: "),
+            "ParseFailed Display must use exact prefix, got: {msg}"
+        );
+        assert!(
+            msg.contains(&inner_msg),
+            "ParseFailed Display must include underlying semver error, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn display_for_not_monotonic_uses_exact_phrasing() {
+        let err = VersionError::NotMonotonic {
+            current: v("0.2.0"),
+            proposed: v("0.1.5"),
+        };
+        assert_eq!(
+            format!("{err}"),
+            "proposed version 0.1.5 is not greater than current 0.2.0"
+        );
+    }
+
+    #[test]
+    fn display_for_tag_mismatch_uses_exact_phrasing() {
+        let err = VersionError::TagMismatch {
+            tag: "v0.1.5".to_owned(),
+            version: v("0.2.0"),
+        };
+        assert_eq!(
+            format!("{err}"),
+            "tag v0.1.5 does not match workspace version 0.2.0"
+        );
+    }
+
+    #[test]
+    fn source_returns_inner_for_parse_failed_only() {
+        // ParseFailed wraps a semver::Error — source MUST chain through.
+        let semver_err = semver::Version::parse("not-a-semver").expect_err("must fail");
+        let parse_failed = VersionError::ParseFailed(semver_err);
+        assert!(
+            parse_failed.source().is_some(),
+            "ParseFailed must expose its inner semver error via source()"
+        );
+        // All other variants do NOT have a source.
+        assert!(VersionError::MissingField.source().is_none());
+        assert!(VersionError::NotMonotonic {
+            current: v("0.2.0"),
+            proposed: v("0.1.5"),
+        }
+        .source()
+        .is_none());
+        assert!(VersionError::TagMismatch {
+            tag: "v0.1.5".to_owned(),
+            version: v("0.2.0"),
+        }
+        .source()
+        .is_none());
+    }
+
     // proptest invariant: bumping forward is always allowed.
     // For any (a, b) with a < b, assert_monotonic(b, a) must return Ok
     // (here `b` is the proposed and `a` is the current — proposed > current).

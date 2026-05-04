@@ -276,6 +276,92 @@ Older.
         );
     }
 
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: ChangelogError Display.
+    //
+    // Pins exact text so the following mutant is killed:
+    //   - <impl Display for ChangelogError>::fmt -> Ok(Default::default())
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn display_for_section_not_found_uses_exact_phrasing() {
+        let err = ChangelogError::SectionNotFound;
+        assert_eq!(format!("{err}"), "section not found");
+    }
+
+    // -------------------------------------------------------------------------
+    // Mutation-coverage: is_iso_date_suffix is a 10-clause `&&` chain over
+    // a fixed-width " - YYYY-MM-DD" suffix. We pin TRUE and FALSE cases so
+    // that:
+    //   - replace fn -> bool with true is killed by ANY false-returning case
+    //   - each of the 8 `&& -> ||` mutants is killed by an input where exactly
+    //     one byte at the mutation's right-hand clause is wrong; flipping the
+    //     adjacent `&&` to `||` then masks the wrongness and FLIPS the result.
+    //
+    // The 8 mutated `&&` positions sit between:
+    //   (1) date[0] | (2) date[1] | (3) date[2] | (4) date[3]
+    //   (5) date[4]==b'-' | (6) date[5] | (7) date[6] | (8) date[7]==b'-'
+    //   (9) date[8] | (10) date[9]
+    //
+    // For each `&& -> ||` mutation, an input where the RIGHT-hand clause is
+    // false while everything to its left is true causes the mutant to return
+    // true (incorrectly) while the correct function returns false. We
+    // construct one such input per position.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn is_iso_date_suffix_true_for_canonical_date() {
+        // Baseline: a perfectly-formed " - YYYY-MM-DD" must return true. This
+        // alone proves the function is not the constant `false`.
+        assert!(is_iso_date_suffix(" - 2026-05-03"));
+        assert!(is_iso_date_suffix(" - 0000-00-00"));
+        assert!(is_iso_date_suffix(" - 9999-12-31"));
+    }
+
+    #[test]
+    fn is_iso_date_suffix_false_when_length_or_prefix_wrong() {
+        // Kills: replace fn -> bool with true (any false-returning case).
+        assert!(!is_iso_date_suffix(""));
+        assert!(!is_iso_date_suffix(" - 2026-05-0")); // 12 bytes, too short
+        assert!(!is_iso_date_suffix(" - 2026-05-031")); // 14 bytes, too long
+        assert!(!is_iso_date_suffix("- - 026-05-03")); // 13 bytes, wrong prefix
+        assert!(!is_iso_date_suffix("X- 2026-05-03")); // 13 bytes, prefix[0]
+        assert!(!is_iso_date_suffix(" X 2026-05-03")); // 13 bytes, prefix[1]
+        assert!(!is_iso_date_suffix(" -X2026-05-03")); // 13 bytes, prefix[2]
+    }
+
+    /// Each row holds a `(label, suffix)` where `suffix` is exactly 13 bytes
+    /// AND only ONE position differs from a valid date. The correct function
+    /// returns `false` for every row; flipping the corresponding `&&` to `||`
+    /// in `is_iso_date_suffix` causes the mutant to return `true`.
+    #[test]
+    fn is_iso_date_suffix_false_for_one_bad_byte_at_each_position() {
+        // date offsets within `s` after the 3-byte " - " prefix: 0..=9.
+        let cases = [
+            ("date[0]=X", " - X026-05-03"), // && between date[0] and date[1]
+            ("date[1]=X", " - 2X26-05-03"), // && between date[1] and date[2]
+            ("date[2]=X", " - 20X6-05-03"), // && between date[2] and date[3]
+            ("date[3]=X", " - 202X-05-03"), // && between date[3] and date[4]==-
+            ("date[4]=X", " - 2026X05-03"), // && between date[4]==- and date[5]
+            ("date[5]=X", " - 2026-X5-03"), // && between date[5] and date[6]
+            ("date[6]=X", " - 2026-0X-03"), // && between date[6] and date[7]==-
+            ("date[7]=X", " - 2026-05X03"), // && between date[7]==- and date[8]
+            ("date[8]=X", " - 2026-05-X3"), // && between date[8] and date[9]
+            ("date[9]=X", " - 2026-05-0X"), // last clause; mutating its && is N/A
+        ];
+        for (label, suffix) in cases {
+            assert_eq!(
+                suffix.len(),
+                13,
+                "test fixture {label} must be exactly 13 bytes"
+            );
+            assert!(
+                !is_iso_date_suffix(suffix),
+                "{label}: input {suffix:?} has one bad byte and must return false"
+            );
+        }
+    }
+
     #[test]
     fn extract_section_handles_section_at_eof_with_no_following_heading() {
         let text = "\
