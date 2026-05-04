@@ -172,6 +172,20 @@ path = "acceptance/release_process/version_consistency.rs"
 name = "release_process_auto_merge"
 path = "acceptance/release_process/auto_merge.rs"
 
+# DELIVER step 03-02 — Idempotent retry for bump-tap-formula via
+# force-push-with-lease + gated PR creation (US-12). Four scenarios against
+# an ephemeral file:// tap-fake bare repo with a stubbed `gh` binary on PATH:
+#   1. First-run-creates: `gh pr create` invoked exactly once when no PR exists.
+#   2. Re-run-force-pushes: a second invocation force-pushes the latest
+#      formula AND does NOT open a second PR.
+#   3. N-retries property: for N ∈ 1..=5 retries, exactly one PR + one bump
+#      branch exist; the LAST run's formula content wins.
+#   4. Manual-edits-clobbered: a maintainer's manual edit on `bump/v<version>`
+#      is overwritten on the next bump-tap-formula invocation.
+[[test]]
+name = "release_process_idempotent_retry"
+path = "acceptance/release_process/idempotent_retry.rs"
+
 # DELIVER step 02-03 — SLSA L3 build-provenance attestation (US-09, ADR-013).
 # Five invariants on `.github/workflows/release.yml`:
 #   S-1. build job declares job-level `permissions:` with `id-token: write`,

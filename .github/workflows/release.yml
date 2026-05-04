@@ -251,6 +251,15 @@ jobs:
             --sha256-dir artifacts \
             --release-base-url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
 
+      # Idempotent on retry (US-12 / step 03-02): the xtask binary
+      #   (a) `git push --force-with-lease` to the bump branch, so a re-run
+      #       after a token rotation overwrites the stale branch instead of
+      #       hard-failing with "non-fast-forward";
+      #   (b) `gh pr list --head bump/v<version>` BEFORE `gh pr create`, so a
+      #       re-run with an existing OPEN PR for the same version skips
+      #       creation rather than opening a duplicate.
+      # Both invariants are property-tested in
+      # tests/acceptance/release_process/idempotent_retry.rs.
       - name: Bump tap formula and open PR
         env:
           # Cross-repo write needs a PAT with `repo` scope on the tap repo.

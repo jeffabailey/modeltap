@@ -168,6 +168,24 @@ pub fn pr_create_args(title: &str, body: &str, head: &str, base_repo: &str) -> V
     ]
 }
 
+/// Pure decision: given the PRs returned by `pr_list_for_head` for a head
+/// ref, should `bump-tap-formula` skip the `gh pr create` step?
+///
+/// Skip iff at least one PR with state `OPEN` exists. Closed / merged PRs
+/// for the same head ref do NOT block re-creation — that's the
+/// "I merged it then the maintainer re-pushed the tag" recovery flow.
+///
+/// `gh` returns PR state as upper-case strings (`OPEN`, `CLOSED`, `MERGED`).
+/// We compare case-insensitively to be robust against future schema drift.
+///
+/// Used by the bump-tap-formula idempotency path (US-12 / step 03-02). The
+/// helper is pure and tested directly — no I/O, no shell-out.
+pub fn should_skip_pr_create(existing_prs: &[PrSummary]) -> bool {
+    existing_prs
+        .iter()
+        .any(|pr| pr.state.eq_ignore_ascii_case("OPEN"))
+}
+
 /// `gh pr list --head <ref> --repo <repo> --json number,title,state` →
 /// parsed `Vec<PrSummary>`. Empty vector ⇒ no PR exists for that head ref.
 ///
@@ -383,6 +401,77 @@ mod tests {
         // No PR for the head ref — gh returns `[]`.
         let parsed: Vec<PrSummary> = serde_json::from_str("[]").expect("parse empty list");
         assert_eq!(parsed, Vec::<PrSummary>::new());
+    }
+
+    // -------------------------------------------------------------------------
+    // Unit tests for `should_skip_pr_create` — the pure idempotency-decision
+    // helper that gates `gh pr create` on whether an OPEN PR for the head ref
+    // already exists. Behaviors covered:
+    //   * skip when at least one OPEN PR exists for the head ref
+    //   * proceed (don't skip) when the only PRs for the head are CLOSED/MERGED
+    //   * proceed when no PRs exist for the head
+    // The OPEN-state matching is case-insensitive so we don't break under a
+    // future `gh` schema that lowercases the field.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn should_skip_pr_create_when_open_pr_exists_for_head() {
+        let existing = vec![PrSummary {
+            number: 42,
+            title: "modeltap 0.2.0".to_owned(),
+            state: "OPEN".to_owned(),
+        }];
+        assert!(
+            should_skip_pr_create(&existing),
+            "an OPEN PR for the head ref must gate `gh pr create` (US-12 idempotency)"
+        );
+    }
+
+    #[test]
+    fn should_not_skip_pr_create_when_no_prs_exist_for_head() {
+        let existing: Vec<PrSummary> = vec![];
+        assert!(
+            !should_skip_pr_create(&existing),
+            "an empty PR list means no PR exists for the head — proceed with create"
+        );
+    }
+
+    #[test]
+    fn should_not_skip_pr_create_when_only_closed_or_merged_prs_exist() {
+        // A previous bump for the same version was merged then the tag was
+        // re-pushed (recovery flow). The head ref now has only MERGED/CLOSED
+        // PRs; we MUST be able to open a fresh one.
+        let existing = vec![
+            PrSummary {
+                number: 7,
+                title: "modeltap 0.2.0".to_owned(),
+                state: "MERGED".to_owned(),
+            },
+            PrSummary {
+                number: 9,
+                title: "modeltap 0.2.0".to_owned(),
+                state: "CLOSED".to_owned(),
+            },
+        ];
+        assert!(
+            !should_skip_pr_create(&existing),
+            "only CLOSED/MERGED PRs for the head must NOT block create (recovery flow)"
+        );
+    }
+
+    #[test]
+    fn should_skip_pr_create_matches_open_state_case_insensitively() {
+        // `gh` currently returns upper-case state strings. Future-proof against
+        // a schema change to lower-case (`open`).
+        let existing = vec![PrSummary {
+            number: 42,
+            title: "modeltap 0.2.0".to_owned(),
+            state: "open".to_owned(),
+        }];
+        assert!(
+            should_skip_pr_create(&existing),
+            "OPEN-state matching must be case-insensitive (gh schema robustness)"
+        );
     }
 
     #[test]
