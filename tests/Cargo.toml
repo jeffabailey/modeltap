@@ -48,6 +48,11 @@ serde_yaml = "0.9"
 # 4 build matrix cells and asserts the GH-Actions `needs:` semantics —
 # publish runs iff every cell succeeds, bump runs iff publish ran.
 proptest = "1"
+# Markdown parsing for the runbook acceptance test (DELIVER step 03-03,
+# US-13): parses RELEASING.md as a CommonMark event stream so the structural
+# assertions (≤80 lines, ≤10 numbered list items, table-column presence,
+# required section headers) survive cosmetic re-flow without false alarms.
+pulldown-cmark = { version = "0.13", default-features = false }
 
 # One acceptance scenario per [[test]] block. Each block points at the file
 # under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
@@ -185,6 +190,21 @@ path = "acceptance/release_process/auto_merge.rs"
 [[test]]
 name = "release_process_idempotent_retry"
 path = "acceptance/release_process/idempotent_retry.rs"
+
+# DELIVER step 03-03 — RELEASING.md runbook structural assertions (US-13).
+# Three scenarios from hands-off-automation.feature, US-13:
+#   1. Runbook exists at repo root within the line budget (≤80 lines, ≤10
+#      numbered steps).
+#   2. Runbook contains the per-release log table (8 specified columns).
+#   3. Runbook documents the operational safety notes (GH_TAP_TOKEN rotation,
+#      manual-edit-clobber trade-off, macOS Gatekeeper xattr workaround) AND
+#      the First-time-setup section (create tap repo, set GH_TAP_TOKEN,
+#      configure tap branch protection — bundled per component-boundaries §7).
+# Parses RELEASING.md as a CommonMark event stream via pulldown-cmark so
+# cosmetic re-flow does not break structural invariants.
+[[test]]
+name = "release_process_runbook"
+path = "acceptance/release_process/runbook.rs"
 
 # DELIVER step 02-03 — SLSA L3 build-provenance attestation (US-09, ADR-013).
 # Five invariants on `.github/workflows/release.yml`:
