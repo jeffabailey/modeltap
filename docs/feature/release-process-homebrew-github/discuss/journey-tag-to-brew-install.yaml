@@ -1,0 +1,391 @@
+journey:
+  name: "Tag a Release, Land in Homebrew"
+  goal: >
+    A single `git push origin v0.x.0` produces signed multi-arch release archives,
+    publishes a GitHub Release with notes from CHANGELOG, opens an auto-merging PR
+    against the Homebrew tap with refreshed sha256s, and lets a clean macOS or Linux
+    machine `brew install jeffabailey/modeltap/modeltap` and run `modeltap` within
+    fifteen minutes of the tag push.
+  persona: >
+    Jeff Bailey — modeltap maintainer (single-maintainer OSS).
+    Secondary: Devon Park — end-user installer.
+    Tertiary: Riley Chen — open-source contributor.
+
+  emotional_arc:
+    start: "Mild dread — releases historically break in surprising ways."
+    middle: "Watchful patience — CI matrix runs, jobs go green one by one, no manual steps."
+    end: "Boring satisfaction — release shipped, formula updated, brew install works."
+
+steps:
+  - id: 1
+    name: "Bump version and changelog"
+    command: "cargo xtask release-prep --version 0.2.0 && git push -u origin release/v0.2.0"
+
+    tui_mockup: |
+      $ cargo xtask release-prep --version 0.2.0
+      [release-prep] Reading workspace version ............................. 0.1.0
+      [release-prep] Setting workspace.package.version ..................... 0.2.0
+      [release-prep] Updating Cargo.lock ................................... ok
+      [release-prep] Generating CHANGELOG.md from conventional commits ..... ok
+      [release-prep]   - 17 commits since v0.1.0
+      [release-prep]   - 4 fix:, 8 feat:, 3 chore:, 2 refactor:
+      [release-prep] Verifying CI gates locally:
+      [release-prep]   cargo fmt --all -- --check ......................... ok
+      [release-prep]   cargo clippy --workspace --all-targets -- -D warns . ok
+      [release-prep]   cargo test --workspace --locked ..................... ok (332 tests)
+      [release-prep] Done. Commit, push, open PR titled 'release: v0.2.0'.
+
+    shared_artifacts:
+      - name: "version"
+        source: "Cargo.toml [workspace.package].version"
+        displayed_as: "${version}"
+        consumers:
+          - "release-prep tool output"
+          - "CHANGELOG.md heading"
+          - "git tag string (v + version)"
+          - "release.yml validate-tag job"
+          - "release archive name"
+          - "Homebrew formula version field"
+          - "modeltap --version output (via clap CARGO_PKG_VERSION)"
+      - name: "changelog"
+        source: "CHANGELOG.md (generated from conventional commits via git-cliff)"
+        displayed_as: "${changelog}"
+        consumers:
+          - "GitHub Release notes (extracted by version section)"
+          - "Maintainer prep PR body"
+
+    emotional_state:
+      entry: "Is the tree ready?"
+      exit: "Yes — the prep PR shows exactly what will ship."
+
+    integration_checkpoint: |
+      `cargo xtask release-prep` is the only writer of ${version} and ${changelog}.
+      Hand-edits to Cargo.toml or CHANGELOG.md outside this script are a smell.
+      The PR review is the human gate before tagging.
+
+    gherkin: |
+      Scenario: Maintainer prepares a release with one command
+        Given the workspace version in Cargo.toml is 0.1.0
+        And there are 17 conventional commits since the v0.1.0 tag
+        When the maintainer runs "cargo xtask release-prep --version 0.2.0"
+        Then Cargo.toml workspace version becomes 0.2.0
+        And CHANGELOG.md gains a 0.2.0 section grouping the 17 commits by type
+        And cargo fmt, clippy, and test all pass locally
+        And the script exits zero with instructions to commit, push, and open a PR
+
+  - id: 2
+    name: "Push the tag"
+    command: "git tag -a v0.2.0 -m 'v0.2.0' && git push origin v0.2.0"
+
+    tui_mockup: |
+      $ git checkout main && git pull --ff-only
+      Already up to date.
+      $ git tag -a v0.2.0 -m "v0.2.0"
+      $ git push origin v0.2.0
+      To github.com:jeffabailey/modeltap.git
+       * [new tag]         v0.2.0 -> v0.2.0
+      $ gh run watch --exit-status
+      - release.yml * v0.2.0 in_progress
+         build (aarch64-apple-darwin)         queued
+         build (x86_64-apple-darwin)          queued
+         build (x86_64-unknown-linux-gnu)     queued
+         build (aarch64-unknown-linux-gnu)    queued
+         publish-github-release               waiting
+         bump-tap-formula                     waiting
+
+    shared_artifacts:
+      - name: "tag"
+        source: "git tag (v + ${version})"
+        displayed_as: "${tag}"
+        consumers:
+          - "release.yml workflow trigger filter"
+          - "validate-tag job assertion"
+          - "GitHub Release URL"
+          - "release archive download URL embedded in formula"
+
+    emotional_state:
+      entry: "OK, here goes — no path back."
+      exit: "It's running. Workflow visible in gh run watch."
+
+    integration_checkpoint: |
+      The release workflow MUST validate ${tag} == "v" + workspace.package.version
+      BEFORE any artifact is built. Mismatch aborts with a clear error message.
+      Without this guard, a maintainer who forgets to bump Cargo.toml ships a
+      v0.2.0 tag pointing at v0.1.0 code.
+
+    gherkin: |
+      Scenario: Pushing a matching tag triggers the release workflow
+        Given Cargo.toml workspace version is 0.2.0 on main
+        When the maintainer pushes the annotated tag "v0.2.0"
+        Then the release workflow starts within 30 seconds
+        And the validate-tag job confirms ${tag} matches "v" + ${version}
+
+      Scenario: Pushing a tag that does not match Cargo.toml fails fast
+        Given Cargo.toml workspace version is 0.1.0 on main
+        When the maintainer mistakenly pushes the annotated tag "v0.2.0"
+        Then the validate-tag job fails before any build job starts
+        And the workflow conclusion is "failure" with a clear "version mismatch" message
+
+  - id: 3
+    name: "Workflow builds, signs, publishes"
+    command: "(automatic — no human action)"
+
+    tui_mockup: |
+      +- .github/workflows/release.yml — triggered on: push tag matching v*.*.* ----+
+      | job: validate-tag                                                            |
+      |   - assert tag matches "v" + workspace.package.version                       |
+      | job: build (matrix of 4 targets)                                             |
+      |   - cargo fmt/clippy/test (CI parity gates)                                  |
+      |   - cargo build --release --locked --target ${{ matrix.target }}             |
+      |   - strip + tar.gz the binary                                                |
+      |   - sha256sum > .sha256                                                      |
+      |   - actions/attest-build-provenance@v2 (SLSA L3 attestation)                 |
+      | job: publish-github-release                                                  |
+      |   - download all 4 archives + sha256s                                        |
+      |   - extract release notes from CHANGELOG.md (the v0.2.0 section)             |
+      |   - gh release create v0.2.0 ...                                             |
+      | job: bump-tap-formula                                                        |
+      |   - checkout jeffabailey/homebrew-modeltap                                   |
+      |   - render Formula/modeltap.rb from template                                 |
+      |   - open PR titled "modeltap 0.2.0", auto-merge if brew test-bot green       |
+      +------------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "binary-targets"
+        source: "release.yml matrix.target list"
+        displayed_as: "${binary-targets[]}"
+        consumers:
+          - "build job matrix"
+          - "Homebrew formula on_macos/on_linux blocks"
+          - "README install matrix"
+      - name: "archive-name"
+        source: "release.yml build job env: modeltap-${version}-${target}.tar.gz"
+        displayed_as: "${archive-name}"
+        consumers:
+          - "build job tar step"
+          - "GitHub Release upload step"
+          - "Homebrew formula url field"
+      - name: "sha256"
+        source: "release.yml build job: sha256sum < archive > archive.sha256"
+        displayed_as: "${sha256[target]}"
+        consumers:
+          - "GitHub Release attached .sha256 file"
+          - "bump-tap-formula job (read from artifact)"
+          - "Homebrew formula sha256 field per platform block"
+      - name: "release-url"
+        source: "https://github.com/jeffabailey/modeltap/releases/download/${tag}/${archive-name}"
+        displayed_as: "${release-url[target]}"
+        consumers:
+          - "Homebrew formula url field per platform block"
+          - "README direct-download fallback links"
+
+    emotional_state:
+      entry: "Watch the matrix run."
+      exit: "All four green; release page exists with binaries and notes."
+
+    integration_checkpoint: |
+      Every published archive's sha256sum MUST appear in BOTH the GitHub release
+      attachment AND the bumped Homebrew formula. The bump-tap-formula job MUST
+      NOT run if any build matrix cell failed (`needs: publish-github-release`
+      enforces atomicity). CI parity gates (fmt, clippy, test) MUST also pass in
+      release.yml — a release that skipped the gates is not a release.
+
+    gherkin: |
+      Scenario: All four targets build and publish atomically
+        Given the validate-tag job passed
+        When the build matrix runs for all four targets
+        Then each target produces a stripped binary in modeltap-${version}-${target}.tar.gz
+        And each archive has a corresponding .sha256 file
+        And each archive carries an actions/attest-build-provenance attestation
+        And publish-github-release uploads all 4 archives + 4 .sha256 files
+        And the GitHub Release notes match the CHANGELOG.md v${version} section
+
+      Scenario: A single failing target halts the release atomically
+        Given the validate-tag job passed
+        When the aarch64-unknown-linux-gnu build job fails (e.g., cross-compile error)
+        Then publish-github-release does not run
+        And bump-tap-formula does not run
+        And no partial release artifacts are visible to users
+        And the maintainer is notified with a link to the failing job logs
+
+  - id: 4
+    name: "Tap formula bumped"
+    command: "(automatic — github-actions[bot] opens PR against jeffabailey/homebrew-modeltap)"
+
+    tui_mockup: |
+      +- jeffabailey/homebrew-modeltap — PR #14 ----------------------------+
+      | modeltap 0.2.0                                          [open]      |
+      |   opened by github-actions[bot] 35 seconds ago                      |
+      | Files changed: Formula/modeltap.rb                                  |
+      |   - version "0.1.0"                                                 |
+      |   + version "0.2.0"                                                 |
+      |   - url ".../v0.1.0/modeltap-0.1.0-aarch64-apple-darwin.tar.gz"     |
+      |   + url ".../v0.2.0/modeltap-0.2.0-aarch64-apple-darwin.tar.gz"     |
+      |   - sha256 "a1b2...c3d4"                                            |
+      |   + sha256 "e5f6...7890"                                            |
+      |   (and similar blocks for x86_64-apple-darwin, both Linux targets)  |
+      | CI: brew test-bot                                                   |
+      |   audit          ok                                                 |
+      |   install        ok (macos-14, macos-13, ubuntu-22.04)              |
+      |   test           ok ('modeltap --version' prints '0.2.0')           |
+      | Auto-merge enabled. Will merge when checks pass.                    |
+      +---------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "tap-name"
+        source: "the tap repo name itself: jeffabailey/homebrew-modeltap"
+        displayed_as: "${tap-name}"
+        consumers:
+          - "README install instructions (`brew tap ${tap-name}`)"
+          - "release.yml bump-tap-formula job (target repo)"
+          - "Homebrew CLI invocation by end users"
+      - name: "formula-content"
+        source: "release.yml bump-tap-formula job renders from template using ${version}, ${release-url}, ${sha256}"
+        displayed_as: "Formula/modeltap.rb"
+        consumers:
+          - "the tap repo (single file)"
+          - "brew install resolution"
+
+    emotional_state:
+      entry: "Did the formula update?"
+      exit: "PR opened, brew test-bot green, auto-merged."
+
+    integration_checkpoint: |
+      The tap repo's Formula/modeltap.rb test stanza MUST run `modeltap --version`
+      and assert it prints exactly ${version}. This is the cross-repo end-to-end
+      smoke that catches "uploaded the wrong binary" failures. Auto-merge fires
+      ONLY when brew test-bot is green; a red test stays open for maintainer review.
+
+    gherkin: |
+      Scenario: Tap formula updates automatically and passes brew test-bot
+        Given the GitHub Release for v0.2.0 published successfully
+        When the bump-tap-formula job runs
+        Then a PR titled "modeltap 0.2.0" opens against the tap repo
+        And Formula/modeltap.rb references the four new release URLs and four new sha256s
+        And brew test-bot's audit, install, and test stanzas all pass
+        And auto-merge merges the PR within 5 minutes of the tag push
+
+      Scenario: Auto-merge withholds when brew test-bot fails
+        Given the bump-tap-formula PR was opened
+        When `brew test-bot` install step fails on macos-14
+        Then auto-merge does not fire
+        And the PR stays open for maintainer review
+        And the maintainer is notified via the PR thread
+
+  - id: 5
+    name: "End user installs and verifies"
+    command: "brew install jeffabailey/modeltap/modeltap"
+
+    tui_mockup: |
+      $ brew install jeffabailey/modeltap/modeltap
+      ==> Tapping jeffabailey/modeltap (if not already tapped)
+      ==> Fetching jeffabailey/modeltap/modeltap
+      ==> Downloading https://github.com/jeffabailey/modeltap/releases/download/v0.2.0/modeltap-0.2.0-aarch64-apple-darwin.tar.gz
+      ==> Pouring modeltap-0.2.0-aarch64-apple-darwin.tar.gz
+        /opt/homebrew/Cellar/modeltap/0.2.0: 4 files, 12.3MB, built in 2 seconds
+      $ modeltap --version
+      modeltap 0.2.0
+      $ modeltap
+      # (TUI launches — see modeltap-tui journey)
+
+    shared_artifacts:
+      - name: "install-command"
+        source: "README install section, derived from ${tap-name} + binary name"
+        displayed_as: "brew install jeffabailey/modeltap/modeltap"
+        consumers:
+          - "README"
+          - "GitHub Release notes 'Install with' block"
+          - "modeltap-tui repo description"
+
+    emotional_state:
+      entry: "I hope this works on a fresh machine."
+      exit: "Huh, it just worked. modeltap --version prints 0.2.0 as expected."
+
+    integration_checkpoint: |
+      `modeltap --version` MUST print ${version} from Cargo.toml — NOT a hard-coded
+      string. clap's #[command(version)] reads CARGO_PKG_VERSION at compile time,
+      which the build process derives from Cargo.toml [workspace.package].version.
+      This is the cross-pipeline final verification: Cargo.toml said 0.2.0 -> tag
+      said v0.2.0 -> archive said modeltap-0.2.0 -> formula said 0.2.0 -> binary
+      MUST say 0.2.0. One source, four mirrors.
+
+    gherkin: |
+      Scenario: Clean macOS Apple Silicon machine installs and runs modeltap
+        Given a clean macOS Sonoma (Apple Silicon) machine with Homebrew installed
+        And the v0.2.0 tap-bump PR has merged
+        When the user runs "brew install jeffabailey/modeltap/modeltap"
+        Then brew downloads modeltap-0.2.0-aarch64-apple-darwin.tar.gz
+        And the install completes within 30 seconds
+        And `modeltap --version` prints "modeltap 0.2.0"
+
+      Scenario: Clean Linux x86_64 machine installs and runs modeltap
+        Given a clean Ubuntu 22.04 x86_64 machine with Homebrew on Linux installed
+        And the v0.2.0 tap-bump PR has merged
+        When the user runs "brew install jeffabailey/modeltap/modeltap"
+        Then brew downloads modeltap-0.2.0-x86_64-unknown-linux-gnu.tar.gz
+        And `modeltap --version` prints "modeltap 0.2.0"
+
+      Scenario: Install attempted during the tap-update window fails informatively
+        Given the GitHub Release for v0.2.0 has published
+        And the tap-bump PR has not yet merged
+        When the user runs "brew install jeffabailey/modeltap/modeltap"
+        Then brew reports the formula does not yet point at v0.2.0
+        And the user is advised to retry in a few minutes
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "version"
+      must_match_across:
+        - "Cargo.toml [workspace.package].version"
+        - "git tag (v + version)"
+        - "CHANGELOG.md heading"
+        - "release archive filename"
+        - "GitHub Release title"
+        - "Homebrew formula version field"
+        - "modeltap --version stdout"
+      failure_message: >
+        Version drift detected. The same version string MUST appear in Cargo.toml,
+        the git tag (with v prefix), the changelog heading, every release archive
+        filename, the GitHub Release title, the Homebrew formula, and the binary's
+        --version output. Any mismatch is a release-process bug.
+
+    - artifact: "sha256"
+      must_match_across:
+        - "release.yml build job sha256sum output"
+        - "GitHub Release .sha256 attachment"
+        - "Homebrew formula sha256 field per target"
+      failure_message: >
+        sha256 drift between the release artifact and the formula means brew install
+        will fail with 'SHA256 mismatch' for the user. This MUST be caught in the
+        bump-tap-formula job by reading the archive's .sha256 file directly, never
+        recomputing or hand-typing.
+
+    - artifact: "release-url"
+      must_match_across:
+        - "GitHub Release attachment URL"
+        - "Homebrew formula url field per target"
+      failure_message: >
+        URL drift between what GitHub serves and what the formula points at causes
+        a 404 on brew install. Both MUST be derived from the same template:
+        https://github.com/jeffabailey/modeltap/releases/download/${tag}/${archive-name}.
+
+  cross_step_invariants:
+    - invariant: "atomic-release"
+      description: >
+        Either ALL targets build AND the GitHub release publishes AND the tap PR
+        opens, OR none of these visible-to-users effects happen. No half-published
+        release.
+      enforced_by: "GitHub Actions job-needs DAG"
+
+    - invariant: "ci-parity"
+      description: >
+        release.yml MUST run cargo fmt/clippy/test on stable Rust before building
+        any release artifact. A release that skipped the CI gates is not a release.
+      enforced_by: "release.yml build job steps"
+
+    - invariant: "cross-repo-end-to-end-smoke"
+      description: >
+        The tap repo's brew test-bot test stanza runs `modeltap --version` and
+        asserts it prints ${version}. This is the only test that crosses repo
+        boundaries and verifies the entire pipeline end-to-end.
+      enforced_by: "Formula/modeltap.rb test do block + brew test-bot"

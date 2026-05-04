@@ -1,0 +1,404 @@
+{
+  "roadmap": {
+    "project_id": "release-process-homebrew-github",
+    "created_at": "2026-05-03T20:47:14Z",
+    "filled_at": "2026-05-03T21:30:00Z",
+    "total_steps": 18,
+    "phases": 3,
+    "total_estimated_hours": 48.5,
+    "decomposition_ratio": 1.6,
+    "decomposition_notes": "Phase 1 maps the 6 backbone walking-skeleton activities (PREP, TAG, BUILD, PUBLISH, TAP-BUMP, USER-INSTALL) onto the 5 xtask subcommands plus 2 release.yml job graduations; pure functions land first so adapters can compose them. Phase 2 fans the WS to all 4 build cells, layers SLSA, proves formula rendering for 4 platforms. Phase 3 covers hands-off automation, runbook, follow-up DEVOPS workflows, and lint enforcement."
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking Skeleton: tag-to-brew-install for x86_64-linux",
+      "description": "End-to-end deployable single-platform release pipeline. Walks one tag from git push through GitHub Release through tap-bump PR. Covers US-01 through US-06 plus US-15. After this phase, Devon can brew install modeltap on x86_64 Linux.",
+      "slice": "Walking Skeleton",
+      "stories_covered": ["US-01", "US-02", "US-03", "US-04", "US-05", "US-06", "US-15"],
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Implement parse_workspace_version and assert_monotonic functions",
+          "criteria": "parse_workspace_version returns semver::Version from a valid Cargo.toml string; parse_workspace_version returns Err(VersionError) when the field is missing or malformed; assert_monotonic returns Ok when proposed strictly exceeds current per semver order; assert_monotonic returns Err with both versions in message when proposed not greater than current; proptest invariant holds: any (a, b) with a less than b satisfies assert_monotonic",
+          "test_file": "xtask/src/cargo_toml.rs",
+          "scenario_name": "Release-prep refuses a non-monotonic version bump",
+          "files_to_modify": [
+            "xtask/Cargo.toml",
+            "xtask/src/cargo_toml.rs"
+          ],
+          "implementation_notes": "Add toml_edit and semver to xtask Cargo.toml. Replace placeholder Version struct with newtype around semver::Version. VersionError gains MissingField, ParseFailed, NotMonotonic variants. Inline tests cover 6-8 cases plus proptest generator for the assert_monotonic invariant.",
+          "deps": [],
+          "estimated_hours": 2.0
+        },
+        {
+          "id": "01-02",
+          "name": "Implement assert_tag_matches plus validate-tag CLI wiring",
+          "criteria": "assert_tag_matches returns Ok iff tag equals 'v' plus version.raw exactly; assert_tag_matches returns Err with standard mismatch message on any divergence; validate-tag CLI exits zero on match and non-zero with diagnostic on mismatch; validate-tag rejects tag missing the leading v with explicit error; proptest invariant holds: validate_tag succeeds iff tag equals 'v' plus version",
+          "test_file": "xtask/src/tag.rs",
+          "scenario_name": "Validate-tag accepts a tag that matches the workspace version",
+          "files_to_modify": [
+            "xtask/src/tag.rs",
+            "xtask/src/main.rs",
+            "xtask/src/fs_adapter.rs",
+            "tests/acceptance/release_process/validate_tag.rs"
+          ],
+          "implementation_notes": "Case-sensitive string compare; reject leading or trailing whitespace. Add proptest generator (DWD-06). Introduce xtask::fs_adapter as the read_to_string wrapper used by every later subcommand. Acceptance test uses real tempdir plus real Cargo.toml fixture. CLI dispatcher gains clap derive parsing.",
+          "deps": ["01-01"],
+          "estimated_hours": 2.5
+        },
+        {
+          "id": "01-03",
+          "name": "Implement extract_section plus extract-changelog CLI wiring",
+          "criteria": "extract_section returns body text of the matching '## [X.Y.Z]' section tolerating trailing date suffix; extract_section returns Err(SectionNotFound) when no matching section exists; extract-changelog CLI writes body to output file on success; extract-changelog exits non-zero with section-missing message and writes no output file when section missing; no content from adjacent sections leaks into extracted body",
+          "test_file": "xtask/src/changelog.rs",
+          "scenario_name": "Release notes are extracted from the matching changelog section",
+          "files_to_modify": [
+            "xtask/src/changelog.rs",
+            "xtask/src/main.rs",
+            "tests/acceptance/release_process/extract_changelog.rs"
+          ],
+          "implementation_notes": "Line-by-line scan keyed on regex '^## \\[<version>\\]'. Capture lines until next '^## \\[' or EOF. Trim trailing blank lines but preserve internal blanks. Failure-mode test asserts no partial file is left behind. Introduce regex crate.",
+          "deps": ["01-01"],
+          "estimated_hours": 2.0
+        },
+        {
+          "id": "01-04",
+          "name": "Implement formula::render with Tera plus render-formula CLI",
+          "criteria": "render() substitutes version, release_base_url, and per-target sha256 plus archive_name into the Tera template; render() returns Err(FormulaError) when template parse or context render fails; CLI rejects sidecars whose content is not exactly 64 lowercase hex characters; rendered formula contains correct version field; rendered on_linux.on_intel block has expected url and sha256 from sidecar verbatim",
+          "test_file": "xtask/src/formula.rs",
+          "scenario_name": "Render-formula produces a single-platform formula for the walking skeleton",
+          "files_to_modify": [
+            "xtask/Cargo.toml",
+            "xtask/src/formula.rs",
+            "xtask/src/main.rs",
+            "release/templates/modeltap.rb.tera",
+            "tests/acceptance/release_process/render_formula.rs"
+          ],
+          "implementation_notes": "Add tera dependency. Template uses {%- if -%} guards so single-platform render leaves other 3 blocks unpopulated per WS scenario. Sha256 validator regex '^[a-f0-9]{64}$' applied per sidecar before render; malformed input fails fast with offending filename in error.",
+          "deps": ["01-01"],
+          "estimated_hours": 3.0
+        },
+        {
+          "id": "01-05",
+          "name": "Implement lint pure function plus lint-workflows CLI wiring",
+          "criteria": "lint() returns LintReport with accurate line_count including blanks and comments; lint() lists every job whose immediately-preceding non-blank line is not a purpose comment; CLI exits zero when line count within budget and no jobs missing purpose; CLI exits non-zero with line-count message when budget exceeded; CLI exits non-zero identifying the offending job when purpose comment missing",
+          "test_file": "xtask/src/lint.rs",
+          "scenario_name": "Lint-workflows accepts a release.yml within the line budget",
+          "files_to_modify": [
+            "xtask/Cargo.toml",
+            "xtask/src/lint.rs",
+            "xtask/src/main.rs",
+            "tests/acceptance/release_process/lint_workflows.rs"
+          ],
+          "implementation_notes": "Add serde_yaml for jobs enumeration; line counting stays string-level. Walk YAML for top-level jobs keys; for each, scan source lines for the declaration line and inspect the preceding non-blank line. Property test via proptest with a workflow generator (job-name and line-count axes).",
+          "deps": [],
+          "estimated_hours": 3.0
+        },
+        {
+          "id": "01-06",
+          "name": "Implement release-prep CLI with git, cargo, and cliff adapters",
+          "criteria": "release-prep refuses on dirty tree exiting non-zero with standard message and modifies no files; release-prep refuses non-monotonic bump exiting non-zero with current and proposed in message; release-prep mutates Cargo.toml to requested version and regenerates CHANGELOG.md grouped by commit type; release-prep runs fmt then clippy then test halting non-zero on first failure naming the gate; release-prep exits zero on success printing next-step instructions to commit, push, and open a PR",
+          "test_file": "tests/acceptance/release_process/release_prep.rs",
+          "scenario_name": "Maintainer prepares a release with one command",
+          "files_to_modify": [
+            "xtask/src/main.rs",
+            "xtask/src/git_adapter.rs",
+            "xtask/src/cargo_adapter.rs",
+            "xtask/src/cliff_adapter.rs",
+            "tests/acceptance/release_process/release_prep.rs"
+          ],
+          "implementation_notes": "Adapters are thin (one struct method per shell-out). Author cliff.toml at repo root with the 6-section grouping per component-boundaries section 8. Acceptance test uses real tempdir with git init plus seeded conventional commits plus real cargo invocation against a minimal workspace fixture.",
+          "deps": ["01-01"],
+          "estimated_hours": 4.0
+        },
+        {
+          "id": "01-07",
+          "name": "Author release.yml validate-tag, build, publish jobs",
+          "criteria": "release.yml triggers on push tags 'v*.*.*' and validate-tag runs the xtask subcommand on ubuntu-latest; build job has needs validate-tag and runs fmt-check then clippy then test before any cargo build release; build produces archive 'modeltap-<v>-x86_64-unknown-linux-gnu.tar.gz' and bare-hex sha256 sidecar; publish-github-release has needs [validate-tag, build] and shells gh release create; release marked --prerelease when version contains a hyphen and every job carries a purpose comment",
+          "test_file": ".github/workflows/release.yml",
+          "scenario_name": "Single-target archive is produced and named correctly",
+          "files_to_modify": [
+            ".github/workflows/release.yml",
+            ".cargo/config.toml",
+            "tests/acceptance/release_process/workflow_structure.rs"
+          ],
+          "implementation_notes": "Add cargo alias xtask per ADR-011. Workflow uses dtolnay/rust-toolchain@stable plus Swatinem/rust-cache@v2 matching ci.yml per C7. Sha256 sidecar is bare-hex (NOT GNU two-field). Live gh release create gated behind @requires_external. workflow_structure.rs asserts the DAG and parity-gate ordering invariants.",
+          "deps": ["01-02", "01-03", "01-06"],
+          "estimated_hours": 3.0
+        },
+        {
+          "id": "01-08",
+          "name": "Author bump-tap-formula job and walking-skeleton e2e smoke",
+          "criteria": "bump-tap-formula has needs publish-github-release and runs on ubuntu-latest; job checks out tap repo with GH_TAP_TOKEN, runs xtask render-formula against downloaded artifacts, and writes Formula/modeltap.rb; job commits with message 'modeltap <version>' and force-pushes 'bump/v<version>' branch and opens PR titled correctly; token failure surfaces visibly with non-zero exit and authentication error in stderr; walking-skeleton e2e test against ephemeral file:// tap repo passes green",
+          "test_file": "tests/acceptance/release_process/bump_tap_formula.rs",
+          "scenario_name": "Bump-tap-formula opens a PR against the ephemeral tap repository",
+          "files_to_modify": [
+            ".github/workflows/release.yml",
+            "xtask/src/gh_adapter.rs",
+            "tests/acceptance/release_process/bump_tap_formula.rs",
+            "tests/acceptance/release_process/walking_skeleton_e2e.rs"
+          ],
+          "implementation_notes": "Implement gh_adapter with pr_list_for_head + pr_create. Cross-repo acceptance test seeds two tempdir repos per DWD-02 and pushes against file://${TMPDIR}/tap-fake. Walking-skeleton e2e wires PREP then TAG then BUILD then PUBLISH then TAP-BUMP; this is the WS exit gate.",
+          "deps": ["01-04", "01-07"],
+          "estimated_hours": 3.5
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Multi-arch release with atomic publish and SLSA",
+      "description": "Expand the WS to all 4 supported platforms (aarch64+x86_64 across macOS+Linux), enforce atomic publish via needs DAG, attach SLSA L3 build-provenance per archive, render formula with all 4 platform blocks. Covers US-07 through US-10.",
+      "slice": "Release 1 — Multi-arch real release",
+      "stories_covered": ["US-07", "US-08", "US-09", "US-10"],
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Expand build job to 4-target matrix with cross for aarch64-linux",
+          "criteria": "build job declares strategy.matrix.target with exactly 4 entries (the 4 supported triples); aarch64-apple-darwin runs on macos-14 and x86_64-apple-darwin on macos-13 and both linux targets on ubuntu-22.04; matrix has fail-fast false; aarch64-unknown-linux-gnu cell installs cross v0.2.5 pinned with --locked and uses cross build for the target; each cell uploads workflow artifact named exactly 'release-<target>' containing archive plus sha256 sidecar",
+          "test_file": "tests/acceptance/release_process/build_matrix.rs",
+          "scenario_name": "Build matrix declares all four supported targets with correct runners",
+          "files_to_modify": [
+            ".github/workflows/release.yml",
+            "tests/acceptance/release_process/workflow_structure.rs",
+            "tests/acceptance/release_process/build_matrix.rs"
+          ],
+          "implementation_notes": "Use matrix.include to attach per-target runner plus per-target use-cross flag. Strip step is conditional: GNU strip on linux, macOS uses 'strip -x'. Cache key includes matrix.target. The @requires_docker cross-compile scenario only runs in Docker-available environments.",
+          "deps": ["01-08"],
+          "estimated_hours": 3.0
+        },
+        {
+          "id": "02-02",
+          "name": "Enforce atomic publish via needs DAG (US-08 guard)",
+          "criteria": "publish-github-release has needs [validate-tag, build] so all matrix cells must pass before publish; bump-tap-formula has needs publish-github-release; no job uses 'if always()' or 'if failure()' to bypass the guard; when one cell fails publish is skipped and bump is skipped and no GH Release and no PR are created; property test holds: publish_runs == all_cells_passed and bump_runs == publish_runs",
+          "test_file": "tests/acceptance/release_process/atomic_publish.rs",
+          "scenario_name": "Single failing build cell prevents publish and tap-bump from running",
+          "files_to_modify": [
+            ".github/workflows/release.yml",
+            "tests/acceptance/release_process/atomic_publish.rs"
+          ],
+          "implementation_notes": "GH Actions matrix-job semantics: a downstream job with 'needs: build' waits for ALL matrix cells and runs only if ALL succeed. Atomicity property test simulates outcomes by inspecting the workflow YAML across the 16 combinations of pass/fail across 4 cells via proptest. Live workflow execution verified manually per DWD-03.",
+          "deps": ["02-01"],
+          "estimated_hours": 2.0
+        },
+        {
+          "id": "02-03",
+          "name": "Add SLSA L3 build-provenance attestation per archive",
+          "criteria": "build job permissions include id-token write, attestations write, contents read; each matrix cell invokes actions/attest-build-provenance@v2 with subject-path equal to the archive; attestation step runs after package step and before upload-artifact step; @requires_external smoke confirms 'gh attestation verify' succeeds against published archive and identifies modeltap workflow as builder",
+          "test_file": "tests/acceptance/release_process/slsa_attestation.rs",
+          "scenario_name": "Each build cell invokes the attest-build-provenance action against its archive",
+          "files_to_modify": [
+            ".github/workflows/release.yml",
+            "tests/acceptance/release_process/slsa_attestation.rs"
+          ],
+          "implementation_notes": "Action pinned to @v2 (not SHA) per US-09 — accepted trade-off for single-maintainer project; @v2 is GitHub-published and stable. Add the K-PROV KPI hook here per DEVOPS kpi-instrumentation.md. Live verification is the @requires_external smoke run by maintainer post-release.",
+          "deps": ["02-01"],
+          "estimated_hours": 2.0
+        },
+        {
+          "id": "02-04",
+          "name": "Extend formula render to 4 platform blocks and sha256 robustness",
+          "criteria": "rendered formula with 4 sidecars contains all 4 platform blocks with correct sha256s wired to correct triples; CLI exits non-zero identifying the missing sidecar by filename when expected sidecar absent; CLI exits non-zero identifying the offending sidecar when content fails the 64-hex-char validator; round-trip property holds: extracted sha256 per block equals input sha256s verbatim; @requires_docker smoke 'brew test-bot audit' passes on rendered formula",
+          "test_file": "xtask/src/formula.rs",
+          "scenario_name": "Formula renders all 4 platform blocks with sha256s read from artifact files",
+          "files_to_modify": [
+            "release/templates/modeltap.rb.tera",
+            "xtask/src/formula.rs",
+            "xtask/src/main.rs",
+            "tests/acceptance/release_process/render_formula.rs"
+          ],
+          "implementation_notes": "Template uses {% for target in targets %} keyed on target.kind enum (mac_arm | mac_intel | linux_arm | linux_intel) so block selection is data-driven. CLI dispatcher discovers sidecars by scanning --sha256-dir for '*-<triple>.tar.gz.sha256'. Round-trip property test regex-extracts sha256s from rendered formula and compares to input.",
+          "deps": ["01-04", "02-01"],
+          "estimated_hours": 3.0
+        },
+        {
+          "id": "02-05",
+          "name": "Multi-arch e2e smoke and version-string consistency proof",
+          "criteria": "integration test against ephemeral repos verifies all 4 cells passing produces release with 4 archives plus tap PR opened (INT.AC-5); integration test verifies any cell failing produces no release and no tap PR (INT.AC-5); INT.AC-1 property holds: version string identical across Cargo.toml, tag, archive name, release title, formula version, and binary --version; each target's formula sha256 equals bare-hex sidecar content (INT.AC-2); each formula url starts with release-base-url and ends with archive name (INT.AC-3)",
+          "test_file": "tests/acceptance/release_process/multi_arch_e2e.rs",
+          "scenario_name": "All four build cells succeeding produces all visible effects",
+          "files_to_modify": [
+            "tests/acceptance/release_process/multi_arch_e2e.rs",
+            "tests/acceptance/release_process/version_consistency.rs"
+          ],
+          "implementation_notes": "Reuses the ephemeral file:// tap repo plus fake-modeltap-repo fixture from 01-08 with all 4 sidecars plus 4 archives staged. Version-consistency property test threads a generated semver through every consumer and ties back to modeltap-app/CARGO_PKG_VERSION via 'cargo run -p modeltap-app -- --version'.",
+          "deps": ["02-02", "02-03", "02-04"],
+          "estimated_hours": 3.0
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Hands-off automation and production polish",
+      "description": "Auto-merge tap-bump PR when brew test-bot passes, idempotent retry on re-run, ship RELEASING.md runbook, add the two follow-up DEVOPS workflows (release-pipeline-alert, token-expiry-warning), enforce xtask lint-workflows in ci.yml. Covers US-11 through US-14 plus DEVOPS handoff items.",
+      "slice": "Release 2 — Hands-off automation",
+      "stories_covered": ["US-11", "US-12", "US-13", "US-14"],
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Wire auto-merge for tap-bump PR with branch protection setup",
+          "criteria": "bump-tap-formula step invokes 'gh pr merge --auto --squash --repo jeffabailey/homebrew-modeltap bump/v<version>' after PR creation; auto-merge invocation targets the bump branch for the current version; @requires_external smoke confirms green brew test-bot triggers auto-merge within 5 minutes and failing brew test-bot withholds merge; RELEASING.md First-time-setup section documents tap-repo branch protection requirements (brew test-bot status check required for merge to main)",
+          "test_file": "tests/acceptance/release_process/auto_merge.rs",
+          "scenario_name": "Bump-tap-formula step invokes auto-merge with squash strategy",
+          "files_to_modify": [
+            ".github/workflows/release.yml",
+            "xtask/src/gh_adapter.rs",
+            "tests/acceptance/release_process/auto_merge.rs"
+          ],
+          "implementation_notes": "Extend gh_adapter with pr_merge_auto method. Auto-merge requires the tap-repo to have branch protection plus auto-merge enabled at repo level (one-time settings, documented in RELEASING.md). Acceptance test inspects workflow YAML; live behavior verified by @requires_external smoke on first real release.",
+          "deps": ["01-08"],
+          "estimated_hours": 2.0
+        },
+        {
+          "id": "03-02",
+          "name": "Idempotent retry for bump-tap-formula via force-push-with-lease",
+          "criteria": "first run with no existing branch creates 'bump/v<version>' and opens new PR titled 'modeltap <version>'; re-run with existing branch plus open PR force-pushes latest formula to the existing branch and does NOT open a second PR; property test holds: for any N retries on same version, exactly one PR and exactly one bump branch exist; manual edits to Formula/modeltap.rb on the bump branch are overwritten on next render",
+          "test_file": "tests/acceptance/release_process/idempotent_retry.rs",
+          "scenario_name": "Re-run after token rotation force-pushes to the existing branch",
+          "files_to_modify": [
+            ".github/workflows/release.yml",
+            "xtask/src/gh_adapter.rs",
+            "tests/acceptance/release_process/idempotent_retry.rs"
+          ],
+          "implementation_notes": "git push --force-with-lease (NOT --force) so we refuse to clobber concurrent writes. gh_adapter.pr_list_for_head returns Option<PrInfo>; the step branches on Some/None. Property test uses proptest to drive 1..=10 retries against the ephemeral tap-fake repo and asserts the invariant.",
+          "deps": ["03-01"],
+          "estimated_hours": 2.5
+        },
+        {
+          "id": "03-03",
+          "name": "Author RELEASING.md runbook with release-log table",
+          "criteria": "RELEASING.md exists at repo root with at most 80 lines and at most 10 numbered steps; file contains a markdown table with columns version, tag-pushed-at, release-published-at, tap-merged-at, time-to-tap, platforms-verified, provenance-verified, notes; file documents GH_TAP_TOKEN rotation procedure and manual-edit-clobber trade-off and macOS Gatekeeper xattr workaround; First-time-setup section covers create tap repo, set GH_TAP_TOKEN, configure tap branch protection",
+          "test_file": "tests/acceptance/release_process/runbook.rs",
+          "scenario_name": "Runbook exists at repo root within the line budget",
+          "files_to_modify": [
+            "RELEASING.md",
+            "tests/acceptance/release_process/runbook.rs"
+          ],
+          "implementation_notes": "Hand-authored markdown; acceptance test parses with pulldown-cmark to count steps and verify table columns. Quick-reference one-liner at top of file per component-boundaries section 7. Acceptance test asserts max line count, max numbered-step count, and presence of required sections by header anchor.",
+          "deps": ["03-02"],
+          "estimated_hours": 2.0
+        },
+        {
+          "id": "03-04",
+          "name": "Add release-pipeline-alert and token-expiry-warning workflows",
+          "criteria": "release-pipeline-alert.yml triggers on workflow_run completed for Release workflow and opens issue titled 'release-pipeline-failure' when conclusion equals failure; token-expiry-warning.yml triggers on schedule weekly plus workflow_dispatch and probes tap repo via gh api with GH_TAP_TOKEN opening issue on 401; both workflows pass xtask lint-workflows (every job has purpose comment, line budget respected); self-test on first deploy: deliberate release.yml failure produces an issue per DEVOPS section 1.5",
+          "test_file": "tests/acceptance/release_process/follow_up_workflows.rs",
+          "scenario_name": "Release-pipeline-alert opens issue on workflow failure",
+          "files_to_modify": [
+            ".github/workflows/release-pipeline-alert.yml",
+            ".github/workflows/token-expiry-warning.yml",
+            "tests/acceptance/release_process/follow_up_workflows.rs"
+          ],
+          "implementation_notes": "release-pipeline-alert uses actions/github-script@v7 to create issue; permissions issues write, contents read. token-expiry-warning uses gh api; GH does not expose explicit expiry — workflow probes by attempting an authenticated call and treats 401 as the trigger. Acceptance test parses each YAML and asserts trigger plus permissions plus issue-creation step shape.",
+          "deps": ["02-05"],
+          "estimated_hours": 3.0
+        },
+        {
+          "id": "03-05",
+          "name": "Enforce xtask lint in ci.yml plus README troubleshooting polish",
+          "criteria": "ci.yml runs 'cargo run -p xtask -- lint-workflows' against release.yml and the two follow-up workflows; README contains troubleshooting section covering pipeline alerts, token expiry, manual yank, and bump-retry after token rotation; @requires_external smoke confirms tag-to-install median under 15 minutes (INT.AC-4); recovery scenarios pass: GH Release intact when tap-bump fails, and yank+revert leaves prior version installable; mutation testing achieves at least 80 percent kill rate against xtask pure modules per CLAUDE.md",
+          "test_file": "tests/acceptance/release_process/ci_parity.rs",
+          "scenario_name": "release.yml CI parity gates use the exact same flags as ci.yml",
+          "files_to_modify": [
+            ".github/workflows/ci.yml",
+            "README.md",
+            "tests/acceptance/release_process/ci_parity.rs",
+            "tests/acceptance/release_process/recovery.rs"
+          ],
+          "implementation_notes": "ci.yml lint step is a new job (purpose: catch workflow drift at PR time). CI-parity check parses both ci.yml and release.yml and asserts identical flags for fmt, clippy, test (INT.AC-6). README troubleshooting copy is drafted in DEVOPS monitoring-alerting.md section 3 — paste and refine. Mutation testing per-feature: 'cargo mutants -p xtask --in-place' gated at >=80 percent kill rate.",
+          "deps": ["01-05", "03-04"],
+          "estimated_hours": 3.0
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "xtask/src/",
+      ".github/workflows/",
+      "release/templates/"
+    ],
+    "test_directories": [
+      "tests/acceptance/release_process/",
+      "xtask/src/"
+    ],
+    "additional_artifacts": [
+      "RELEASING.md",
+      "cliff.toml",
+      ".cargo/config.toml",
+      "README.md"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "**/*.bk"
+    ]
+  },
+  "external_integrations": [
+    {
+      "name": "GitHub Releases API",
+      "via": "gh CLI (gh release create / gh release view)",
+      "tested_by": "@requires_external acceptance smokes; live invocation deferred per DWD-01",
+      "contract_test_recommendation": "Pin gh CLI minimum version in workflow; assert against fixture JSON for 'gh release view --json' shape in xtask::gh_adapter unit tests"
+    },
+    {
+      "name": "GitHub Pull Requests API (cross-repo to tap)",
+      "via": "gh CLI (gh pr create / gh pr list / gh pr merge --auto)",
+      "tested_by": "@cross-repo acceptance tests against ephemeral file:// repos; @requires_external smoke against live tap",
+      "contract_test_recommendation": "Pin gh CLI version; fixture JSON shape tests for gh output"
+    },
+    {
+      "name": "actions/attest-build-provenance@v2",
+      "via": "GH Actions step, OIDC token exchange",
+      "tested_by": "@requires_external smoke ('gh attestation verify'); workflow YAML structure asserted in unit tests",
+      "contract_test_recommendation": "Action version pinned to @v2 (stable major); structural change caught by xtask lint-workflows gate at PR time"
+    },
+    {
+      "name": "Homebrew tap (jeffabailey/homebrew-modeltap)",
+      "via": "git push + gh pr create with GH_TAP_TOKEN",
+      "tested_by": "@cross-repo acceptance tests against ephemeral tap-fake repo per DWD-02; @requires_external smoke against live tap",
+      "contract_test_recommendation": "Branch protection + auto-merge settings are operational config in RELEASING.md; verified manually on first release"
+    },
+    {
+      "name": "brew test-bot (in tap repo)",
+      "via": "tap-repo workflow, runs on PR",
+      "tested_by": "@requires_docker smoke locally; live execution on tap-repo PR",
+      "contract_test_recommendation": "Out of scope for source-repo test suite; tap-repo owns its test-bot.yml"
+    }
+  ],
+  "validation": {
+    "status": "filled",
+    "filled_by": "morgan (nw-solution-architect, subagent mode)",
+    "filled_at": "2026-05-03T21:30:00Z",
+    "reviewer": "deferred to orchestrator validation gate",
+    "approved_at": null,
+    "decomposition_summary": {
+      "phases": 3,
+      "steps_total": 18,
+      "steps_per_phase": [8, 5, 5],
+      "files_per_step_max": 5,
+      "files_per_step_avg": 3.2,
+      "decomposition_ratio": 1.6,
+      "ratio_gate_threshold": 2.5,
+      "estimated_hours_total": 48.5
+    },
+    "coverage_summary": {
+      "user_stories_covered": 15,
+      "user_stories_total": 15,
+      "integration_acs_covered": 6,
+      "integration_acs_total": 6,
+      "property_scenarios_planned": 7,
+      "walking_skeleton_exit_gate_step": "01-08"
+    },
+    "divergences_from_suggested_decomposition": [
+      "Step 01-05 (lint-workflows) was suggested as Phase 3 work. Hoisted to Phase 1 because xtask::lint is pure with zero downstream dependencies inside the WS, and shipping it early lets Phase 3 step 03-05 enforce it in ci.yml without rework. Net positive: one extra Phase 1 step is offset by 03-05 reducing to ci.yml + README addition.",
+      "Step 02-05 (multi-arch e2e + INT.AC-1/2/3 version-consistency proof) explicitly hoists INT.AC-1, INT.AC-2, INT.AC-3 here rather than Phase 3 because formula rendering is the natural place to prove sha256+URL+version invariants — they exercise the same render path multiple times.",
+      "Step 03-05 expanded beyond suggested 'README + ci.yml lint enforcement' to cover recovery scenarios (yank, retry-after-token-rotation) and mutation testing gate. Recovery scenarios are tightly coupled to the runbook (03-03) and auto-merge (03-01); bundling them keeps the dependency chain shallow. Mutation testing per CLAUDE.md must pass before finalize, naturally co-located with the final integration step."
+    ]
+  }
+}

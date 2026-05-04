@@ -1,0 +1,167 @@
+# environments.yaml — release-process-homebrew-github
+# Wave: DEVOPS (4 of 6)
+# Authoritative inventory of every environment the release pipeline produces, consumes, or
+# verifies against. Consumed by DISTILL (acceptance-designer) for parametrizing acceptance
+# scenarios; consumed by DELIVER (software-crafter) for fixture design.
+
+target_environments:
+  - name: ci-release-runner
+    description: "GitHub Actions runner during release workflow execution. Four cells in the matrix; each cell is one environment instance."
+    platform:
+      - macos-14    # aarch64-apple-darwin (Apple Silicon)
+      - macos-13    # x86_64-apple-darwin (Intel)
+      - ubuntu-22.04  # x86_64-unknown-linux-gnu (native) AND aarch64-unknown-linux-gnu (via cross)
+    preconditions:
+      - "stable Rust toolchain (dtolnay/rust-toolchain@stable; mirrors ci.yml C7)"
+      - "git pre-installed"
+      - "gh CLI pre-installed"
+      - "cross v0.2.5 installed for aarch64-unknown-linux-gnu cell only (per ADR-012)"
+      - "Swatinem/rust-cache@v2 cache key matches ci.yml shape (target, Cargo.lock hash)"
+      - "GITHUB_TOKEN scoped to source repo (provenance, release create)"
+      - "GH_TAP_TOKEN secret available in bump-tap-formula job only (per ADR-013)"
+    used_by:
+      - "validate-tag job"
+      - "build job (matrix x 4)"
+      - "publish-github-release job"
+      - "bump-tap-formula job"
+
+  - name: tap-repo-fresh
+    description: "Tap repo with no prior formula commits — initial setup state."
+    platform: [github-runner]
+    preconditions:
+      - "jeffabailey/homebrew-modeltap exists"
+      - "main branch exists with empty Formula/ dir"
+      - "branch protection on main requires `brew test-bot` status check (one-time setup per US-11.AC-5)"
+      - ".github/workflows/test-bot.yml committed"
+    used_by:
+      - "First-ever release: bump-tap-formula creates the first Formula/modeltap.rb"
+    expected_outcome: "PR opened with new file; brew test-bot installs successfully on macos-14, macos-13, ubuntu-22.04; auto-merge fires"
+
+  - name: tap-repo-with-prior-formula
+    description: "Tap repo with previous formula version committed — typical case after the first release."
+    platform: [github-runner]
+    preconditions:
+      - "Formula/modeltap.rb exists with version < new release version"
+      - "branch protection on main still active"
+    used_by:
+      - "Every release after the first: bump-tap-formula updates the existing formula"
+    expected_outcome: "PR opened with diff against prior version; brew test-bot validates new version; auto-merge fires"
+
+  - name: tap-repo-with-stale-bump-branch
+    description: "Tap repo where prior bump-tap-formula run failed mid-flight — US-12 idempotent retry case."
+    platform: [github-runner]
+    preconditions:
+      - "bump/v* branch exists from prior partial run"
+      - "may have stale uncommitted state"
+      - "may or may not have an open PR for the same version"
+    used_by:
+      - "Maintainer re-running bump-tap-formula via GH Actions UI 'Re-run failed jobs'"
+    expected_outcome: "force-push-with-lease updates branch; if PR exists it is updated; if not, new PR opened. Net result: exactly one PR per version (US-12)."
+
+  - name: end-user-macos-14-arm
+    description: "End user on macOS 14 ARM with Homebrew installed."
+    platform: [macos-14]
+    preconditions:
+      - "brew installed (>=4.0)"
+      - "tap not yet added on first install: `brew tap jeffabailey/modeltap` adds it"
+      - "modeltap binary at aarch64-apple-darwin target installable"
+    used_by:
+      - "K-COVER verification per release"
+      - "Maintainer's own dogfood install on Apple Silicon"
+    expected_outcome: "`brew install jeffabailey/modeltap/modeltap` succeeds; `modeltap --version` matches release tag"
+
+  - name: end-user-macos-13-intel
+    description: "End user on macOS 13 Intel with Homebrew installed."
+    platform: [macos-13]
+    preconditions:
+      - "brew installed (>=4.0)"
+      - "modeltap binary at x86_64-apple-darwin target installable"
+      - "macOS Gatekeeper warning expected on first run (per D3 deferred notarization); workaround documented in README"
+    used_by:
+      - "K-COVER verification per release"
+    expected_outcome: "`brew install` succeeds; first-run Gatekeeper prompt acknowledged via documented xattr workaround; `modeltap --version` matches"
+
+  - name: end-user-ubuntu-22-x86_64
+    description: "End user on Ubuntu 22.04 x86_64 with Homebrew installed."
+    platform: [ubuntu-22.04]
+    preconditions:
+      - "brew installed (Linuxbrew, >=4.0)"
+      - "modeltap binary at x86_64-unknown-linux-gnu target installable"
+    used_by:
+      - "K-COVER verification per release"
+    expected_outcome: "`brew install` succeeds; `modeltap --version` matches"
+
+  - name: end-user-ubuntu-22-aarch64
+    description: "End user on Ubuntu 22.04 aarch64 (also covers WSL2 per CLAUDE.md 'WSL-only on Windows ... Architecturally identical to Linux paths')."
+    platform:
+      - ubuntu-22.04-arm
+      - wsl2
+    preconditions:
+      - "brew installed"
+      - "modeltap binary at aarch64-unknown-linux-gnu target installable"
+      - "binary built via cross (Docker-based cross-compile per ADR-012); not native-built"
+    used_by:
+      - "K-COVER verification per release"
+      - "Verified by brew test-bot in tap-repo CI via QEMU emulation on x86_64 runner (not perfect; ADR-012 trade-off)"
+    expected_outcome: "`brew install` succeeds; `modeltap --version` matches. QEMU verification in tap CI is best-effort; native ubuntu-22.04-arm runner is OQ-3 future migration."
+
+coexistence_matrix:
+  - tool: existing-ci-yml
+    must_not_break: true
+    notes: "Release workflow shares Swatinem/rust-cache@v2 keys with CI; toolchain pinning (dtolnay/rust-toolchain@stable) MUST match. Drift breaks K-PIPE. See infrastructure-integration.md §1."
+
+  - tool: cargo-deny
+    must_not_break: true
+    notes: "`cargo deny check` is a CI gate via EmbarkStudios/cargo-deny-action@v2; release workflow MUST include it before publish per C3. New workspace deps from xtask (tera, toml_edit, cargo_metadata, regex) require deny.toml allowlist entries — verified at PR review."
+
+  - tool: ci.yml k3-bench job
+    must_not_break: true
+    notes: "k3-bench is an existing CI gate for modeltap-tui. Release workflow does NOT replicate it (release-built binary is the same as CI-built binary; bench is not a release-time concern). Coexistence: independent, no shared state."
+
+  - tool: workflow_run trigger (release-pipeline-alert.yml)
+    must_not_break: true
+    notes: "New follow-up workflow consumes `workflow_run: completed` event from release.yml. Coexists with release.yml (does not modify it). Failure mode: alert workflow itself fails silently is a known low-impact risk (wave-decisions.md risk register)."
+
+  - tool: token-expiry-warning.yml (scheduled)
+    must_not_break: true
+    notes: "Scheduled workflow runs `gh api /user` weekly to check GH_TAP_TOKEN validity. Coexists with release.yml independently. Failure mode: maintainer notified via GH issue; silent failure caught by next manual rotation cycle."
+
+  - tool: tap-repo test-bot.yml
+    must_not_break: true
+    notes: "Lives in jeffabailey/homebrew-modeltap; not in this repo. Coexistence: this design specifies its initial content (component-boundaries.md §6); the maintainer commits it during first-time tap setup. Consumed by branch protection rule on tap repo's main."
+
+platform_coverage:
+  macOS:
+    - "13.x (Intel via macos-13 runner; native build target x86_64-apple-darwin)"
+    - "14.x (Apple Silicon via macos-14 runner; native build target aarch64-apple-darwin)"
+  Linux:
+    - "Ubuntu 22.04 x86_64 (native via ubuntu-22.04 runner; build target x86_64-unknown-linux-gnu)"
+    - "Ubuntu 22.04 aarch64 (cross-compiled via ubuntu-22.04 runner with cross v0.2.5; build target aarch64-unknown-linux-gnu)"
+  WSL:
+    - "WSL2 on Windows (uses Linux x86_64 binary; architecturally identical to Linux paths per CLAUDE.md)"
+  CI:
+    - "GitHub Actions runners: macos-14, macos-13, ubuntu-22.04 (ubuntu-22.04-arm tracked as OQ-3 future migration)"
+
+deployment_assumptions:
+  - "Release tag pushes (annotated tags matching v*.*.*) are the ONLY trigger for release.yml (per DESIGN ADR-010 §3.1)"
+  - "Tag must match Cargo.toml [workspace.package].version exactly (C1, enforced by validate-tag job)"
+  - "Release workflow is atomic: all 4 platforms must build successfully before any artifact is published (C2 / US-08, enforced by `needs:` DAG in release.yml)"
+  - "Tap formula bump is idempotent: re-running bump-tap-formula with the same version succeeds (US-12, enforced by `gh pr list --head bump/v${VERSION}` check + force-push-with-lease)"
+  - "GH_TAP_TOKEN is a fine-grained PAT scoped to homebrew-modeltap with Contents:RW + PullRequests:RW only (per ADR-013)"
+  - "GITHUB_TOKEN (auto-provided) is sufficient for: provenance attestation, GH release creation, artifact upload/download — does NOT have cross-repo write"
+  - "brew test-bot is the consumer-driven contract test for the formula; auto-merge gated on its success per US-11"
+  - "End-user install path: `brew tap jeffabailey/modeltap && brew install modeltap` — no out-of-band steps required"
+  - "macOS 13 + 14 Gatekeeper warnings on first run are EXPECTED (D3 deferred notarization); README troubleshooting covers the xattr workaround"
+  - "Provenance verification is OPTIONAL for end users but DOCUMENTED: `gh attestation verify <archive> --owner jeffabailey` per US-09.AC-5"
+  - "No network calls leave the modeltap binary at runtime; all observability is GitHub-native (per K-T2T privacy stance / D5)"
+  - "Trunk-Based Development: short-lived branches; PR-with-CI-gates merges to main; tag push from main triggers release (per branching-strategy.md / D8)"
+
+# Notes for DISTILL (acceptance-designer):
+# - Each `target_environments` entry is a possible parametrization axis for acceptance scenarios.
+# - tap-repo-* environments differ only in starting state; the *behavior* is the same code path.
+#   DISTILL likely has 1 acceptance test per US-12 case (idempotent retry) using stale-bump-branch.
+# - end-user-* environments are verified by brew test-bot in the tap repo, not by acceptance tests
+#   in this repo. DISTILL acceptance tests cover the SOURCE side; brew test-bot covers the INSTALL side.
+# - If DISTILL began before this file was visible, the conservative default (1 ci-runner + 1 tap-repo
+#   + 1 end-user platform) likely won't conflict with these expanded environments — but DISTILL should
+#   reconcile against this file before finalizing.
