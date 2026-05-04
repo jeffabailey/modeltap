@@ -3,7 +3,8 @@ name: release
 # Tag-triggered release pipeline (ADR-010 — single workflow, multi-job DAG).
 # Step 02-01 expanded `build` to a 4-target matrix (US-07, ADR-012): native
 # compiles for the 3 macOS/x86-linux cells; `cross` v0.2.5 (--locked) for the
-# aarch64-unknown-linux-gnu cell on ubuntu-22.04. SLSA provenance lands in 02-03.
+# aarch64-unknown-linux-gnu cell on ubuntu-22.04. Step 02-03 added SLSA L3
+# build provenance per archive via actions/attest-build-provenance@v2 (US-09).
 #
 # Architectural invariants enforced by tests/acceptance/release_process/
 # workflow_structure.rs, walking_skeleton_e2e.rs, build_matrix.rs, and
@@ -14,7 +15,7 @@ name: release
 #   - jobs.bump-tap-formula needs publish-github-release (US-08 atomic publish)
 #   - CI parity gates run BEFORE cargo build --release (C3 / US-03)
 #   - every job has a `# Purpose:` comment immediately above its declaration
-#   - file ≤ 250 lines (US-14)
+#   - file ≤ 300 lines (US-14, bumped from 250 in step 02-03 for SLSA wiring)
 
 on:
   push:
@@ -32,10 +33,10 @@ env:
   RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: 1
 
-# SLSA L3 build provenance (US-09) lands in a later step. The `permissions:`
-# block here is the minimum required for the WS jobs: read repo contents and
-# write to GitHub Releases. id-token + attestations write are added when the
-# attest-build-provenance step is wired in.
+# Workflow-level permissions stay minimal (least privilege): only the
+# publish-github-release job needs `contents: write` to create the release.
+# OIDC token minting + provenance write are scoped to the `build` job below
+# (US-09 + ADR-013 — SLSA L3 build provenance per archive).
 permissions:
   contents: write
 
@@ -72,6 +73,13 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             runs-on: ubuntu-22.04
             use-cross: true
+    # Job-scoped permissions for SLSA L3 build provenance (US-09 + ADR-013).
+    # Least privilege: only this job mints OIDC tokens and writes attestations;
+    # `contents: read` is for actions/checkout (publish job carries write).
+    permissions:
+      id-token: write
+      attestations: write
+      contents: read
     env:
       TARGET: ${{ matrix.target }}
     steps:
@@ -141,6 +149,16 @@ jobs:
             shasum -a 256 "${ARCHIVE}" | cut -d' ' -f1 > "${ARCHIVE}.sha256"
           fi
           ls -la "${ARCHIVE}" "${ARCHIVE}.sha256"
+
+      # SLSA L3 build provenance (US-09 + ADR-013). Pinned to the major-version
+      # tag `@v2` per US-09 accepted trade-off for a single-maintainer OSS
+      # project. Each matrix cell attests its own per-target archive — the
+      # glob resolves to ONE file per cell. End-users verify with
+      # `gh attestation verify <archive> --owner jeffabailey` (K-PROV smoke).
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: modeltap-*.tar.gz
 
       - name: Upload release artifacts
         uses: actions/upload-artifact@v4

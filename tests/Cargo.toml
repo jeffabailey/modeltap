@@ -127,3 +127,19 @@ path = "acceptance/release_process/build_matrix.rs"
 [[test]]
 name = "release_process_atomic_publish"
 path = "acceptance/release_process/atomic_publish.rs"
+
+# DELIVER step 02-03 — SLSA L3 build-provenance attestation (US-09, ADR-013).
+# Five invariants on `.github/workflows/release.yml`:
+#   S-1. build job declares job-level `permissions:` with `id-token: write`,
+#        `attestations: write`, and `contents: read` (least privilege).
+#   S-2. build job invokes `actions/attest-build-provenance` pinned to `@v2`
+#        (major-version tag — single-maintainer OSS trade-off per US-09).
+#   S-3. attest step `with.subject-path` references the per-cell archive
+#        `modeltap-*.tar.gz` so each matrix cell attests its own archive.
+#   S-4. Step ordering: package step  <  attest step  <  upload-artifact step.
+#   S-5. @requires_external smoke (#[ignore]d): `gh attestation verify` succeeds
+#        against a published archive and identifies the modeltap workflow as
+#        builder (K-PROV KPI hook).
+[[test]]
+name = "release_process_slsa_attestation"
+path = "acceptance/release_process/slsa_attestation.rs"
