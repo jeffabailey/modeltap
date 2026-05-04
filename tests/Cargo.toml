@@ -27,6 +27,12 @@ autotests = false
 path = "src/lib.rs"
 
 [dependencies]
+# `tempfile` is a *runtime* dep of the lib half (src/lib.rs) because the
+# shared fixture helpers (e.g., `seed_tap_remote_with_initial_commit`) own
+# the working-clone tempdir. It's also listed under [dev-dependencies] so the
+# integration tests that link against this crate's lib still see the same
+# crate version (cargo unifies them via the workspace dep).
+tempfile = { workspace = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
@@ -127,6 +133,31 @@ path = "acceptance/release_process/build_matrix.rs"
 [[test]]
 name = "release_process_atomic_publish"
 path = "acceptance/release_process/atomic_publish.rs"
+
+# DELIVER step 02-05 — Multi-arch end-to-end smoke + cross-artifact version
+# consistency proof (closes Phase 02). Two test files:
+#
+# * multi_arch_e2e.rs — INT.AC-5 happy + failure paths against ephemeral
+#   modeltap-fake (working) + tap-fake (bare) repos. Lifts the WS exit gate
+#   (01-08) to all 4 build matrix cells. Happy: 4 sidecars staged → render
+#   produces 4-platform formula → bump-tap-formula opens bump branch with
+#   all 4 sha256s round-tripped. Failure: 3 of 4 sidecars staged → render
+#   refuses (per the missing-sidecar gate added in 02-04) → no bump branch
+#   exists in the tap repo (proves zero visible effects).
+#
+# * version_consistency.rs — INT.AC-1 (example covering all 6 axes including
+#   the real `modeltap-app --version` binary; property covering 5 axes via
+#   proptest with 8 cases of generated semvers) + INT.AC-2 (formula sha256 ≡
+#   sidecar bare-hex content) + INT.AC-3 (formula url = release-base-url +
+#   archive-name). INT.AC-2 + INT.AC-3 are folded into the same render to
+#   avoid re-creating identical fixtures three times.
+[[test]]
+name = "release_process_multi_arch_e2e"
+path = "acceptance/release_process/multi_arch_e2e.rs"
+
+[[test]]
+name = "release_process_version_consistency"
+path = "acceptance/release_process/version_consistency.rs"
 
 # DELIVER step 02-03 — SLSA L3 build-provenance attestation (US-09, ADR-013).
 # Five invariants on `.github/workflows/release.yml`:
