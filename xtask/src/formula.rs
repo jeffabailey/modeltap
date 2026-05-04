@@ -15,6 +15,65 @@ use serde::Serialize;
 
 use crate::cargo_toml::Version;
 
+/// The four Homebrew DSL slots that a `TargetEntry` may populate.
+///
+/// The Tera template iterates `targets` and dispatches each entry into the
+/// matching `on_macos`/`on_linux` × `on_arm`/`on_intel` block via this
+/// enum (serialized as a snake-case string in the template's Tera context).
+/// This makes block selection data-driven: adding a new supported triple is a
+/// single match arm here + one template `{% if t.kind == "..." %}` block.
+///
+/// `from_triple` is the canonical mapping from rust target triples to slots;
+/// the CLI dispatcher relies on it to decide whether a sidecar is "for a
+/// supported target" and to enumerate the *expected* sidecar filenames so the
+/// missing-sidecar error message can name them precisely.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TargetKind {
+    MacArm,
+    MacIntel,
+    LinuxArm,
+    LinuxIntel,
+}
+
+impl TargetKind {
+    /// Map a rust target triple to its Homebrew DSL slot, or `None` if the
+    /// triple is not one of the four supported targets (per ADR-012).
+    pub fn from_triple(triple: &str) -> Option<Self> {
+        match triple {
+            "aarch64-apple-darwin" => Some(TargetKind::MacArm),
+            "x86_64-apple-darwin" => Some(TargetKind::MacIntel),
+            "aarch64-unknown-linux-gnu" => Some(TargetKind::LinuxArm),
+            "x86_64-unknown-linux-gnu" => Some(TargetKind::LinuxIntel),
+            _ => None,
+        }
+    }
+
+    /// The rust target triple this slot corresponds to (inverse of
+    /// `from_triple`). Used by the CLI dispatcher to enumerate the expected
+    /// sidecar filenames when reporting which one is missing.
+    pub fn triple(self) -> &'static str {
+        match self {
+            TargetKind::MacArm => "aarch64-apple-darwin",
+            TargetKind::MacIntel => "x86_64-apple-darwin",
+            TargetKind::LinuxArm => "aarch64-unknown-linux-gnu",
+            TargetKind::LinuxIntel => "x86_64-unknown-linux-gnu",
+        }
+    }
+
+    /// Iterate the four supported slots in declaration order. Used by the
+    /// CLI to compute the full set of expected sidecar filenames for a
+    /// release.
+    pub fn all() -> [TargetKind; 4] {
+        [
+            TargetKind::MacArm,
+            TargetKind::MacIntel,
+            TargetKind::LinuxArm,
+            TargetKind::LinuxIntel,
+        ]
+    }
+}
+
 /// Context passed to the Tera template. The walking-skeleton renders this with
 /// exactly 1 entry in `targets`; R1 (post-WS step 02-04) renders 4 entries.
 #[derive(Debug, Serialize)]
@@ -26,11 +85,17 @@ pub struct FormulaCtx {
 
 /// Per-target archive identity. The Tera template iterates `targets` and
 /// dispatches each entry into the matching `on_macos`/`on_linux` × `on_arm`/
-/// `on_intel` Homebrew block via a `triple == "..."` guard.
+/// `on_intel` Homebrew block via the `kind` discriminator (data-driven block
+/// selection — adding a new triple is one TargetKind variant + one template
+/// `{% if t.kind == "..." %}` block).
 #[derive(Debug, Serialize)]
 pub struct TargetEntry {
     /// Rust target triple, e.g., "aarch64-apple-darwin".
     pub triple: String,
+    /// Homebrew DSL slot this entry populates. Derived from `triple` via
+    /// `TargetKind::from_triple` at construction time so the template never
+    /// has to re-classify.
+    pub kind: TargetKind,
     /// Archive filename, e.g., "modeltap-0.2.0-aarch64-apple-darwin.tar.gz".
     pub archive_name: String,
     /// 64-hex-char lowercase sha256 from the artifact sidecar.
@@ -144,6 +209,7 @@ end
                 "https://github.com/jeffabailey/modeltap/releases/download/v0.0.1-rc1".to_owned(),
             targets: vec![TargetEntry {
                 triple: "x86_64-unknown-linux-gnu".to_owned(),
+                kind: TargetKind::LinuxIntel,
                 archive_name: "modeltap-0.0.1-rc1-x86_64-unknown-linux-gnu.tar.gz".to_owned(),
                 sha256: "e5f6789012abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
                     .to_owned(),
@@ -275,5 +341,170 @@ end
         assert!(!is_valid_sha256(&" ".repeat(64)));
         // Trailing newline (a common sidecar trap) — caller must trim() first.
         assert!(!is_valid_sha256(&format!("{}\n", "a".repeat(63))));
+    }
+
+    // -------------------------------------------------------------------------
+    // Step 02-04 — Multi-arch (4-platform) coverage.
+    // -------------------------------------------------------------------------
+
+    /// A FormulaCtx populated with the four supported targets, each with a
+    /// structurally-distinct sha256 so we can prove block↔sha256 wiring (not
+    /// just "some sha256 was emitted four times").
+    fn four_target_ctx() -> FormulaCtx {
+        FormulaCtx {
+            version: v("0.2.0"),
+            release_base_url: "https://github.com/jeffabailey/modeltap/releases/download/v0.2.0"
+                .to_owned(),
+            targets: vec![
+                TargetEntry {
+                    triple: "aarch64-apple-darwin".to_owned(),
+                    kind: TargetKind::MacArm,
+                    archive_name: "modeltap-0.2.0-aarch64-apple-darwin.tar.gz".to_owned(),
+                    sha256: "a".repeat(64),
+                },
+                TargetEntry {
+                    triple: "x86_64-apple-darwin".to_owned(),
+                    kind: TargetKind::MacIntel,
+                    archive_name: "modeltap-0.2.0-x86_64-apple-darwin.tar.gz".to_owned(),
+                    sha256: "b".repeat(64),
+                },
+                TargetEntry {
+                    triple: "x86_64-unknown-linux-gnu".to_owned(),
+                    kind: TargetKind::LinuxIntel,
+                    archive_name: "modeltap-0.2.0-x86_64-unknown-linux-gnu.tar.gz".to_owned(),
+                    sha256: "c".repeat(64),
+                },
+                TargetEntry {
+                    triple: "aarch64-unknown-linux-gnu".to_owned(),
+                    kind: TargetKind::LinuxArm,
+                    archive_name: "modeltap-0.2.0-aarch64-unknown-linux-gnu.tar.gz".to_owned(),
+                    sha256: "d".repeat(64),
+                },
+            ],
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Behavior 7: TargetKind classifies the 4 supported rust target triples
+    // into the 4 Homebrew DSL slots (mac_arm | mac_intel | linux_arm |
+    // linux_intel). Data-driven block selection in the template depends on
+    // this classification being total over the supported set.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn target_kind_classifies_all_four_supported_triples() {
+        assert_eq!(
+            TargetKind::from_triple("aarch64-apple-darwin"),
+            Some(TargetKind::MacArm)
+        );
+        assert_eq!(
+            TargetKind::from_triple("x86_64-apple-darwin"),
+            Some(TargetKind::MacIntel)
+        );
+        assert_eq!(
+            TargetKind::from_triple("aarch64-unknown-linux-gnu"),
+            Some(TargetKind::LinuxArm)
+        );
+        assert_eq!(
+            TargetKind::from_triple("x86_64-unknown-linux-gnu"),
+            Some(TargetKind::LinuxIntel)
+        );
+    }
+
+    // -------------------------------------------------------------------------
+    // Behavior 8: TargetKind returns None for any unsupported triple. This
+    // is the gate that lets the CLI dispatcher distinguish "supported but
+    // missing" sidecars from "stray sidecar for an unsupported triple".
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn target_kind_returns_none_for_unsupported_triples() {
+        assert!(TargetKind::from_triple("riscv64gc-unknown-linux-gnu").is_none());
+        assert!(TargetKind::from_triple("wasm32-unknown-unknown").is_none());
+        assert!(TargetKind::from_triple("").is_none());
+        assert!(TargetKind::from_triple("not-a-triple").is_none());
+    }
+
+    // -------------------------------------------------------------------------
+    // Behavior 9: render() against the production template emits all 4
+    // platform blocks and wires each sha256 to the matching triple's archive
+    // URL (round-trip wiring).
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn render_emits_all_four_platform_blocks_with_correct_sha256_wiring() {
+        let template = include_str!("../../release/templates/modeltap.rb.tera");
+        let out = render(template, &four_target_ctx()).expect("render should succeed");
+
+        // All four DSL keywords appear.
+        assert!(out.contains("on_macos"), "missing on_macos: {out}");
+        assert!(out.contains("on_linux"), "missing on_linux: {out}");
+        assert_eq!(
+            out.matches("on_arm").count(),
+            2,
+            "expected 2 on_arm blocks, got: {out}"
+        );
+        assert_eq!(
+            out.matches("on_intel").count(),
+            2,
+            "expected 2 on_intel blocks, got: {out}"
+        );
+
+        // For each target, the sha256 appears in proximity (within 200 chars)
+        // of its archive URL — proving wire-up not just "all shas appear".
+        let cases: [(&str, char); 4] = [
+            ("aarch64-apple-darwin", 'a'),
+            ("x86_64-apple-darwin", 'b'),
+            ("x86_64-unknown-linux-gnu", 'c'),
+            ("aarch64-unknown-linux-gnu", 'd'),
+        ];
+        for (triple, byte) in cases {
+            let archive = format!("modeltap-0.2.0-{triple}.tar.gz");
+            let idx = out
+                .find(&archive)
+                .unwrap_or_else(|| panic!("missing {triple} url in {out}"));
+            let window = &out[idx..(idx + 200).min(out.len())];
+            let expected_sha = std::iter::repeat_n(byte, 64).collect::<String>();
+            assert!(
+                window.contains(&format!("sha256 \"{expected_sha}\"")),
+                "sha256 for {triple} not wired to its url; window: {window}"
+            );
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Behavior 10: round-trip property — every sha256 in the rendered formula
+    // equals the verbatim sha256 from its TargetEntry input. We extract the
+    // 64-hex digest set from the rendered text and assert equality with the
+    // input set.
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn render_round_trip_preserves_every_sha256_verbatim() {
+        let template = include_str!("../../release/templates/modeltap.rb.tera");
+        let ctx = four_target_ctx();
+        let out = render(template, &ctx).expect("render should succeed");
+
+        // Extract every `sha256 "<64-hex>"` literal from the rendered text.
+        // We do NOT depend on a regex crate; a hand-rolled scan is enough
+        // because the literal shape is fixed by the template.
+        let mut found: Vec<String> = Vec::new();
+        for line in out.lines() {
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("sha256 \"") {
+                if let Some(hex) = rest.strip_suffix('"') {
+                    found.push(hex.to_owned());
+                }
+            }
+        }
+        found.sort();
+
+        let mut expected: Vec<String> = ctx.targets.iter().map(|t| t.sha256.clone()).collect();
+        expected.sort();
+
+        assert_eq!(
+            found, expected,
+            "rendered sha256 set must equal input sha256 set verbatim"
+        );
     }
 }

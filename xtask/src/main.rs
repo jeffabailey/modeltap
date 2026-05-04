@@ -25,7 +25,7 @@ use xtask::cargo_adapter;
 use xtask::cargo_toml::{assert_monotonic, parse_workspace_version, Version};
 use xtask::changelog::{extract_section, ChangelogError};
 use xtask::cliff_adapter;
-use xtask::formula::{is_valid_sha256, render, FormulaCtx, TargetEntry};
+use xtask::formula::{is_valid_sha256, render, FormulaCtx, TargetEntry, TargetKind};
 use xtask::fs_adapter;
 use xtask::gh_adapter;
 use xtask::git_adapter;
@@ -362,6 +362,35 @@ fn run_render_formula(
         return ExitCode::from(1);
     }
 
+    // Walking-skeleton mode (single-target) deliberately renders whatever
+    // sidecar(s) it finds. Multi-arch mode (this step, US-10) requires that
+    // ALL FOUR supported sidecars are present BEFORE rendering — a missing
+    // sidecar means an upstream build cell silently dropped its artifact, and
+    // shipping a 3-platform formula would degrade Devon's install experience.
+    //
+    // We trip the multi-arch gate iff the caller staged sidecars for more
+    // than one supported target. This preserves WS behavior (1 target → 1
+    // platform block) while enforcing the multi-arch invariant on a real
+    // release (4 targets → 4 platform blocks; 3 → fail).
+    if targets.len() > 1 {
+        let present: std::collections::HashSet<TargetKind> =
+            targets.iter().map(|t| t.kind).collect();
+        let missing: Vec<TargetKind> = TargetKind::all()
+            .iter()
+            .copied()
+            .filter(|k| !present.contains(k))
+            .collect();
+        if !missing.is_empty() {
+            for k in &missing {
+                eprintln!(
+                    "xtask render-formula: missing sidecar modeltap-{version}-{}.tar.gz.sha256",
+                    k.triple()
+                );
+            }
+            return ExitCode::from(1);
+        }
+    }
+
     let ctx = FormulaCtx {
         version,
         release_base_url: release_base_url.to_owned(),
@@ -429,6 +458,15 @@ fn collect_targets_from_sidecar_dir(
         let triple = filename[prefix.len()..filename.len() - suffix.len()].to_owned();
         let archive_name = filename[..filename.len() - ".sha256".len()].to_owned();
 
+        // Reject sidecars for triples outside the supported four. A stray
+        // sidecar (e.g., from an experimental cross-build cell) must not
+        // poison the rendered formula.
+        let Some(kind) = TargetKind::from_triple(&triple) else {
+            return Err(format!(
+                "sidecar {filename} references unsupported target triple {triple}"
+            ));
+        };
+
         let raw = fs_adapter::read_to_string(&path)
             .map_err(|e| format!("failed to read sidecar {}: {e}", path.display()))?;
         let sha256 = raw.trim().to_owned();
@@ -440,6 +478,7 @@ fn collect_targets_from_sidecar_dir(
 
         targets.push(TargetEntry {
             triple,
+            kind,
             archive_name,
             sha256,
         });

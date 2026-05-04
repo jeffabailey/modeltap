@@ -1,18 +1,24 @@
 {#
  # Homebrew formula template for modeltap.
  #
- # Step 01-04 (Walking Skeleton, US-06 — TAP-BUMP). Per data-models.md §3.
+ # Step 02-04 (Multi-Arch Release, US-10). Per data-models.md §3.
  #
  # The Tera context (FormulaCtx) provides:
- #   - version: "0.0.1-rc1" (semver, no v prefix)
+ #   - version: "0.2.0" (semver, no v prefix)
  #   - release_base_url: "https://github.com/jeffabailey/modeltap/releases/download/v{version}"
- #   - targets: Vec<TargetEntry { triple, archive_name, sha256 }>
+ #   - targets: Vec<TargetEntry { triple, kind, archive_name, sha256 }>
  #
- # The walking skeleton renders ONE target (`x86_64-unknown-linux-gnu`); R1
- # renders all four. Each `on_{macos,linux} do { on_{arm,intel} do { ... } }`
- # block is gated by an `{%- if -%}` guard that checks the triple. When a
- # triple is absent from `targets`, its corresponding nested block is omitted
- # entirely — no empty `on_arm do end` left behind.
+ # Each target's `kind` is one of: "mac_arm" | "mac_intel" | "linux_arm" |
+ # "linux_intel" (data-driven block selection per implementation_notes 02-04).
+ # Adding a new supported triple is one TargetKind variant + one `{% if %}`
+ # block here — no string-comparison maintenance against rust target triples.
+ #
+ # The walking skeleton renders ONE target (`x86_64-unknown-linux-gnu` →
+ # kind = "linux_intel"); R1 (this step) renders all four. Each
+ # `on_{macos,linux} do { on_{arm,intel} do { ... } }` block is gated by an
+ # `{%- if -%}` guard that checks `t.kind`. When a kind is absent from
+ # `targets`, its corresponding nested block is omitted entirely — no empty
+ # `on_arm do end` left behind.
  #
  # Homebrew DSL: a formula with only one platform block is valid; `brew install`
  # on an unsupported platform fails informatively with "formula not available
@@ -29,22 +35,22 @@ class Modeltap < Formula
 {%- set has_arm_linux = false -%}
 {%- set has_intel_linux = false -%}
 {%- for t in targets -%}
-  {%- if t.triple == "aarch64-apple-darwin" -%}{%- set_global has_arm_macos = true -%}{%- endif -%}
-  {%- if t.triple == "x86_64-apple-darwin" -%}{%- set_global has_intel_macos = true -%}{%- endif -%}
-  {%- if t.triple == "aarch64-unknown-linux-gnu" -%}{%- set_global has_arm_linux = true -%}{%- endif -%}
-  {%- if t.triple == "x86_64-unknown-linux-gnu" -%}{%- set_global has_intel_linux = true -%}{%- endif -%}
+  {%- if t.kind == "mac_arm" -%}{%- set_global has_arm_macos = true -%}{%- endif -%}
+  {%- if t.kind == "mac_intel" -%}{%- set_global has_intel_macos = true -%}{%- endif -%}
+  {%- if t.kind == "linux_arm" -%}{%- set_global has_arm_linux = true -%}{%- endif -%}
+  {%- if t.kind == "linux_intel" -%}{%- set_global has_intel_linux = true -%}{%- endif -%}
 {%- endfor %}
 
 {%- if has_arm_macos or has_intel_macos %}
   on_macos do
 {%- for t in targets %}
-{%- if t.triple == "aarch64-apple-darwin" %}
+{%- if t.kind == "mac_arm" %}
     on_arm do
       url "{{ release_base_url }}/{{ t.archive_name }}"
       sha256 "{{ t.sha256 }}"
     end
 {%- endif %}
-{%- if t.triple == "x86_64-apple-darwin" %}
+{%- if t.kind == "mac_intel" %}
     on_intel do
       url "{{ release_base_url }}/{{ t.archive_name }}"
       sha256 "{{ t.sha256 }}"
@@ -57,13 +63,13 @@ class Modeltap < Formula
 {%- if has_arm_linux or has_intel_linux %}
   on_linux do
 {%- for t in targets %}
-{%- if t.triple == "aarch64-unknown-linux-gnu" %}
+{%- if t.kind == "linux_arm" %}
     on_arm do
       url "{{ release_base_url }}/{{ t.archive_name }}"
       sha256 "{{ t.sha256 }}"
     end
 {%- endif %}
-{%- if t.triple == "x86_64-unknown-linux-gnu" %}
+{%- if t.kind == "linux_intel" %}
     on_intel do
       url "{{ release_base_url }}/{{ t.archive_name }}"
       sha256 "{{ t.sha256 }}"
