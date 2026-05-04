@@ -62,6 +62,29 @@ jobs:
         with:
           command: check
 
+  lint-workflows:
+    # Step 03-05: enforce the same xtask lint-workflows checks at PR time that
+    # workflow_structure.rs / follow_up_workflows.rs assert during `cargo test`.
+    # Catches workflow drift (over-budget line counts, missing per-job
+    # `# Purpose:` comments) BEFORE a tag push triggers release.yml — failure
+    # at release time would leave the maintainer without a usable release.
+    # Per-workflow line budgets match the deployed expectations:
+    #   release.yml                  → 300 (workflow_structure.rs invariant I-7)
+    #   release-pipeline-alert.yml   →  80 (follow_up_workflows.rs)
+    #   token-expiry-warning.yml     → 100 (follow_up_workflows.rs)
+    name: lint workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Lint release.yml
+        run: cargo run -p xtask --quiet -- lint-workflows --workflow .github/workflows/release.yml --max-lines 300
+      - name: Lint release-pipeline-alert.yml
+        run: cargo run -p xtask --quiet -- lint-workflows --workflow .github/workflows/release-pipeline-alert.yml --max-lines 80
+      - name: Lint token-expiry-warning.yml
+        run: cargo run -p xtask --quiet -- lint-workflows --workflow .github/workflows/token-expiry-warning.yml --max-lines 100
+
   k3-bench:
     # Step 01-01 placeholder: the real K3 fixture lands in step 02-04 once the
     # `k3-bench` named fixture exists. For now this job verifies the headless
@@ -96,7 +119,7 @@ jobs:
 
   ci-success:
     name: ci success
-    needs: [fmt, clippy, test, deny, k3-bench]
+    needs: [fmt, clippy, test, deny, lint-workflows, k3-bench]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All required checks passed."

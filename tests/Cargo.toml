@@ -219,6 +219,30 @@ path = "acceptance/release_process/runbook.rs"
 name = "release_process_follow_up_workflows"
 path = "acceptance/release_process/follow_up_workflows.rs"
 
+# DELIVER step 03-05 — CI parity (INT.AC-6) + ci.yml lint-workflows wiring.
+# Two scenarios covering the cross-workflow flag-parity invariant (release.yml
+# uses byte-for-byte the same fmt/clippy/test commands as ci.yml — silent flag
+# drift would let releases ship lints that PR builds reject) plus the step's
+# own acceptance criterion that ci.yml runs `xtask lint-workflows` against
+# release.yml and the two follow-up workflows so workflow drift (line-budget
+# overshoot, missing `# Purpose:` comment) is caught at PR time.
+[[test]]
+name = "release_process_ci_parity"
+path = "acceptance/release_process/ci_parity.rs"
+
+# DELIVER step 03-05 — Recovery scenarios (`@recovery` tag in
+# integration-checkpoints.feature). Two scenarios against ephemeral
+# modeltap-fake (working) + tap-fake (bare) repos:
+#   R-1. GH Release stays intact when bump-tap-formula fails (modelled as an
+#        unreachable tap remote URL); the maintainer's retry reaches the same
+#        end state with no duplicate bump branch (US-12 idempotency).
+#   R-2. Maintainer yanks v0.2.0 by reverting the tap-bump merge commit; tap
+#        main resolves to v0.1.0's Formula so `brew install` installs the
+#        prior version. The prior release's artifact snapshot remains intact.
+[[test]]
+name = "release_process_recovery"
+path = "acceptance/release_process/recovery.rs"
+
 # DELIVER step 02-03 — SLSA L3 build-provenance attestation (US-09, ADR-013).
 # Five invariants on `.github/workflows/release.yml`:
 #   S-1. build job declares job-level `permissions:` with `id-token: write`,
