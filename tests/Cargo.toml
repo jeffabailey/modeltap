@@ -100,3 +100,13 @@ path = "acceptance/release_process/bump_tap_formula.rs"
 [[test]]
 name = "release_process_walking_skeleton_e2e"
 path = "acceptance/release_process/walking_skeleton_e2e.rs"
+
+# DELIVER step 02-01 — Multi-arch build matrix structural assertions
+# (US-07, ADR-012). Five invariants: matrix declares exactly the 4 supported
+# targets; per-target runner mapping (macos-14 / macos-13 / ubuntu-22.04 x2);
+# fail-fast: false; aarch64-unknown-linux-gnu cell installs cross v0.2.5
+# (--locked) and uses `cross build`; upload-artifact names artifacts
+# `release-${{ matrix.target }}` with archive + sha256 sidecar.
+[[test]]
+name = "release_process_build_matrix"
+path = "acceptance/release_process/build_matrix.rs"

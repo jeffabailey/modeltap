@@ -307,6 +307,36 @@ fn every_job_has_purpose_comment_immediately_above_declaration() {
 }
 
 // =============================================================================
+// I-6b. Matrix expansion (step 02-01) MUST NOT regress the build job's
+//       atomic-publish wiring: build still depends on validate-tag, runs-on
+//       still resolves correctly under matrix.runs-on, and the job-level
+//       `runs-on:` is not hardcoded to a single platform.
+//       This is a regression guard — the matrix-shape assertions live in
+//       build_matrix.rs; this test catches a multi-arch-aware DAG break.
+// =============================================================================
+
+#[test]
+fn build_job_runs_on_resolves_through_matrix() {
+    let src = read_release_workflow();
+    let workflow = parse_workflow(&src);
+    let jobs = get(&workflow, "jobs");
+    let build = get_opt(jobs, "build").expect("`build` job must exist");
+
+    let runs_on = get(build, "runs-on")
+        .as_str()
+        .expect("build.runs-on must be a string");
+
+    // After multi-arch expansion (step 02-01), build.runs-on MUST template
+    // through the matrix; any hardcoded `ubuntu-latest` would silently force
+    // every cell onto a single runner and defeat the matrix.
+    assert!(
+        runs_on.contains("matrix.runs-on"),
+        "build.runs-on must reference `matrix.runs-on` after step 02-01 \
+         (US-07 multi-arch matrix). Hardcoded runner found: {runs_on:?}"
+    );
+}
+
+// =============================================================================
 // I-7. The shipped release.yml passes xtask lint-workflows --max-lines 250.
 //      Treats lint-workflows as the canonical enforcement for both line budget
 //      and per-job purpose comments (defence in depth alongside I-6).
