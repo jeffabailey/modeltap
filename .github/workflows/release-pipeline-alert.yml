@@ -1,0 +1,70 @@
+# release-pipeline-alert.yml — K-PIPE alerting follow-up workflow.
+#
+# Closes DEVOPS handoff item #1 (workflow-failure alerting) and
+# DEVOPS handoff item #5 (alert routing). Spec: monitoring-alerting.md §1
+# and ci-cd-pipeline.md §4.
+#
+# Trigger model: workflow_run on the `release` workflow's `completed` event.
+# We then gate at job level on `conclusion != 'success'` so successful runs
+# create no issue.
+#
+# Routing: assigning the issue to the repo owner guarantees the maintainer is
+# mentioned (default GitHub notification fan-out delivers email + web).
+# No third-party webhooks (D5 GitHub-native, DISCUSS C5 privacy).
+#
+# Self-test procedure: monitoring-alerting.md §1.6 and RELEASING.md
+# "First-time setup" — push tag v0.0.0-alert-test, watch the issue appear.
+
+name: release-pipeline-alert
+
+on:
+  workflow_run:
+    workflows: [release]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  # Purpose: open a labelled `release-pipeline-failure` issue with a link to the failed run when release.yml concludes != success (K-PIPE alerting per monitoring-alerting.md §1).
+  alert-on-failure:
+    if: ${{ github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Open release-pipeline-failure issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          TITLE="release pipeline failed: ${DISPLAY_TITLE} (${CONCLUSION})"
+          BODY=$(cat <<EOF
+          The release workflow concluded with status: **${CONCLUSION}**.
+
+          - Run: ${RUN_URL}
+          - Run ID: ${RUN_ID}
+          - Display title: ${DISPLAY_TITLE}
+
+          ## Triage checklist (per RELEASING.md)
+          - [ ] Identify failing job in run log
+          - [ ] Classify root cause (toolchain / test / network / token / formula render / tap-repo state / other)
+          - [ ] If transient: re-run failed jobs in GH UI (US-12 idempotent retry covers bump-tap-formula)
+          - [ ] If real bug: file a fix PR; do NOT re-tag until fix lands on main
+          - [ ] Once resolved: close this issue with root-cause comment for K-PIPE quarterly review
+
+          ## K-PIPE impact
+          This failure counts against K-PIPE rolling-10 success rate. Target: >=95%.
+          EOF
+          )
+          gh issue create \
+            --title "${TITLE}" \
+            --body "${BODY}" \
+            --label "release-pipeline-failure" \
+            --assignee "${OWNER}" \
+            --repo "${REPO}"

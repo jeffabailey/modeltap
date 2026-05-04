@@ -1,0 +1,82 @@
+# token-expiry-warning.yml — GH_TAP_TOKEN expiry monitoring.
+#
+# Closes DEVOPS handoff item #3. Spec: monitoring-alerting.md §2 and
+# ci-cd-pipeline.md §5.
+#
+# GitHub does NOT expose PAT expiry timestamps via any public API. This
+# workflow probes the tap repo with the token weekly; a 401/403 response is
+# our proxy for "expired or revoked" since the token is scoped to that repo
+# and that operation alone (Contents:RW + PRs:RW + Metadata:Read per ADR-013).
+#
+# Idempotency: the issue-creation step refuses to file a second open issue
+# when one with the `tap-token-expiry` label is already open. Closing it
+# requires manual rotation per RELEASING.md "operational notes" / §2.4.
+
+name: token-expiry-warning
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'   # Mondays 13:00 UTC = 06:00 PT, 09:00 ET
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  # Purpose: probe the tap repo via `gh api` with GH_TAP_TOKEN and, on auth failure, open an idempotent `tap-token-expiry`-labelled issue (rotation procedure in RELEASING.md / monitoring-alerting.md §2).
+  check-tap-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe GH_TAP_TOKEN
+        id: probe
+        env:
+          GH_TOKEN: ${{ secrets.GH_TAP_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! gh api /repos/jeffabailey/homebrew-modeltap > /dev/null 2>&1; then
+            echo "status=invalid" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "status=valid" >> "$GITHUB_OUTPUT"
+
+      - name: Open warning issue if invalid
+        if: steps.probe.outputs.status == 'invalid'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          EXISTING=$(gh issue list \
+            --label "tap-token-expiry" \
+            --state open \
+            --repo "${REPO}" \
+            --json number \
+            --jq '. | length')
+          if [ "${EXISTING}" -gt 0 ]; then
+            echo "Open tap-token-expiry issue already exists; skipping."
+            exit 0
+          fi
+          BODY=$(cat <<EOF
+          The scheduled tap-token probe failed to authenticate against jeffabailey/homebrew-modeltap.
+
+          **Likely causes**: token expired, token revoked, token rotated but secret not updated.
+
+          **Action required (rotation procedure per RELEASING.md operational notes)**:
+          1. Generate replacement fine-grained PAT scoped to jeffabailey/homebrew-modeltap (Contents:RW + PRs:RW + Metadata:Read)
+          2. Update the GH_TAP_TOKEN secret in repo settings
+          3. Re-run this workflow via 'workflow_dispatch' to confirm
+          4. Close this issue with the rotation date
+
+          **K-PIPE impact**: bump-tap-formula will fail on the next tag push if not rotated.
+
+          See ADR-013 for credential design and RELEASING.md for the rotation runbook.
+          EOF
+          )
+          gh issue create \
+            --title "GH_TAP_TOKEN expired or invalid" \
+            --body "${BODY}" \
+            --label "tap-token-expiry" \
+            --assignee "${OWNER}" \
+            --repo "${REPO}"

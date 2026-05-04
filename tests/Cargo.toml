@@ -206,6 +206,19 @@ path = "acceptance/release_process/idempotent_retry.rs"
 name = "release_process_runbook"
 path = "acceptance/release_process/runbook.rs"
 
+# DELIVER step 03-04 — Follow-up workflows (DEVOPS handoff items #1 + #3,
+# integration-checkpoints.feature `@follow-up-workflow` scenarios). Asserts
+# the structural shape of the two NEW workflow files:
+#   * .github/workflows/release-pipeline-alert.yml — opens a labelled issue
+#     when release.yml concludes with conclusion != 'success'.
+#   * .github/workflows/token-expiry-warning.yml — weekly probe of the tap
+#     repo via `gh api` with GH_TAP_TOKEN; opens an issue on 401.
+# Five Gherkin scenarios map 1:1 to test functions: trigger shape +
+# permissions + per-job filter + label/body assertions + xtask lint-workflows.
+[[test]]
+name = "release_process_follow_up_workflows"
+path = "acceptance/release_process/follow_up_workflows.rs"
+
 # DELIVER step 02-03 — SLSA L3 build-provenance attestation (US-09, ADR-013).
 # Five invariants on `.github/workflows/release.yml`:
 #   S-1. build job declares job-level `permissions:` with `id-token: write`,
