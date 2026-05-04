@@ -37,6 +37,11 @@ tempfile = { workspace = true }
 # architectural invariants of the multi-job DAG (validate-tag → build →
 # publish-github-release) plus the C3 CI-parity gate ordering.
 serde_yaml = "0.9"
+# Property-based test for the atomic-publish guard (DELIVER step 02-02,
+# US-08 / ADR-010): generates the 2^4 = 16 outcome combinations across the
+# 4 build matrix cells and asserts the GH-Actions `needs:` semantics —
+# publish runs iff every cell succeeds, bump runs iff publish ran.
+proptest = "1"
 
 # One acceptance scenario per [[test]] block. Each block points at the file
 # under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
@@ -110,3 +115,15 @@ path = "acceptance/release_process/walking_skeleton_e2e.rs"
 [[test]]
 name = "release_process_build_matrix"
 path = "acceptance/release_process/build_matrix.rs"
+
+# DELIVER step 02-02 — Atomic-publish guard (US-08, ADR-010). Two layers:
+# (1) Structural assertions on `.github/workflows/release.yml` — publish-github-release
+#     declares `needs: [validate-tag, build]`, bump-tap-formula declares
+#     `needs: publish-github-release`, and NO job uses `if: always()` or
+#     `if: failure()` to bypass the guard.
+# (2) Proptest of GH-Actions `needs:` semantics across 2^4 = 16 outcome
+#     combinations of pass/fail for the 4 build matrix cells: publish runs
+#     iff every cell succeeded; bump runs iff publish ran.
+[[test]]
+name = "release_process_atomic_publish"
+path = "acceptance/release_process/atomic_publish.rs"
