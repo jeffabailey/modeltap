@@ -201,6 +201,21 @@ fn release_prep_mutates_cargo_toml_and_writes_changelog_and_exits_zero() {
         stdout.contains("commit") && stdout.contains("push") && stdout.contains("PR"),
         "stdout should print commit/push/PR next steps, got:\n{stdout}"
     );
+
+    // Stderr streams a progress line per CI parity gate so the maintainer
+    // sees which gate is currently running (without it, `cargo test` can sit
+    // silent for several minutes and look like a hang).
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    for gate in ["fmt", "clippy", "test"] {
+        assert!(
+            stderr.contains(&format!("→ running cargo {gate}")),
+            "stderr should announce '→ running cargo {gate}' before invoking the gate; got:\n{stderr}"
+        );
+        assert!(
+            stderr.contains(&format!("✓ cargo {gate} ok")),
+            "stderr should confirm '✓ cargo {gate} ok' after the gate succeeds; got:\n{stderr}"
+        );
+    }
 }
 
 // =============================================================================
@@ -226,7 +241,11 @@ fn release_prep_refuses_on_dirty_working_tree_and_modifies_no_files() {
     output
         .assert()
         .failure()
-        .stderr(contains("working tree is dirty: commit or stash first"));
+        // Top-line refusal stays exactly as it was (existing behaviour).
+        .stderr(contains("working tree is dirty: commit or stash first"))
+        // New: the offending paths are listed so the maintainer can see what
+        // to commit/stash without re-running `git status`.
+        .stderr(contains("?? dirty.txt"));
 
     // Cargo.toml is untouched.
     let cargo_toml_after =

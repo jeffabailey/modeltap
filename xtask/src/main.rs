@@ -505,11 +505,20 @@ fn run_release_prep(version_str: &str) -> ExitCode {
     let repo = std::path::Path::new(".");
     let cargo_toml_path = repo.join("Cargo.toml");
 
-    // 1. Dirty-tree check (refuse with NO file modification).
-    match git_adapter::is_dirty(repo) {
-        Ok(false) => {}
-        Ok(true) => {
+    // 1. Dirty-tree check (refuse with NO file modification). On refusal we
+    //    list the porcelain lines so the maintainer can see exactly what to
+    //    commit/stash without running `git status` themselves.
+    match git_adapter::dirty_paths(repo) {
+        Ok(paths) if paths.is_empty() => {}
+        Ok(paths) => {
             eprintln!("working tree is dirty: commit or stash first");
+            eprintln!();
+            eprintln!("The following paths block release-prep:");
+            for line in &paths {
+                eprintln!("  {line}");
+            }
+            eprintln!();
+            eprintln!("(`XY` prefix legend: ` M`=modified, `M `=staged, `??`=untracked, `A `=added, `D `=deleted)");
             return ExitCode::from(1);
         }
         Err(e) => {
@@ -569,14 +578,21 @@ fn run_release_prep(version_str: &str) -> ExitCode {
         }
     }
 
-    // 6. CI parity gates in strict order.
+    // 6. CI parity gates in strict order. Emit a progress line BEFORE each
+    //    invocation so a maintainer staring at the terminal can see which
+    //    gate is currently running. Without this, `cargo test` can sit
+    //    silently for several minutes and look like a hang. We use stderr
+    //    (status, not data) and unbuffered prints (eprintln auto-flushes).
     for gate in ["fmt", "clippy", "test"] {
+        eprintln!("→ running cargo {gate} ...");
         if let Err(e) = cargo_adapter::run_gate(gate, repo) {
             // Identify the failed gate (AC: "the message identifies which gate failed").
+            eprintln!("✗ cargo {gate} FAILED");
             eprintln!("xtask release-prep: CI parity gate failed: {}", e.gate());
             eprintln!("xtask release-prep: {e}");
             return ExitCode::from(1);
         }
+        eprintln!("✓ cargo {gate} ok");
     }
 
     // 7. Next-step instructions.

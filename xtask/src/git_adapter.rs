@@ -7,7 +7,8 @@
 // invocation and a CLI exit-code/stdout to a typed Result.
 //
 // Currently exposes:
-//   - is_dirty(repo) -> bool : `git status --porcelain` empty ⇒ clean
+//   - is_dirty(repo)     -> bool          : `git status --porcelain` empty ⇒ clean
+//   - dirty_paths(repo)  -> Vec<String>   : the porcelain lines, one per dirty entry
 //
 // Future xtask subcommands will extend this module with `current_ref`,
 // `tag_exists`, `commits_since_tag`, etc. Each such helper remains a 1:1
@@ -53,6 +54,20 @@ impl std::error::Error for GitError {
 /// and trivially cheap to test for emptiness. `--porcelain=v2` carries more
 /// detail than we need for a boolean clean check.
 pub fn is_dirty(repo: &Path) -> Result<bool, GitError> {
+    dirty_paths(repo).map(|paths| !paths.is_empty())
+}
+
+/// Return the porcelain-formatted lines from `git status --porcelain` at
+/// `repo`. An empty `Vec` means the tree is clean. Each entry is the raw
+/// line as git emits it (`XY path`), preserving the staged/unstaged/untracked
+/// distinction in the leading two columns. Callers that just want a boolean
+/// should use [`is_dirty`]; callers that want to *show the user what's dirty*
+/// (e.g. release-prep on refusal) should use this one.
+///
+/// Lines are returned in git's own order — typically staged → unstaged →
+/// untracked. We do not sort or deduplicate; a downstream display layer can
+/// decide.
+pub fn dirty_paths(repo: &Path) -> Result<Vec<String>, GitError> {
     let output = Command::new("git")
         .args(["status", "--porcelain"])
         .current_dir(repo)
@@ -66,7 +81,8 @@ pub fn is_dirty(repo: &Path) -> Result<bool, GitError> {
         });
     }
 
-    Ok(!output.stdout.is_empty())
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines().map(str::to_owned).collect())
 }
 
 #[cfg(test)]
@@ -125,5 +141,40 @@ mod tests {
 
         let dirty = is_dirty(repo.path()).expect("is_dirty should succeed");
         assert!(dirty, "modified tracked file must make the tree dirty");
+    }
+
+    #[test]
+    fn dirty_paths_empty_for_clean_tree() {
+        let repo = tempfile::tempdir().unwrap();
+        init_repo_with_initial_commit(repo.path());
+
+        let paths = dirty_paths(repo.path()).expect("dirty_paths should succeed on clean tree");
+        assert!(
+            paths.is_empty(),
+            "clean tree must produce no porcelain lines"
+        );
+    }
+
+    #[test]
+    fn dirty_paths_lists_modified_and_untracked_with_porcelain_prefix() {
+        let repo = tempfile::tempdir().unwrap();
+        init_repo_with_initial_commit(repo.path());
+
+        std::fs::write(repo.path().join("seed.txt"), "MODIFIED\n").unwrap();
+        std::fs::write(repo.path().join("new.txt"), "y\n").unwrap();
+
+        let paths = dirty_paths(repo.path()).expect("dirty_paths should succeed");
+        assert_eq!(paths.len(), 2, "expected one line per dirty entry");
+
+        // Modified-but-not-staged tracked file: `XY` columns are ` M`.
+        assert!(
+            paths.iter().any(|line| line == " M seed.txt"),
+            "modified seed.txt must appear with ` M` prefix; got {paths:?}"
+        );
+        // Untracked file: `XY` columns are `??`.
+        assert!(
+            paths.iter().any(|line| line == "?? new.txt"),
+            "untracked new.txt must appear with `??` prefix; got {paths:?}"
+        );
     }
 }
