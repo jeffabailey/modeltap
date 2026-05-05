@@ -4,14 +4,16 @@ Maintainer-facing runbook. Every cut of `vX.Y.Z` follows the 10 numbered
 steps below. Pipeline behaviour is owned by `.github/workflows/release.yml`
 and `xtask`; this file documents how a human drives that pipeline.
 
-**Quick reference (one-liner):**
+**Quick reference (one command, on `main`, working tree clean):**
 
 ```sh
-cargo xtask release-prep --version X.Y.Z && \
-  gh pr create --fill && gh pr merge --squash --auto && \
-  git checkout main && git pull && \
-  git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
+./cut-release.sh           # patch bump (default) — adds --minor / --major / --version X.Y.Z
 ```
+
+`cut-release.sh` discovers the latest `vX.Y.Z` tag, computes the next
+version, runs `cargo xtask release-prep`, commits, tags, and pushes — i.e.
+it automates steps 2 + 5–7 below. Use the manual flow when you need a
+release branch + PR review (steps 1, 3, 4) or a non-default workflow.
 
 ## Release steps
 
