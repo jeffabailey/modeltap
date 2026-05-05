@@ -60,19 +60,15 @@ jobs:
       # at the publish job (US-08), not at build time.
       fail-fast: false
       matrix:
-        # `strip-cmd` is the per-target binary stripper. macOS uses `strip -x`
-        # (rustc-emitted Mach-O has sections macOS strip rejects without -x).
-        # Native linux uses GNU `strip`. The aarch64-linux cross cell builds
-        # an aarch64 ELF on an x86_64 runner — the host `strip` cannot read
-        # foreign-architecture ELF, so we use the `aarch64-linux-gnu-strip`
-        # cross-binutils binary (preinstalled on ubuntu-22.04 runners).
+        # `strip-cmd` per target: macOS uses `strip -x` (rustc Mach-O quirk),
+        # native linux uses `strip`, the aarch64-linux cross cell uses
+        # `aarch64-linux-gnu-strip` (host strip can't read foreign-arch ELF).
+        # x86_64-apple-darwin (macos-13) is intentionally absent — runner
+        # queue delays. xtask::formula still supports MacIntel; re-add the
+        # row to publish Intel-Mac builds again.
         include:
           - target: aarch64-apple-darwin
             runs-on: macos-14
-            use-cross: false
-            strip-cmd: strip -x
-          - target: x86_64-apple-darwin
-            runs-on: macos-13
             use-cross: false
             strip-cmd: strip -x
           - target: x86_64-unknown-linux-gnu

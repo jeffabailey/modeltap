@@ -112,11 +112,18 @@ fn matrix_include(build: &Value) -> &Vec<Value> {
 }
 
 // =============================================================================
-// M-1. Matrix declares exactly 4 targets — the supported set.
+// M-1. Matrix declares exactly the 3 published targets.
+//
+// x86_64-apple-darwin (macos-13) was dropped from the published matrix
+// because GitHub-hosted macos-13 runners have severe queue delays on the
+// OSS tier. xtask::formula still supports MacIntel as a TargetKind so a
+// maintainer can supply Intel sidecars manually if needed; the workflow
+// just doesn't produce them automatically. See release.yml comment block
+// above the matrix.include for re-enable conditions.
 // =============================================================================
 
 #[test]
-fn build_matrix_declares_four_supported_targets() {
+fn build_matrix_declares_three_supported_targets() {
     let src = read_release_workflow();
     let workflow = parse_workflow(&src);
     let build = build_job(&workflow);
@@ -136,7 +143,6 @@ fn build_matrix_declares_four_supported_targets() {
 
     let expected: BTreeSet<String> = [
         "aarch64-apple-darwin",
-        "x86_64-apple-darwin",
         "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
     ]
@@ -146,13 +152,14 @@ fn build_matrix_declares_four_supported_targets() {
 
     assert_eq!(
         targets, expected,
-        "build matrix targets must be exactly the 4 supported triples \
-         (ADR-012 + multi-arch-release.feature US-07). Got: {targets:?}"
+        "build matrix targets must be exactly the 3 published triples \
+         (ADR-012 + multi-arch-release.feature US-07; x86_64-apple-darwin \
+         dropped pending macos-13 runner availability). Got: {targets:?}"
     );
     assert_eq!(
         include.len(),
-        4,
-        "matrix.include must have exactly 4 entries (no duplicates, no extras). \
+        3,
+        "matrix.include must have exactly 3 entries (no duplicates, no extras). \
          Got {} entries.",
         include.len()
     );
@@ -191,7 +198,6 @@ fn build_matrix_assigns_correct_runner_per_target() {
 
     let expected = [
         ("aarch64-apple-darwin", "macos-14"),
-        ("x86_64-apple-darwin", "macos-13"),
         ("x86_64-unknown-linux-gnu", "ubuntu-22.04"),
         ("aarch64-unknown-linux-gnu", "ubuntu-22.04"),
     ];
