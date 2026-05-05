@@ -3,6 +3,7 @@ name = "xtask"
 version = "0.0.0"
 edition = "2021"
 publish = false
+license.workspace = true
 description = "Build-time tooling for modeltap (release-prep, validate-tag, render-formula, extract-changelog, lint-workflows)."
 
 # Dependencies added incrementally per DELIVER step as each subcommand's GREEN

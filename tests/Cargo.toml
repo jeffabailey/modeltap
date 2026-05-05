@@ -20,6 +20,7 @@ name = "modeltap-acceptance"
 version = "0.0.0"
 edition = "2021"
 publish = false
+license.workspace = true
 description = "Black-box acceptance tests for the modeltap release pipeline (xtask)."
 autotests = false
 
