@@ -319,6 +319,69 @@ fn aarch64_linux_cell_uses_cross_pinned_at_0_2_5() {
 }
 
 // =============================================================================
+// M-4b. Every cell carries a target-architecture-aware `strip-cmd`.
+//
+// Regression test for the v0.2.0 strip failure: the cross-compiled
+// aarch64-linux cell ran the host's x86_64 `strip` against a foreign-arch
+// ELF and failed with "Unable to recognise the format of the input file".
+// Fix: matrix.include now declares a per-target `strip-cmd`. This test
+// pins the assignment so a future contributor can't drop the field or
+// assign a host stripper to a cross cell without a test failure.
+// =============================================================================
+
+#[test]
+fn every_cell_declares_a_target_architecture_aware_strip_cmd() {
+    let src = read_release_workflow();
+    let workflow = parse_workflow(&src);
+    let build = build_job(&workflow);
+    let include = matrix_include(build);
+
+    // Build target → strip-cmd map, asserting strip-cmd is present per entry.
+    let mut strip_for: std::collections::BTreeMap<String, String> = Default::default();
+    for entry in include {
+        let target = get_opt(entry, "target")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| panic!("matrix.include entry missing `target:`: {entry:?}"))
+            .to_owned();
+        let strip_cmd = get_opt(entry, "strip-cmd")
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| {
+                panic!(
+                    "matrix.include entry for target {target:?} missing `strip-cmd:` — \
+                     every cell must declare its stripper so cross-compile cells use \
+                     the correct target-arch binutils (regression: v0.2.0 release-run \
+                     failure on aarch64-linux cross cell)"
+                )
+            })
+            .to_owned();
+        strip_for.insert(target, strip_cmd);
+    }
+
+    // Pin the actual assignment. Any change to the matrix that breaks one of
+    // these mappings will fail with a useful diff in the `assert_eq!` output.
+    //
+    // - macOS: `strip -x` (rustc-emitted Mach-O has sections macOS strip rejects without -x)
+    // - native linux: GNU `strip`
+    // - cross-compiled aarch64-linux: `aarch64-linux-gnu-strip` (host strip
+    //   cannot read foreign-architecture ELF on the x86_64 ubuntu runner)
+    let expected: std::collections::BTreeMap<String, String> = [
+        ("aarch64-apple-darwin", "strip -x"),
+        ("x86_64-unknown-linux-gnu", "strip"),
+        ("aarch64-unknown-linux-gnu", "aarch64-linux-gnu-strip"),
+    ]
+    .iter()
+    .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+    .collect();
+
+    assert_eq!(
+        strip_for, expected,
+        "per-target strip-cmd assignment regressed. Cross-compile cells (use-cross: true) \
+         MUST use a target-architecture stripper; the host runner's `strip` cannot read \
+         foreign-arch ELF and the build will fail at the strip step."
+    );
+}
+
+// =============================================================================
 // M-5. Each cell uploads a workflow artifact named exactly `release-<target>`.
 // =============================================================================
 
