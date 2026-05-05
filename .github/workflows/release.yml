@@ -60,19 +60,29 @@ jobs:
       # at the publish job (US-08), not at build time.
       fail-fast: false
       matrix:
+        # `strip-cmd` is the per-target binary stripper. macOS uses `strip -x`
+        # (rustc-emitted Mach-O has sections macOS strip rejects without -x).
+        # Native linux uses GNU `strip`. The aarch64-linux cross cell builds
+        # an aarch64 ELF on an x86_64 runner — the host `strip` cannot read
+        # foreign-architecture ELF, so we use the `aarch64-linux-gnu-strip`
+        # cross-binutils binary (preinstalled on ubuntu-22.04 runners).
         include:
           - target: aarch64-apple-darwin
             runs-on: macos-14
             use-cross: false
+            strip-cmd: strip -x
           - target: x86_64-apple-darwin
             runs-on: macos-13
             use-cross: false
+            strip-cmd: strip -x
           - target: x86_64-unknown-linux-gnu
             runs-on: ubuntu-22.04
             use-cross: false
+            strip-cmd: strip
           - target: aarch64-unknown-linux-gnu
             runs-on: ubuntu-22.04
             use-cross: true
+            strip-cmd: aarch64-linux-gnu-strip
     # Job-scoped permissions for SLSA L3 build provenance (US-09 + ADR-013).
     # Least privilege: only this job mints OIDC tokens and writes attestations;
     # `contents: read` is for actions/checkout (publish job carries write).
@@ -124,14 +134,11 @@ jobs:
         if: matrix.use-cross
         run: cross build --release --package modeltap-app --locked --target "${TARGET}"
 
-      # macOS `strip` rejects unknown sections from rustc-emitted Mach-O without
-      # `-x` (debug-info stripping only); GNU strip on linux runs without flags.
-      - name: Strip binary (linux)
-        if: runner.os == 'Linux'
-        run: strip "target/${TARGET}/release/modeltap"
-      - name: Strip binary (macOS)
-        if: runner.os == 'macOS'
-        run: strip -x "target/${TARGET}/release/modeltap"
+      # Strip with the per-target `strip-cmd` from matrix.include — host strip
+      # cannot read foreign-architecture ELF, so the aarch64-linux cross cell
+      # uses `aarch64-linux-gnu-strip` instead. See matrix definition above.
+      - name: Strip binary
+        run: ${{ matrix.strip-cmd }} "target/${TARGET}/release/modeltap"
 
       - name: Package archive and sha256 sidecar
         # Bare-hex sha256 (NOT GNU two-field format): just 64 hex chars + \n.
