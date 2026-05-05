@@ -62,6 +62,15 @@ jobs:
           This failure counts against K-PIPE rolling-10 success rate. Target: >=95%.
           EOF
           )
+          # Idempotently ensure the label exists. `--force` makes this both
+          # create-if-missing AND update-if-exists in one call, so first-deploy
+          # doesn't fail with "label not found" before any maintainer ran the
+          # one-time setup. Color is the GitHub octicon palette red.
+          gh label create "release-pipeline-failure" \
+            --description "Automated alert: release.yml concluded != success" \
+            --color "B60205" \
+            --force \
+            --repo "${REPO}"
           gh issue create \
             --title "${TITLE}" \
             --body "${BODY}" \

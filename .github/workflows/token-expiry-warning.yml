@@ -48,6 +48,15 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          # Idempotently ensure the label exists so the de-dupe `gh issue list`
+          # below has a real label to filter on, and the `gh issue create` at
+          # the end doesn't fail with "label not found" on first deploy.
+          # `--force` makes this both create-if-missing AND update-if-exists.
+          gh label create "tap-token-expiry" \
+            --description "Automated alert: GH_TAP_TOKEN authentication failed against the tap repo" \
+            --color "D93F0B" \
+            --force \
+            --repo "${REPO}"
           EXISTING=$(gh issue list \
             --label "tap-token-expiry" \
             --state open \
