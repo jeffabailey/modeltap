@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.1]
+
+### Added
+
+- add cut-release.sh one-shot release driver
+
+### Fixed
+
+- use cross-aware strip for aarch64-linux build cell
+- drop x86_64-apple-darwin from published matrix
+
 ## [0.2.0]
 
 ### Added
