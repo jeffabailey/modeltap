@@ -130,6 +130,10 @@ jobs:
         if: matrix.use-cross
         run: cross build --release --package modeltap-app --locked --target "${TARGET}"
 
+      - name: Install cross-toolchain binutils
+        if: matrix.use-cross
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends binutils-aarch64-linux-gnu
+
       # Strip with the per-target `strip-cmd` from matrix.include — host strip
       # cannot read foreign-architecture ELF, so the aarch64-linux cross cell
       # uses `aarch64-linux-gnu-strip` instead. See matrix definition above.
