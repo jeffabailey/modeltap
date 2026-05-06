@@ -41,3 +41,5 @@ mutants.out.old/
 *.profraw
 *.profdata
 /coverage/
+.claude
+.mcp.json
