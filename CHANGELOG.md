@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2]
+
+### Fixed
+
+- inherit workspace license in xtask and modeltap-acceptance
+
+### Misc
+
+- Add license scan report and status
+- Merge pull request #1 from fossabot/add-license-scan-badge
+- Merge branch 'main' of github.com:jeffabailey/modeltap
+- If a git tree falls in a forest and no one is around to hear it, does it make a sound?
+
 ## [0.2.1]
 
 ### Added
