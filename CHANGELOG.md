@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.3]
+
+### Fixed
+
+- install cross binutils before strip on aarch64-linux cell
+
 ## [0.2.2]
 
 ### Fixed
