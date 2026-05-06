@@ -364,18 +364,21 @@ fn run_render_formula(
 
     // Walking-skeleton mode (single-target) deliberately renders whatever
     // sidecar(s) it finds. Multi-arch mode (this step, US-10) requires that
-    // ALL FOUR supported sidecars are present BEFORE rendering — a missing
-    // sidecar means an upstream build cell silently dropped its artifact, and
-    // shipping a 3-platform formula would degrade Devon's install experience.
+    // every CURRENTLY-PUBLISHED matrix cell's sidecar is present BEFORE
+    // rendering — a missing one means an upstream build cell silently dropped
+    // its artifact, and shipping a partial formula would degrade Devon's
+    // install experience.
     //
     // We trip the multi-arch gate iff the caller staged sidecars for more
-    // than one supported target. This preserves WS behavior (1 target → 1
-    // platform block) while enforcing the multi-arch invariant on a real
-    // release (4 targets → 4 platform blocks; 3 → fail).
+    // than one supported target. The required set is `TargetKind::published()`
+    // (3 today: MacArm, LinuxArm, LinuxIntel — MacIntel is intentionally
+    // absent from the matrix per release.yml's in-file comment), NOT
+    // `TargetKind::all()` (4 — the renderer's universe of representable
+    // platform blocks; preserved for forward compat when MacIntel returns).
     if targets.len() > 1 {
         let present: std::collections::HashSet<TargetKind> =
             targets.iter().map(|t| t.kind).collect();
-        let missing: Vec<TargetKind> = TargetKind::all()
+        let missing: Vec<TargetKind> = TargetKind::published()
             .iter()
             .copied()
             .filter(|k| !present.contains(k))

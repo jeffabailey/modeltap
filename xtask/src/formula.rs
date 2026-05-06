@@ -72,6 +72,21 @@ impl TargetKind {
             TargetKind::LinuxIntel,
         ]
     }
+
+    /// Triples the build matrix actually ships in `release.yml` today. A
+    /// strict subset of `all()` — `MacIntel` is intentionally absent per the
+    /// in-file comment in `release.yml` (runner queue delays for macos-13).
+    /// The render-formula multi-arch gate iterates this set, not `all()`,
+    /// so a release that drops a matrix cell does not require a sidecar
+    /// the build never produces. When MacIntel is re-added to the matrix,
+    /// add it here too.
+    pub fn published() -> &'static [TargetKind] {
+        &[
+            TargetKind::MacArm,
+            TargetKind::LinuxArm,
+            TargetKind::LinuxIntel,
+        ]
+    }
 }
 
 /// Context passed to the Tera template. The walking-skeleton renders this with

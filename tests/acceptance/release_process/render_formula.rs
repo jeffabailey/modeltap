@@ -151,6 +151,26 @@ fn stage_four_sidecars(artifacts_dir: &std::path::Path, version: &str) {
     }
 }
 
+/// Sidecars staged by the *currently-published* build matrix (release.yml as
+/// of commit e3c494f, which dropped x86_64-apple-darwin per its in-file
+/// comment about runner queue delays). Mirrors `TargetKind::published()` in
+/// xtask::formula. When MacIntel is re-added to the matrix, both this fixture
+/// and `published()` flip together.
+const THREE_PUBLISHED_TARGETS: [(&str, &str); 3] = [
+    (
+        "aarch64-apple-darwin",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    ),
+    (
+        "x86_64-unknown-linux-gnu",
+        "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    ),
+    (
+        "aarch64-unknown-linux-gnu",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    ),
+];
+
 // -----------------------------------------------------------------------------
 // AC1 + AC4 (round-trip): rendered formula contains all 4 platform blocks
 // with each sha256 wired to its correct triple.
@@ -361,5 +381,95 @@ fn render_formula_rejects_sidecar_with_invalid_sha256_content() {
     assert!(
         stderr.contains(&expected_filename),
         "stderr must name the offending sidecar {expected_filename}, got: {stderr}"
+    );
+}
+
+// =============================================================================
+// Regression: render-formula must succeed when given exactly the sidecars the
+// currently-published build matrix produces (3 cells, MacIntel intentionally
+// absent per release.yml:67-68 comment about runner queue delays).
+//
+// Bug: v0.2.3 release pipeline failed at bump-tap-formula's render step with
+// `xtask render-formula: missing sidecar modeltap-0.2.3-x86_64-apple-darwin.tar.gz.sha256`.
+// Root cause: the multi-arch gate in main.rs::run_render_formula iterated
+// `TargetKind::all()` (4 variants) and refused to render unless every variant
+// had a sidecar — conflating "renderable kinds the formula template knows
+// about" with "build matrix cells that must all ship for a release." The
+// commit that dropped MacIntel from the matrix (e3c494f) didn't update the
+// gate, so the gate still required the dropped sidecar.
+//
+// Fix: split the two concepts. `TargetKind::all()` keeps emitting all 4 (the
+// template still has on_macos/on_intel block support for forward compat); a
+// new `TargetKind::published()` returns the 3 currently-shipped triples and
+// drives the gate.
+// =============================================================================
+
+#[test]
+fn render_formula_succeeds_with_only_published_matrix_sidecars() {
+    let workspace = TempDir::new().expect("create tempdir");
+    let artifacts = workspace.path().join("artifacts");
+    std::fs::create_dir_all(&artifacts).expect("mkdir artifacts");
+
+    let version = "0.2.3";
+    for (triple, sha) in THREE_PUBLISHED_TARGETS {
+        let sidecar = format!("modeltap-{version}-{triple}.tar.gz.sha256");
+        std::fs::write(artifacts.join(sidecar), format!("{sha}\n")).expect("write sha256 sidecar");
+    }
+
+    let formula_dir = workspace.path().join("Formula");
+    std::fs::create_dir_all(&formula_dir).expect("mkdir Formula");
+    let output_path = formula_dir.join("modeltap.rb");
+
+    let release_base_url =
+        format!("https://github.com/jeffabailey/modeltap/releases/download/v{version}");
+
+    let output = xtask_in(
+        workspace.path(),
+        &[
+            "render-formula",
+            "--version",
+            version,
+            "--template",
+            template_path().to_str().expect("utf-8 template path"),
+            "--output",
+            output_path.to_str().expect("utf-8 output path"),
+            "--sha256-dir",
+            artifacts.to_str().expect("utf-8 artifacts path"),
+            "--release-base-url",
+            &release_base_url,
+        ],
+    )
+    .output()
+    .expect("invoke cargo xtask render-formula");
+
+    assert!(
+        output.status.success(),
+        "render-formula must succeed with the 3 published-matrix sidecars; \
+         stdout={} stderr={}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let formula =
+        std::fs::read_to_string(&output_path).expect("Formula/modeltap.rb must be written");
+
+    // The 3 published triples + their sha256s must all be present.
+    for (triple, sha) in THREE_PUBLISHED_TARGETS {
+        assert!(
+            formula.contains(triple),
+            "rendered formula must reference {triple}, got: {formula:?}"
+        );
+        assert!(
+            formula.contains(&format!("sha256 \"{sha}\"")),
+            "rendered formula must contain {triple}'s sha256 verbatim, got: {formula:?}"
+        );
+    }
+
+    // The dropped triple must NOT appear (no stale block referring to a
+    // non-existent archive — that would break `brew install` on Intel macOS).
+    assert!(
+        !formula.contains("x86_64-apple-darwin"),
+        "rendered formula must not reference x86_64-apple-darwin while it is \
+         absent from the build matrix (no archive published for it). Got: {formula:?}"
     );
 }
