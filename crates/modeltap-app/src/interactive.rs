@@ -322,7 +322,8 @@ fn translate_key(state: &AppState, key: KeyEvent) -> Msg {
         return keymap::dispatch_in_dialog(key, state.unify_dialog.is_some());
     }
     let raw = keymap::dispatch(key);
-    lift_delete_one_in_main(state, raw)
+    let raw = lift_delete_one_in_main(state, raw);
+    lift_delete_one_in_detail(state, raw)
 }
 
 /// On the main screen, lift `Msg::DeleteFromOne` (no-op in pure update) into
@@ -360,6 +361,55 @@ fn lift_delete_one_in_main(state: &AppState, msg: Msg) -> Msg {
         .real_tools_iter()
         .any(|t| t.tool != target_tool && t.model_ids.iter().any(|id| id == &target_id));
     let dialog = DeleteOneConfirmState::for_model(target_tool, target_id, size_bytes, was_shared);
+    Msg::OpenDeleteOneDialog(dialog)
+}
+
+/// On the detail screen, lift `Msg::DeleteFromOne` into
+/// `Msg::OpenDeleteOneDialog(state)` after building a `DeleteOneConfirmState`
+/// snapshot from the screen's registrations. This is the production
+/// counterpart to `headless::lift_delete_one_in_detail` (fix-delete-one-hang
+/// step 01-02 / RCA Cause B).
+///
+/// The headless version honours the `MODELTAP_HEADLESS_DELETE_TARGET` and
+/// `MODELTAP_HEADLESS_DELETE_ID_IN_TOOL` env-var seams used by the US-05b
+/// acceptance suite to drive scripted scenarios. Production drops both
+/// seams: it ALWAYS targets the FIRST registration and ALWAYS uses the
+/// model's display id for the dialog's `model_id`. (Once the Detail screen
+/// grows row-cursor navigation, the "first" choice will be replaced with
+/// the highlighted registration; that is a follow-up.)
+///
+/// `was_shared` is computed conservatively (per ADR-002 + RCA Section 5
+/// Fix 2): true iff the screen has 2+ registrations (the same model
+/// content lives under another tool's tree, so deleting one preserves the
+/// content elsewhere); false for single-tool registrations (typed-id
+/// confirmation mode).
+///
+/// The `check_running_tools` gate from the headless version is intentionally
+/// NOT replicated here. The gate also lives in `apply_effect` for
+/// destructive operations; lifting it once at the orchestrator-effect layer
+/// keeps the lift pure (no I/O on a keystroke). The follow-up that wires the
+/// running-tool dialog for delete-one in production will reintroduce the
+/// gate at the appropriate seam.
+///
+/// Outside the detail screen — or when the screen has no registrations —
+/// `Msg::DeleteFromOne` passes through unchanged so `update.rs`'s no-op
+/// arm absorbs it (correct: there is nothing to delete).
+fn lift_delete_one_in_detail(state: &AppState, msg: Msg) -> Msg {
+    if !matches!(msg, Msg::DeleteFromOne) {
+        return msg;
+    }
+    let Screen::Detail(detail) = &state.current_screen else {
+        return msg;
+    };
+    let Some(reg) = detail.registrations.first() else {
+        return msg;
+    };
+    let was_shared = detail.registrations.len() >= 2;
+    let size_bytes = std::fs::metadata(&reg.path)
+        .map(|m| m.len())
+        .unwrap_or(detail.model.canonical_size_bytes);
+    let dialog =
+        DeleteOneConfirmState::for_model(reg.tool, detail.model.id.clone(), size_bytes, was_shared);
     Msg::OpenDeleteOneDialog(dialog)
 }
 
@@ -658,4 +708,165 @@ fn find_plugin(plugins: &[Box<dyn Tool>], tool_id: ToolId) -> Option<&dyn Tool> 
         .iter()
         .find(|p| p.name().0 == tool_id.0)
         .map(|b| b.as_ref())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+//
+// Tests live inline (rather than under `tests/`) because `interactive` is a
+// `mod` private to the binary at `src/main.rs`; surfacing it to a `tests/`
+// integration target would require restructuring `lib.rs` + `main.rs` to
+// promote `interactive`, `actions`, and `observability` into the library
+// half. The fix-delete-one-hang step 01-02 boundary keeps the change
+// surgical, and the existing precedent in `headless.rs` (private bin module
+// with inline `#[cfg(test)] mod tests`) is followed here.
+#[cfg(test)]
+mod tests {
+    //! Unit tests for `lift_delete_one_in_detail` (RCA Cause B fix).
+    //!
+    //! Production fix for fix-delete-one-hang step 01-02. The headless
+    //! harness at `headless::lift_delete_one_in_detail` was the only place
+    //! a Detail-screen 'd' keypress was lifted into
+    //! `Msg::OpenDeleteOneDialog`. The production interactive event loop's
+    //! `translate_key` only chained `lift_delete_one_in_main`, so pressing
+    //! 'd' on the Detail screen fell through to `update.rs::Msg::DeleteFromOne`'s
+    //! no-op arm — silently doing nothing.
+    //!
+    //! These tests pin the contract for the new
+    //! `lift_delete_one_in_detail`:
+    //!
+    //! 1. On `Screen::Detail` with non-empty `registrations`,
+    //!    `Msg::DeleteFromOne` is lifted into `Msg::OpenDeleteOneDialog(_)`.
+    //! 2. On `Screen::Detail` with EMPTY `registrations`, the message
+    //!    passes through unchanged (no model to delete; the lift is a
+    //!    no-op rather than a panic).
+    //! 3. On `Screen::Main`, the message passes through unchanged
+    //!    (`lift_delete_one_in_main` handles that path; this lift is a
+    //!    Detail-only concern).
+
+    use std::path::PathBuf;
+
+    use modeltap_core::logic::unification_status::{DetailModelView, DetailRegistration};
+    use modeltap_core::{DisplayLabel, Format, ModelStatus};
+    use modeltap_tui::screens::detail::DetailScreenState;
+
+    use super::*;
+
+    fn detail_state_with_two_regs() -> DetailScreenState {
+        let registrations = vec![
+            DetailRegistration {
+                tool: ToolId("ollama"),
+                path: PathBuf::from("/var/empty/ollama/blobs/sha256-aaa"),
+                inode: Some(1001),
+            },
+            DetailRegistration {
+                tool: ToolId("hf"),
+                path: PathBuf::from("/var/empty/hf/foo/model.safetensors"),
+                inode: Some(1002),
+            },
+        ];
+        DetailScreenState::new(
+            DetailModelView {
+                id: "mistralai/Mistral-7B-v0.3".to_string(),
+                format: Format::Gguf,
+                format_quant: Some("q4_K_M".to_string()),
+                canonical_size_bytes: 4_400_000_000,
+                display_label: DisplayLabel::from("mistralai/Mistral-7B-v0.3"),
+                status: ModelStatus::Healthy,
+            },
+            registrations,
+            None,
+        )
+    }
+
+    fn detail_state_with_no_regs() -> DetailScreenState {
+        DetailScreenState::new(
+            DetailModelView {
+                id: "ghost-model".to_string(),
+                format: Format::Gguf,
+                format_quant: None,
+                canonical_size_bytes: 0,
+                display_label: DisplayLabel::from("ghost-model"),
+                status: ModelStatus::Healthy,
+            },
+            vec![],
+            None,
+        )
+    }
+
+    fn empty_main_state() -> AppState {
+        AppState::new_with_default_selection(vec![])
+    }
+
+    #[test]
+    fn lift_delete_one_in_detail_opens_dialog_when_detail_has_registrations() {
+        let mut state = empty_main_state();
+        state.current_screen = Screen::Detail(detail_state_with_two_regs());
+
+        let result = lift_delete_one_in_detail(&state, Msg::DeleteFromOne);
+
+        match result {
+            Msg::OpenDeleteOneDialog(dialog) => {
+                // Target the FIRST registration (ollama) per the production
+                // rule documented in step 01-02 implementation notes.
+                assert_eq!(
+                    dialog.tool,
+                    ToolId("ollama"),
+                    "lift must target the first registration's tool"
+                );
+                assert_eq!(
+                    dialog.model_id, "mistralai/Mistral-7B-v0.3",
+                    "lift must use the model's display id (no env-var override in production)"
+                );
+                // Two registrations → was_shared = true → Shared mode dialog.
+                assert!(
+                    dialog.is_shared(),
+                    "two registrations means was_shared=true (Shared/[y/n] mode)"
+                );
+            }
+            other => {
+                panic!("expected Msg::OpenDeleteOneDialog(_) on Detail with regs; got {other:?}")
+            }
+        }
+    }
+
+    #[test]
+    fn lift_delete_one_in_detail_passes_msg_unchanged_when_detail_has_empty_registrations() {
+        let mut state = empty_main_state();
+        state.current_screen = Screen::Detail(detail_state_with_no_regs());
+
+        let result = lift_delete_one_in_detail(&state, Msg::DeleteFromOne);
+
+        assert!(
+            matches!(result, Msg::DeleteFromOne),
+            "empty registrations → no model to delete → pass through unchanged; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn lift_delete_one_in_detail_passes_msg_unchanged_when_screen_is_main() {
+        let state = empty_main_state(); // current_screen defaults to Main
+
+        let result = lift_delete_one_in_detail(&state, Msg::DeleteFromOne);
+
+        assert!(
+            matches!(result, Msg::DeleteFromOne),
+            "Main screen is handled by lift_delete_one_in_main; this lift must \
+             pass the message through unchanged. got {result:?}"
+        );
+    }
+
+    #[test]
+    fn lift_delete_one_in_detail_passes_non_delete_msg_unchanged() {
+        let mut state = empty_main_state();
+        state.current_screen = Screen::Detail(detail_state_with_two_regs());
+
+        let result = lift_delete_one_in_detail(&state, Msg::ToggleHelp);
+
+        assert!(
+            matches!(result, Msg::ToggleHelp),
+            "the lift only acts on Msg::DeleteFromOne; other msgs pass through. got {result:?}"
+        );
+    }
 }
