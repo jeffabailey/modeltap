@@ -156,6 +156,12 @@ fn is_available_main(entry: &Shortcut, ctx: &BarContext<'_>) -> bool {
         // current tool is empty (you can't unify nothing). Future detail-
         // screen unify is the primary path.
         KeyCode::Char('u') => ctx.current_tool_has_models,
+        // [d] delete-from-one is unavailable on the Unified virtual column
+        // (current_tool() is None → current_tool_has_models is false) and
+        // when the real tool is empty. Mirrors the production gating in
+        // `interactive::lift_delete_one_in_main` so the bar matches what the
+        // keystroke will actually do (RCA: fix-delete-one-hang Root Cause C).
+        KeyCode::Char('d') => ctx.current_tool_has_models,
         // Everything else (arrows, ?, q) is always applicable on main.
         _ => true,
     }
