@@ -1,0 +1,45 @@
+---
+source: crates/modeltap-tui/tests/render_delete_one_dialog.rs
+assertion_line: 80
+expression: frame
+---
+┌Tools (focused)───────────────────┐┌Models────────────────────────────────────────────────────────────────────────────┐
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                       ┌ Delete (UNIQUE — only copy) ─────────────────────────────────────────┐                       │
+│                       │Delete 'llama3:8b' from ollama (UNIQUE)?                              │                       │
+│                       │                                                                      │                       │
+│                       │Tool:     ollama                                                      │                       │
+│                       │Model:    llama3:8b                                                   │                       │
+│                       │Size:     4.7 GB                                                      │                       │
+│                       │                                                                      │                       │
+│                       │This is the ONLY copy on this machine. Deletion frees the disk        │                       │
+│                       │space but the model content is gone.                                  │                       │
+│                       │                                                                      │                       │
+│                       │> _                                                                   │                       │
+│                       │                                                                      │                       │
+│                       │Type the model id, then [Enter]   [Esc] cancel                        │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       └──────────────────────────────────────────────────────────────────────┘                       │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+└──────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘
+Total: 0 models | Disk: 0 B | Dedup-able: computing...                                                                  
+[<-/->] tools  [up/down] models  [u] unify  [z] zap tool  [d] delete-from-one  [?] help  [q] quit

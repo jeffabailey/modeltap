@@ -14,3 +14,6 @@ unsafe_code = "forbid"
 modeltap-core = { path = "../modeltap-core" }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
+
+[dev-dependencies]
+insta = { workspace = true }

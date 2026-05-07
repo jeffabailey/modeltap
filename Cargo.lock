@@ -967,6 +967,7 @@ name = "modeltap-tui"
 version = "0.2.3"
 dependencies = [
  "crossterm",
+ "insta",
  "modeltap-core",
  "ratatui",
 ]

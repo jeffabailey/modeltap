@@ -1,0 +1,45 @@
+---
+source: crates/modeltap-tui/tests/render_delete_one_dialog.rs
+assertion_line: 61
+expression: frame
+---
+┌Tools (focused)───────────────────┐┌Models────────────────────────────────────────────────────────────────────────────┐
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                       ┌ Delete from one tool ────────────────────────────────────────────────┐                       │
+│                       │Delete 'llama3:8b' from ollama?                                       │                       │
+│                       │                                                                      │                       │
+│                       │Tool:     ollama                                                      │                       │
+│                       │Model:    llama3:8b                                                   │                       │
+│                       │Size:     4.7 GB                                                      │                       │
+│                       │                                                                      │                       │
+│                       │Other tools still have this model. Only this tool's registration      │                       │
+│                       │(and, where applicable, this tool's standalone copy) is removed.      │                       │
+│                       │                                                                      │                       │
+│                       │[y] confirm   [n] cancel   [Esc] cancel                               │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       │                                                                      │                       │
+│                       └──────────────────────────────────────────────────────────────────────┘                       │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+│                                  ││                                                                                  │
+└──────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘
+Total: 0 models | Disk: 0 B | Dedup-able: computing...                                                                  
+[<-/->] tools  [up/down] models  [u] unify  [z] zap tool  [d] delete-from-one  [?] help  [q] quit
