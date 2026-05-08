@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.4]
+
+### Fixed
+
+- render-formula gate iterates published matrix not all kinds
+- render delete-one confirmation dialog (RCA cause A)
+- lift DeleteFromOne on Detail in interactive loop (RCA cause B)
+- dim [d] on Main when no real tool is selected (RCA cause C)
+
+### Misc
+
+- archive fix-delete-one-hang RCA, roadmap, and DES log
+
 ## [0.2.3]
 
 ### Fixed
