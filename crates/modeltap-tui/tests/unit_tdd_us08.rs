@@ -155,59 +155,72 @@ fn shortcut_table_includes_help_unify_delete_keys() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn render_bottom_bar_main_contains_expected_shortcuts() {
-    // Default fixture has FocusPane::Left, so the focus-aware Up/Down label
-    // is "[up/down] tools" (the bar tells the truth about what Up/Down does
-    // in the currently-focused pane — see arrow-keys-navigate-tools AC #7).
-    let state = state_with_models();
+fn render_bottom_bar_main_up_down_label_is_focus_aware() {
+    // This test exercises render_bottom_bar's focus-aware substitution logic
+    // by comparing rendered output across BOTH focus states in succession.
+    // Different focus → different label is the observable behavior; passing
+    // requires both the substitution branch in render_bottom_bar AND
+    // up_down_bar_label working correctly together. Combining the two focus
+    // checks into a single test makes the non-circular structure visible in
+    // one read (i.e. swapping the substitution for a hardcoded label would
+    // fail one half or the other).
+    //
+    // Also asserts the broader main-bar shortcut contract (US-01 AC-6 /
+    // US-08) on the Left-focus rendering — those labels are focus-invariant
+    // and only need to be checked once.
+
+    // --- Half 1: FocusPane::Left → "[up/down] tools" ---
+    let mut state = state_with_models();
     assert_eq!(
         state.focus,
         FocusPane::Left,
         "fixture precondition: default focus is Left"
     );
-    let ctx = BarContext::for_state(&state);
-    let line = render_bottom_bar(&ctx, /* no_color */ false);
-    let plain = bar_to_plain_string(&line);
+    let ctx_left = BarContext::for_state(&state);
+    let line_left = render_bottom_bar(&ctx_left, /* no_color */ false);
+    let plain_left = bar_to_plain_string(&line_left);
 
-    // The main-bar contract must include these labels (per US-01 AC-6 / US-08).
+    assert!(
+        plain_left.contains("[up/down] tools"),
+        "left-focus main bar must show \"[up/down] tools\", got:\n{}",
+        plain_left
+    );
+    assert!(
+        !plain_left.contains("[up/down] models"),
+        "left-focus main bar must NOT show \"[up/down] models\", got:\n{}",
+        plain_left
+    );
+    // Broader main-bar contract — focus-invariant labels.
     for needle in [
         "[<-/->] tools",
-        "[up/down] tools",
         "[u] unify",
         "[z] zap tool",
         "[?] help",
         "[q] quit",
     ] {
         assert!(
-            plain.contains(needle),
+            plain_left.contains(needle),
             "main bar missing {:?}, got:\n{}",
             needle,
-            plain
+            plain_left
         );
     }
-}
 
-#[test]
-fn render_bottom_bar_main_up_down_label_flips_with_right_focus() {
-    // Companion to the above: with FocusPane::Right active, the focus-aware
-    // Up/Down label flips to "[up/down] models" (proving AC #7 covers both
-    // focus states from this US-08 surface — extending the invariant tests
-    // to both focus states per the architect's AC #8).
-    let mut state = state_with_models();
+    // --- Half 2: FocusPane::Right → "[up/down] models" ---
     state.focus = FocusPane::Right;
-    let ctx = BarContext::for_state(&state);
-    let line = render_bottom_bar(&ctx, /* no_color */ false);
-    let plain = bar_to_plain_string(&line);
+    let ctx_right = BarContext::for_state(&state);
+    let line_right = render_bottom_bar(&ctx_right, /* no_color */ false);
+    let plain_right = bar_to_plain_string(&line_right);
 
     assert!(
-        plain.contains("[up/down] models"),
-        "right-focus main bar missing \"[up/down] models\", got:\n{}",
-        plain
+        plain_right.contains("[up/down] models"),
+        "right-focus main bar must show \"[up/down] models\", got:\n{}",
+        plain_right
     );
     assert!(
-        !plain.contains("[up/down] tools"),
+        !plain_right.contains("[up/down] tools"),
         "right-focus main bar must NOT show \"[up/down] tools\", got:\n{}",
-        plain
+        plain_right
     );
 }
 
