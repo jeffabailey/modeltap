@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.5]
+
+### Added
+
+- focus-aware up/down dispatch in left pane
+
+### Misc
+
+- consolidate focus-aware label assertions per reviewer feedback
+- kill surviving mutants in keymap focus-aware dispatch
+- archive arrow-keys-navigate-tools evolution
+
 ## [0.2.4]
 
 ### Fixed
