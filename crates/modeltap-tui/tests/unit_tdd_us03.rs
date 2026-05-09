@@ -22,7 +22,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use modeltap_core::{ToolId, ToolStatus};
 use modeltap_tui::app_state::{AppState, FocusPane, ToolView};
-use modeltap_tui::keymap::{dispatch, SHORTCUT_TABLE};
+use modeltap_tui::keymap::{dispatch, dispatch_focus_aware, SHORTCUT_TABLE};
 use modeltap_tui::msg::Msg;
 use modeltap_tui::update::update;
 
@@ -278,13 +278,41 @@ fn shortcut_table_drives_both_render_label_and_dispatch_msg() {
     // translate. This test asserts BOTH directions: every key that maps to
     // a Msg in dispatch is also present in SHORTCUT_TABLE with the same Msg.
     // (Per ADR-006: the table is the single source of truth.)
+    //
+    // Extended (step 01-01 of arrow-keys-navigate-tools): with focus-aware
+    // dispatch, the Up/Down rows in SHORTCUT_TABLE were authored for the
+    // RIGHT pane (label `[up/down] models`, msg `SelectPrev/NextRow`). We
+    // assert the table contract holds under FocusPane::Right (the legacy
+    // semantics) and that Left/Right/Tab + non-arrow keys are
+    // focus-INDEPENDENT.
     for entry in SHORTCUT_TABLE {
+        // Legacy single-arg `dispatch()` — preserved as a focus-Right shim.
         let mapped = dispatch(entry.key);
         assert_eq!(
             mapped, entry.msg,
             "SHORTCUT_TABLE entry {:?} -> {:?} but dispatch produced {:?}",
             entry.key, entry.msg, mapped
         );
+        // Same assertion via the focus-aware entry point under Right focus.
+        let mapped_right = dispatch_focus_aware(entry.key, FocusPane::Right);
+        assert_eq!(
+            mapped_right, entry.msg,
+            "SHORTCUT_TABLE entry {:?} -> {:?} but \
+             dispatch_focus_aware(_, Right) produced {:?}",
+            entry.key, entry.msg, mapped_right
+        );
+        // Under Left focus, every entry EXCEPT Up/Down still resolves to the
+        // table-declared msg. (Up/Down become focus-aware: see the
+        // dedicated test below.)
+        if !matches!(entry.key.code, KeyCode::Up | KeyCode::Down) {
+            let mapped_left = dispatch_focus_aware(entry.key, FocusPane::Left);
+            assert_eq!(
+                mapped_left, entry.msg,
+                "Non-arrow SHORTCUT_TABLE entry {:?} must dispatch the same \
+                 msg under both focus states; got {:?} under Left",
+                entry.key, mapped_left
+            );
+        }
         // Label must be non-empty.
         assert!(
             !entry.label.is_empty(),
@@ -297,5 +325,28 @@ fn shortcut_table_drives_both_render_label_and_dispatch_msg() {
         SHORTCUT_TABLE.len() >= 5,
         "SHORTCUT_TABLE must have at least 5 entries (arrows + q), got {}",
         SHORTCUT_TABLE.len()
+    );
+
+    // Focus-aware Up/Down: the SHORTCUT_TABLE Up/Down entries' declared msg
+    // (SelectPrev/NextRow) must hold under Right focus, and the alternate
+    // tools-navigation msgs must hold under Left focus. The bar label
+    // substitution lives in `render::bottom_bar` (driven by `up_down_bar_label`).
+    let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+    let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+    assert_eq!(
+        dispatch_focus_aware(up, FocusPane::Left),
+        Msg::SelectPrevTool
+    );
+    assert_eq!(
+        dispatch_focus_aware(down, FocusPane::Left),
+        Msg::SelectNextTool
+    );
+    assert_eq!(
+        dispatch_focus_aware(up, FocusPane::Right),
+        Msg::SelectPrevRow
+    );
+    assert_eq!(
+        dispatch_focus_aware(down, FocusPane::Right),
+        Msg::SelectNextRow
     );
 }

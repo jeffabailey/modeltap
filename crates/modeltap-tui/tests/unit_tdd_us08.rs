@@ -26,8 +26,8 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use modeltap_core::logic::unification_status::{DetailModelView, DetailRegistration};
 use modeltap_core::{ContentHash, DisplayLabel, Format, ModelStatus, ToolId, ToolStatus};
-use modeltap_tui::app_state::{AppState, Screen, ToolView};
-use modeltap_tui::keymap::{dispatch, BarSection, SHORTCUT_TABLE};
+use modeltap_tui::app_state::{AppState, FocusPane, Screen, ToolView};
+use modeltap_tui::keymap::{dispatch, dispatch_focus_aware, BarSection, SHORTCUT_TABLE};
 use modeltap_tui::msg::Msg;
 use modeltap_tui::render::bottom_bar::{bar_to_plain_string, render_bottom_bar, BarContext};
 use modeltap_tui::screens::detail::DetailScreenState;
@@ -156,7 +156,15 @@ fn shortcut_table_includes_help_unify_delete_keys() {
 
 #[test]
 fn render_bottom_bar_main_contains_expected_shortcuts() {
+    // Default fixture has FocusPane::Left, so the focus-aware Up/Down label
+    // is "[up/down] tools" (the bar tells the truth about what Up/Down does
+    // in the currently-focused pane — see arrow-keys-navigate-tools AC #7).
     let state = state_with_models();
+    assert_eq!(
+        state.focus,
+        FocusPane::Left,
+        "fixture precondition: default focus is Left"
+    );
     let ctx = BarContext::for_state(&state);
     let line = render_bottom_bar(&ctx, /* no_color */ false);
     let plain = bar_to_plain_string(&line);
@@ -164,7 +172,7 @@ fn render_bottom_bar_main_contains_expected_shortcuts() {
     // The main-bar contract must include these labels (per US-01 AC-6 / US-08).
     for needle in [
         "[<-/->] tools",
-        "[up/down] models",
+        "[up/down] tools",
         "[u] unify",
         "[z] zap tool",
         "[?] help",
@@ -177,6 +185,30 @@ fn render_bottom_bar_main_contains_expected_shortcuts() {
             plain
         );
     }
+}
+
+#[test]
+fn render_bottom_bar_main_up_down_label_flips_with_right_focus() {
+    // Companion to the above: with FocusPane::Right active, the focus-aware
+    // Up/Down label flips to "[up/down] models" (proving AC #7 covers both
+    // focus states from this US-08 surface — extending the invariant tests
+    // to both focus states per the architect's AC #8).
+    let mut state = state_with_models();
+    state.focus = FocusPane::Right;
+    let ctx = BarContext::for_state(&state);
+    let line = render_bottom_bar(&ctx, /* no_color */ false);
+    let plain = bar_to_plain_string(&line);
+
+    assert!(
+        plain.contains("[up/down] models"),
+        "right-focus main bar missing \"[up/down] models\", got:\n{}",
+        plain
+    );
+    assert!(
+        !plain.contains("[up/down] tools"),
+        "right-focus main bar must NOT show \"[up/down] tools\", got:\n{}",
+        plain
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -420,32 +452,59 @@ fn int_6_invariant_every_visible_bar_key_dispatches_to_non_noop() {
     // Iterate (state, key) pairs. For each state we render the bar and pull
     // the keys actually shown in any section the entry belongs to. Then we
     // verify that for every (KeyEvent) shown, dispatch produces a non-noop Msg.
+    //
+    // Extended (step 01-01 of arrow-keys-navigate-tools): the inner loop
+    // also iterates over BOTH focus states so the invariant holds whether
+    // the left or right pane has keyboard focus. Up/Down dispatch is
+    // focus-aware and the bar's Up/Down label is focus-aware too — this
+    // test asserts both produce a non-noop Msg in either focus.
     let mut iterations = 0usize;
     // Outer loop replicates so we exceed 256 iterations even when the keyspace
     // is small (4 main + 4 detail + ~2 help = small per-state count).
     'outer: for replica in 0..32 {
-        for state in &states {
-            let ctx = BarContext::for_state(state);
-            let line = render_bottom_bar(&ctx, /* no_color */ false);
-            let plain = bar_to_plain_string(&line);
+        for base_state in &states {
+            for focus in [FocusPane::Left, FocusPane::Right] {
+                let mut state = base_state.clone();
+                state.focus = focus;
+                let ctx = BarContext::for_state(&state);
+                let line = render_bottom_bar(&ctx, /* no_color */ false);
+                let plain = bar_to_plain_string(&line);
 
-            // For every SHORTCUT_TABLE entry whose label appears in the
-            // currently-rendered bar text, assert that dispatch on its key
-            // yields a non-noop Msg. (`Msg::UnboundKey` is the noop sentinel.)
-            for entry in SHORTCUT_TABLE {
-                if !plain.contains(entry.label) {
-                    continue;
-                }
-                let mapped = dispatch(entry.key);
-                assert_ne!(
-                    mapped,
-                    Msg::UnboundKey,
-                    "INT-6 violation (replica {}): bar shows label {:?} (key {:?}) but dispatch yielded UnboundKey",
-                    replica, entry.label, entry.key
-                );
-                iterations += 1;
-                if iterations >= 1024 {
-                    break 'outer;
+                // For every SHORTCUT_TABLE entry whose key event would be
+                // visible in this focus state's bar, assert that
+                // `dispatch_focus_aware` yields a non-noop Msg. The Up/Down
+                // entries' labels are focus-substituted by the renderer
+                // (`up_down_bar_label`), so we match against the focus-aware
+                // label rather than the SHORTCUT_TABLE static label.
+                for entry in SHORTCUT_TABLE {
+                    let displayed_label = if entry.key.code == KeyCode::Up
+                        && entry.key.modifiers == KeyModifiers::NONE
+                    {
+                        match focus {
+                            FocusPane::Left => "[up/down] tools",
+                            FocusPane::Right => "[up/down] models",
+                        }
+                    } else {
+                        entry.label
+                    };
+                    if !plain.contains(displayed_label) {
+                        continue;
+                    }
+                    let mapped = dispatch_focus_aware(entry.key, focus);
+                    assert_ne!(
+                        mapped,
+                        Msg::UnboundKey,
+                        "INT-6 violation (replica {}, focus {:?}): bar shows label {:?} \
+                         (key {:?}) but dispatch_focus_aware yielded UnboundKey",
+                        replica,
+                        focus,
+                        displayed_label,
+                        entry.key
+                    );
+                    iterations += 1;
+                    if iterations >= 1024 {
+                        break 'outer;
+                    }
                 }
             }
         }

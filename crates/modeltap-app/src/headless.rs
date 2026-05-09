@@ -19,7 +19,7 @@ use modeltap_core::logic::plan::{build_plan, PlanCandidate, UnifyPlan};
 use modeltap_core::ports::fs_probe::{FsProbe, ProbeError};
 use modeltap_core::ports::Hasher;
 use modeltap_core::{DiscoveredModel, Tool, ToolId};
-use modeltap_tui::app_state::Screen;
+use modeltap_tui::app_state::{FocusPane, Screen};
 use modeltap_tui::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use modeltap_tui::dialogs::running_tool_prompt::{PendingGatedAction, RunningToolDialog};
 use modeltap_tui::dialogs::unify_confirm::UnifyMode;
@@ -214,6 +214,7 @@ pub fn run(
             cross_fs_open,
             unify_open,
             delete_one_shared_open,
+            state.focus,
         );
         // Intercept Msg::Unify on the detail screen so we can build the
         // UnifyPlan from the registrations + plugins (the plan needs `stat`
@@ -1200,6 +1201,7 @@ fn token_to_msg(
     cross_fs_open: bool,
     unify_open: bool,
     delete_one_shared_open: bool,
+    focus: FocusPane,
 ) -> Msg {
     if cross_fs_open {
         return match token {
@@ -1266,8 +1268,19 @@ fn token_to_msg(
         ScriptToken::Tag(t) => match t.as_str() {
             "right" => Msg::SelectNextTool,
             "left" => Msg::SelectPrevTool,
-            "down" => Msg::SelectNextRow,
-            "up" => Msg::SelectPrevRow,
+            // Focus-aware Up/Down: when the left pane has focus, the arrows
+            // navigate tools so a single mental model ("arrows move the
+            // cursor in the focused pane") works for both panes. Right-pane
+            // focus retains the legacy row-navigation semantics. Mirrors
+            // `keymap::dispatch_focus_aware` exactly.
+            "down" => match focus {
+                FocusPane::Left => Msg::SelectNextTool,
+                FocusPane::Right => Msg::SelectNextRow,
+            },
+            "up" => match focus {
+                FocusPane::Left => Msg::SelectPrevTool,
+                FocusPane::Right => Msg::SelectPrevRow,
+            },
             "tab" => Msg::ToggleFocus,
             // Outside any dialog, Esc mirrors production keymap (`dispatch`):
             // it pops Detail back to Main via `Msg::CloseDetail`. The dialog

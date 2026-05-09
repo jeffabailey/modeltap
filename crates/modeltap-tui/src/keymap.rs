@@ -25,6 +25,7 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use modeltap_core::ToolId;
 
+use crate::app_state::FocusPane;
 use crate::msg::Msg;
 
 /// Which bottom-bar context a shortcut belongs to. The dynamic bar render
@@ -161,13 +162,53 @@ pub const SHORTCUT_TABLE: &[Shortcut] = &[
 /// well-typed event for every keystroke (silently-ignored unbound keys
 /// are still a state transition: the brief-highlight effect lands here
 /// in subsequent steps).
+///
+/// Compatibility shim: delegates to `dispatch_focus_aware` with
+/// `FocusPane::Right` so callers that do not (yet) thread focus state
+/// continue to receive the legacy single-pane semantics — Up/Down navigate
+/// model rows. The composition root (`modeltap-app::interactive` and
+/// `modeltap-app::headless`) calls `dispatch_focus_aware` directly so the
+/// left pane can navigate tools when it has focus.
 pub fn dispatch(key: KeyEvent) -> Msg {
+    dispatch_focus_aware(key, FocusPane::Right)
+}
+
+/// Focus-aware variant of `dispatch`. When the left pane has focus, Up/Down
+/// navigate TOOLS (`SelectPrevTool` / `SelectNextTool`); when the right pane
+/// has focus, Up/Down navigate ROWS (`SelectPrevRow` / `SelectNextRow`).
+/// Left/Right and Tab are focus-independent.
+pub fn dispatch_focus_aware(key: KeyEvent, focus: FocusPane) -> Msg {
+    // Focus-aware Up/Down: when the left pane has focus, Up/Down move the
+    // tool selection so a single mental model ("arrow keys move the cursor in
+    // the focused pane") works for both panes. Right-pane focus retains the
+    // legacy row-navigation semantics.
+    if let FocusPane::Left = focus {
+        match (key.code, key.modifiers) {
+            (KeyCode::Up, KeyModifiers::NONE) => return Msg::SelectPrevTool,
+            (KeyCode::Down, KeyModifiers::NONE) => return Msg::SelectNextTool,
+            _ => {}
+        }
+    }
     for entry in SHORTCUT_TABLE {
         if key_event_matches(&entry.key, &key) {
             return entry.msg.clone();
         }
     }
     Msg::UnboundKey
+}
+
+/// Truthful bottom-bar / help-overlay label for the Up/Down arrow row given
+/// the current pane focus. The bottom-bar render fn (and the help overlay)
+/// substitute this for the static `[up/down] models` label whenever the
+/// shortcut entry's key code is Up/Down — so the bar tells the user what
+/// the keys WILL do in the current focus state.
+///
+/// Returning `&'static str` keeps the render layer allocation-free.
+pub fn up_down_bar_label(focus: FocusPane) -> &'static str {
+    match focus {
+        FocusPane::Left => "[up/down] tools",
+        FocusPane::Right => "[up/down] models",
+    }
 }
 
 /// Translate a `KeyEvent` into a dialog `Msg` while a typed-input dialog is
@@ -206,4 +247,168 @@ pub fn dispatch_in_dialog(key: KeyEvent, unify_dialog_open: bool) -> Msg {
 /// are crossterm-version-dependent and not part of the contract).
 fn key_event_matches(a: &KeyEvent, b: &KeyEvent) -> bool {
     a.code == b.code && a.modifiers == b.modifiers
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app_state::FocusPane;
+
+    // -----------------------------------------------------------------------
+    // RED_ACCEPTANCE — focus-aware Up/Down dispatch (AC #1-4).
+    //
+    // When FocusPane::Left is active, Up/Down navigate TOOLS (the left pane).
+    // When FocusPane::Right is active, Up/Down navigate ROWS (regression of
+    // the prior single-pane behavior).
+    // -----------------------------------------------------------------------
+    #[test]
+    fn up_down_dispatch_is_focus_aware() {
+        let cases: &[(FocusPane, KeyCode, Msg)] = &[
+            // AC #1, #2 — Left pane focused: Up/Down navigate tools.
+            (FocusPane::Left, KeyCode::Up, Msg::SelectPrevTool),
+            (FocusPane::Left, KeyCode::Down, Msg::SelectNextTool),
+            // AC #3, #4 — Right pane focused (regression): Up/Down navigate rows.
+            (FocusPane::Right, KeyCode::Up, Msg::SelectPrevRow),
+            (FocusPane::Right, KeyCode::Down, Msg::SelectNextRow),
+        ];
+        for (focus, code, expected) in cases {
+            let key = KeyEvent::new(*code, KeyModifiers::NONE);
+            let got = dispatch_focus_aware(key, *focus);
+            assert_eq!(
+                got, *expected,
+                "dispatch_focus_aware({:?}, {:?}) → {:?}, expected {:?}",
+                code, focus, got, expected
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // RED_UNIT — AC #5: Left/Right arrows are focus-INDEPENDENT.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn left_right_arrows_dispatch_to_tool_navigation_regardless_of_focus() {
+        for focus in [FocusPane::Left, FocusPane::Right] {
+            let left = KeyEvent::new(KeyCode::Left, KeyModifiers::NONE);
+            let right = KeyEvent::new(KeyCode::Right, KeyModifiers::NONE);
+            assert_eq!(
+                dispatch_focus_aware(left, focus),
+                Msg::SelectPrevTool,
+                "Left arrow must always dispatch SelectPrevTool (focus={:?})",
+                focus
+            );
+            assert_eq!(
+                dispatch_focus_aware(right, focus),
+                Msg::SelectNextTool,
+                "Right arrow must always dispatch SelectNextTool (focus={:?})",
+                focus
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // RED_UNIT — AC #6: Tab is focus-INDEPENDENT (no regression).
+    // -----------------------------------------------------------------------
+    #[test]
+    fn tab_dispatches_toggle_focus_regardless_of_focus() {
+        for focus in [FocusPane::Left, FocusPane::Right] {
+            let key = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+            assert_eq!(
+                dispatch_focus_aware(key, focus),
+                Msg::ToggleFocus,
+                "Tab must always dispatch ToggleFocus (focus={:?})",
+                focus
+            );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // RED_UNIT — AC #7: SHORTCUT_TABLE Up row's bar label reflects focus.
+    //
+    // The bottom bar's Up/Down entry must read "[up/down] tools" when Left
+    // pane has focus and "[up/down] models" when Right pane has focus, so the
+    // help bar tells the truth in BOTH focus states. Lookup is done by the
+    // `up_down_bar_label(focus)` accessor (single source of truth lifted from
+    // SHORTCUT_TABLE).
+    // -----------------------------------------------------------------------
+    #[test]
+    fn up_down_bar_label_is_focus_aware() {
+        assert_eq!(
+            up_down_bar_label(FocusPane::Left),
+            "[up/down] tools",
+            "When Left pane has focus, Up/Down navigate tools — bar must say so"
+        );
+        assert_eq!(
+            up_down_bar_label(FocusPane::Right),
+            "[up/down] models",
+            "When Right pane has focus, Up/Down navigate model rows — bar must say so"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // RED_UNIT — AC #10: dispatch_in_dialog is unchanged.
+    //
+    // Arrow keys inside the unify dialog continue to drive
+    // UnifyDialogSelectPrev/Next per US-U5. Focus-aware dispatch only applies
+    // to the top-level (non-dialog) keymap.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn dispatch_in_dialog_unify_arrows_unchanged_by_focus_refactor() {
+        let up = KeyEvent::new(KeyCode::Up, KeyModifiers::NONE);
+        let down = KeyEvent::new(KeyCode::Down, KeyModifiers::NONE);
+        assert_eq!(
+            dispatch_in_dialog(up, /* unify_dialog_open */ true),
+            Msg::UnifyDialogSelectPrev,
+            "US-U5: arrow Up inside unify dialog must dispatch UnifyDialogSelectPrev"
+        );
+        assert_eq!(
+            dispatch_in_dialog(down, /* unify_dialog_open */ true),
+            Msg::UnifyDialogSelectNext,
+            "US-U5: arrow Down inside unify dialog must dispatch UnifyDialogSelectNext"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // SHORTCUT_TABLE invariant extended to BOTH focus states (AC #8).
+    //
+    // Existing invariant: every SHORTCUT_TABLE entry's `key` dispatches to its
+    // declared `msg`. With focus-aware dispatch, Up/Down rows are special-
+    // cased — but their declared `msg` still holds for at least one focus
+    // (the focus the row was authored for). We preserve the original
+    // single-focus invariant here for the Right-pane case (which is the
+    // legacy default — "Up = SelectPrevRow") so the existing user-facing
+    // contract is not weakened.
+    // -----------------------------------------------------------------------
+    #[test]
+    fn shortcut_table_dispatches_consistently_under_focus_right() {
+        for entry in SHORTCUT_TABLE {
+            let mapped = dispatch_focus_aware(entry.key, FocusPane::Right);
+            // Up/Down rows in SHORTCUT_TABLE were authored for the right
+            // pane (label "[up/down] models" + msg SelectPrevRow/SelectNextRow).
+            // Under FocusPane::Right the table-declared msg must hold.
+            if matches!(entry.key.code, KeyCode::Up | KeyCode::Down) {
+                assert_eq!(
+                    mapped, entry.msg,
+                    "SHORTCUT_TABLE Up/Down entry under FocusPane::Right \
+                     must produce its declared msg, got {:?} expected {:?}",
+                    mapped, entry.msg
+                );
+            } else {
+                // All other entries must produce their declared msg in EITHER
+                // focus (focus only changes Up/Down semantics).
+                assert_eq!(
+                    mapped, entry.msg,
+                    "SHORTCUT_TABLE entry {:?} dispatch mismatch under \
+                     FocusPane::Right",
+                    entry.key
+                );
+                let mapped_left = dispatch_focus_aware(entry.key, FocusPane::Left);
+                assert_eq!(
+                    mapped_left, entry.msg,
+                    "SHORTCUT_TABLE entry {:?} dispatch mismatch under \
+                     FocusPane::Left",
+                    entry.key
+                );
+            }
+        }
+    }
 }

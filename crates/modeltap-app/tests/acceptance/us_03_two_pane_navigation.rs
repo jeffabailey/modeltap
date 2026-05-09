@@ -195,7 +195,7 @@ fn right_arrow_switches_to_next_tool() {
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 3: Down Arrow scrolls a long model list.
+// Scenario 3: Down Arrow scrolls a long model list (right-pane-focused).
 //
 // devon-multi-tool only has 4 Ollama manifests, not enough to test scrolling.
 // We build a synthetic "devon-long-list" fixture with 31 manifests so the
@@ -206,6 +206,11 @@ fn right_arrow_switches_to_next_tool() {
 // visible rows after subtracting borders + bottom bar. After 30 Down keys
 // the cursor sits at row 30 (zero-indexed 30 => "31/31"); we use 28 keys to
 // land at "29/31".
+//
+// Focus model (arrow-keys-navigate-tools step 01-01, AC #1-4): default focus
+// is the LEFT pane, where Down navigates tools. To exercise model-row
+// scrolling we first send `<tab>` to move focus to the right pane, then the
+// Down arrows scroll models as before.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -213,9 +218,11 @@ fn down_arrow_scrolls_long_model_list() {
     let (_temp_fix, ollama_dir) = build_fixture("devon-long-list");
     let (mut cmd, _log_temp) = modeltap_headless(Some(&ollama_dir));
 
-    // Press Down Arrow 28 times, then quit. Default selection is ollama
-    // (the only installed tool); the long list contains 31 manifests.
-    let mut script = String::new();
+    // Tab into the right pane so Down navigates model rows (default focus is
+    // the left pane, where Down navigates tools — AC #1-4 of step 01-01).
+    // Then press Down Arrow 28 times, then quit. Default tool selection is
+    // ollama (the only installed tool); the long list contains 31 manifests.
+    let mut script = String::from("<tab>");
     for _ in 0..28 {
         script.push_str("<down>");
     }

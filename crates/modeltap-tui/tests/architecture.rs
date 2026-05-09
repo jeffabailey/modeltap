@@ -20,6 +20,7 @@ const FORBIDDEN_TOKENS: &[&str] = &[
     "[Esc] back",
     "[<-/->] tools",
     "[up/down] models",
+    "[up/down] tools",
 ];
 
 /// Files allowed to contain the shortcut tokens. Any other render-layer file

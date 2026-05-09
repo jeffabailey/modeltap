@@ -1,6 +1,6 @@
 ---
 source: crates/modeltap-tui/tests/render_delete_one_dialog.rs
-assertion_line: 61
+assertion_line: 63
 expression: frame
 ---
 ┌Tools (focused)───────────────────┐┌Models────────────────────────────────────────────────────────────────────────────┐
@@ -42,4 +42,4 @@ expression: frame
 │                                  ││                                                                                  │
 └──────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘
 Total: 0 models | Disk: 0 B | Dedup-able: computing...                                                                  
-[<-/->] tools  [up/down] models  [u] unify  [z] zap tool  [d] delete-from-one  [?] help  [q] quit
+[<-/->] tools  [up/down] tools  [u] unify  [z] zap tool  [d] delete-from-one  [?] help  [q] quit

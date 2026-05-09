@@ -31,8 +31,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
-use crate::app_state::{AppState, Screen};
-use crate::keymap::{BarSection, Shortcut, SHORTCUT_TABLE};
+use crate::app_state::{AppState, FocusPane, Screen};
+use crate::keymap::{up_down_bar_label, BarSection, Shortcut, SHORTCUT_TABLE};
 use crate::screens::detail::DetailScreenState;
 
 /// Pure inputs the bar render fn needs. Constructed once per frame from
@@ -52,6 +52,10 @@ pub struct BarContext<'a> {
     /// Drives visibility of the `[r] retry` shortcut: the bar omits the
     /// entry entirely when this is false (no failure to retry).
     pub has_refresh_failures: bool,
+    /// Which pane currently has keyboard focus. Drives the focus-aware
+    /// Up/Down row label so the bar tells the truth ("tools" vs "models")
+    /// in both focus states.
+    pub focus: FocusPane,
 }
 
 impl<'a> BarContext<'a> {
@@ -77,6 +81,7 @@ impl<'a> BarContext<'a> {
             current_tool_has_models,
             detail,
             has_refresh_failures,
+            focus: state.focus,
         }
     }
 }
@@ -118,7 +123,19 @@ pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static>
         } else {
             unavailable
         };
-        spans.push(Span::styled(entry.label, style));
+        // Focus-aware Up/Down label: the SHORTCUT_TABLE Up row carries the
+        // legacy "[up/down] models" label (authored when only the right pane
+        // accepted Up/Down). With focus-aware dispatch, the same key now
+        // navigates tools when the left pane has focus — substitute the
+        // truthful per-focus label here so the bar matches dispatch reality.
+        let label = if entry.key.code == crossterm::event::KeyCode::Up
+            && entry.key.modifiers == crossterm::event::KeyModifiers::NONE
+        {
+            up_down_bar_label(ctx.focus)
+        } else {
+            entry.label
+        };
+        spans.push(Span::styled(label, style));
     }
     Line::from(spans)
 }

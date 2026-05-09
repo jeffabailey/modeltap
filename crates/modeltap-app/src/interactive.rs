@@ -321,7 +321,7 @@ fn translate_key(state: &AppState, key: KeyEvent) -> Msg {
     if dialog_open {
         return keymap::dispatch_in_dialog(key, state.unify_dialog.is_some());
     }
-    let raw = keymap::dispatch(key);
+    let raw = keymap::dispatch_focus_aware(key, state.focus);
     let raw = lift_delete_one_in_main(state, raw);
     lift_delete_one_in_detail(state, raw)
 }
