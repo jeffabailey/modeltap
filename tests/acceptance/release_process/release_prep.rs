@@ -21,45 +21,14 @@
 // invocation AND the inner `cargo fmt`/`cargo clippy`/`cargo test` invocations
 // (spawned by release-prep) need PATH=/usr/bin:$PATH so a clean cc is found.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 use assert_cmd::prelude::OutputAssertExt;
 use predicates::str::contains;
 use tempfile::TempDir;
 
-/// Path to the modeltap workspace's root Cargo.toml. Resolved at compile time
-/// from `CARGO_MANIFEST_DIR` of THIS crate (`tests/`), one level up.
-fn workspace_manifest() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop(); // tests/ -> workspace root
-    p.push("Cargo.toml");
-    p
-}
-
-/// Build a `Command` that invokes `cargo run --manifest-path <ws> --package xtask
-/// --quiet -- <args>` with the given working directory and a sanitised PATH so
-/// build-script linker invocations find a real cc, not the pyenv shim.
-fn xtask_in(workdir: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::new(env!("CARGO"));
-    cmd.arg("run")
-        .arg("--manifest-path")
-        .arg(workspace_manifest())
-        .arg("--package")
-        .arg("xtask")
-        .arg("--quiet")
-        .arg("--");
-    for a in args {
-        cmd.arg(a);
-    }
-    cmd.current_dir(workdir);
-    // Sanitise PATH for both the outer cargo invocation AND any sub-cargo
-    // invocations release-prep shells out to. The `/usr/bin` prefix wins
-    // ahead of `~/.pyenv/shims` so cc resolves to /usr/bin/cc.
-    let original_path = std::env::var("PATH").unwrap_or_default();
-    cmd.env("PATH", format!("/usr/bin:{original_path}"));
-    cmd
-}
+use modeltap_acceptance::xtask_in;
 
 /// Run a git command in `repo`, panicking on failure. Used by fixture setup
 /// only; the production code uses xtask::git_adapter, not this helper.

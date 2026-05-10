@@ -43,3 +43,4 @@ mutants.out.old/
 /coverage/
 .claude
 .mcp.json
+.dual-graph/

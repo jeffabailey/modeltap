@@ -47,14 +47,6 @@ use std::process::Command;
 
 use tempfile::TempDir;
 
-/// Path to the modeltap workspace's root Cargo.toml.
-fn workspace_manifest() -> PathBuf {
-    let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.pop(); // tests/ -> workspace root
-    p.push("Cargo.toml");
-    p
-}
-
 /// Path to the in-repo Tera template the rendered formula is built from.
 fn template_path() -> PathBuf {
     let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -63,26 +55,7 @@ fn template_path() -> PathBuf {
     p
 }
 
-/// Build a Command that invokes `cargo run --manifest-path <ws> --package
-/// xtask --quiet -- <args>` with the given working directory and a sanitised
-/// PATH so build-script linker invocations find a real cc.
-fn xtask_in(workdir: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::new(env!("CARGO"));
-    cmd.arg("run")
-        .arg("--manifest-path")
-        .arg(workspace_manifest())
-        .arg("--package")
-        .arg("xtask")
-        .arg("--quiet")
-        .arg("--");
-    for a in args {
-        cmd.arg(a);
-    }
-    cmd.current_dir(workdir);
-    let original_path = std::env::var("PATH").unwrap_or_default();
-    cmd.env("PATH", format!("/usr/bin:{original_path}"));
-    cmd
-}
+use modeltap_acceptance::xtask_in;
 
 fn git(repo: &Path, args: &[&str]) {
     let status = Command::new("git")

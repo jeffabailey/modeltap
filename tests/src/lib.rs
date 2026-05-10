@@ -30,23 +30,31 @@ pub fn template_path() -> PathBuf {
     p
 }
 
-/// Build a Command that invokes `cargo run --manifest-path <ws> --package
-/// xtask --quiet -- <args>` with the given working directory and a sanitised
-/// PATH so build-script linker invocations find a real cc.
+/// Build a Command that invokes the prebuilt xtask binary at
+/// `<workspace>/target/debug/xtask` with the given working directory and a
+/// sanitised PATH.
+///
+/// Why direct-binary invocation, not `cargo run --package xtask`?
+///   `cargo test --workspace` and `cargo run --package xtask` both acquire
+///   the same exclusive flock on `target/.cargo-lock`. When a test running
+///   under `cargo test` spawns `cargo run` of any workspace member, the
+///   child cargo blocks in flock() waiting for the parent — every
+///   acceptance test that called `xtask_in()` could stall for many minutes
+///   to over an hour. Invoking the prebuilt binary directly takes no cargo
+///   lock and runs in <100 ms instead.
+///
+///   `cargo test --workspace` builds every workspace binary (including
+///   xtask) before running tests, so the binary is guaranteed to exist.
+///   For the rare case where it doesn't (e.g., `cargo test -p tests`
+///   without prior workspace build), `xtask_path()` panics with a clear
+///   message telling the caller to run `cargo build -p xtask` first.
 ///
 /// The PATH workaround is mandatory on developer machines where
-/// `~/.pyenv/shims/cc` shadows `/usr/bin/cc` — without it, build-script linker
-/// invocations fail with cryptic linker errors. Documented in CLAUDE.md and
-/// the original walking_skeleton_e2e.rs.
+/// `~/.pyenv/shims/cc` shadows `/usr/bin/cc` — without it, child processes
+/// that subsequently invoke cargo (`release-prep` shells out to fmt/clippy/
+/// test) fail with cryptic linker errors. Documented in CLAUDE.md.
 pub fn xtask_in(workdir: &Path, args: &[&str]) -> Command {
-    let mut cmd = Command::new(env!("CARGO"));
-    cmd.arg("run")
-        .arg("--manifest-path")
-        .arg(workspace_manifest())
-        .arg("--package")
-        .arg("xtask")
-        .arg("--quiet")
-        .arg("--");
+    let mut cmd = Command::new(xtask_path());
     for a in args {
         cmd.arg(a);
     }
@@ -54,6 +62,28 @@ pub fn xtask_in(workdir: &Path, args: &[&str]) -> Command {
     let original_path = std::env::var("PATH").unwrap_or_default();
     cmd.env("PATH", format!("/usr/bin:{original_path}"));
     cmd
+}
+
+/// Resolve the prebuilt xtask binary path. Honours `CARGO_TARGET_DIR` if
+/// set; otherwise falls back to `<workspace>/target/debug/xtask`.
+fn xtask_path() -> PathBuf {
+    let bin_name = if cfg!(windows) { "xtask.exe" } else { "xtask" };
+    let target_dir = std::env::var_os("CARGO_TARGET_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+            p.pop(); // tests/ -> workspace root
+            p.push("target");
+            p
+        });
+    let bin = target_dir.join("debug").join(bin_name);
+    assert!(
+        bin.exists(),
+        "xtask binary not found at {} — run `cargo build -p xtask` first \
+         (cargo test --workspace builds it automatically)",
+        bin.display()
+    );
+    bin
 }
 
 /// Invoke `git <args>` in `repo`, asserting success. Sets a deterministic

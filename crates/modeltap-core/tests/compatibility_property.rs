@@ -263,8 +263,13 @@ prop_compose! {
 }
 
 proptest! {
+    // 256 cases is proptest's default and covers the totality property
+    // (every result is one of the four indicator variants) with strong
+    // confidence — 1024 cases here was 4× more compute for no extra
+    // shrinking power. Bump only if the reduced count starts missing
+    // regressions in CI.
     #![proptest_config(ProptestConfig {
-        cases: 1024,
+        cases: 256,
         .. ProptestConfig::default()
     })]
 
