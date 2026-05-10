@@ -92,6 +92,14 @@ pub fn run(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
+    // Probe terminal graphics-protocol support and pre-encode every tool
+    // icon for the current protocol. Failure is non-fatal: terminals
+    // without Kitty/iTerm2/Sixel/half-block support (or non-tty stdouts
+    // when running under unusual harnesses) simply render the left pane
+    // text-only with the icon column blank. The headless test backend
+    // never reaches this code path.
+    let _ = modeltap_tui::render::icons::try_init();
+
     let result = event_loop(
         &mut terminal,
         runtime,

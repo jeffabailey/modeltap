@@ -14,6 +14,12 @@ unsafe_code = "forbid"
 modeltap-core = { path = "../modeltap-core" }
 ratatui = { workspace = true }
 crossterm = { workspace = true }
+# Per-tool PNG icons in the left pane via terminal graphics protocols
+# (Kitty/iTerm2/Sixel/half-block fallback). Pinned to 2.x — the only
+# release line compatible with ratatui 0.28. Bumping ratatui upstream is
+# the only path to a newer ratatui-image, so do not silently tick this.
+ratatui-image = "2.0"
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [dev-dependencies]
 insta = { workspace = true }
