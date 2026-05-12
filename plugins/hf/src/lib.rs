@@ -24,12 +24,14 @@
 pub mod cache_walk;
 pub mod delete;
 pub mod discover;
+pub mod folder_delete;
 pub mod link;
 pub mod symlink_resolve;
 
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use modeltap_core::types::FolderDeletePlan;
 use modeltap_core::{
     DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, Format, LinkError, LinkOutcome,
     ModelMeta, PluginFactory, Tool, ToolId,
@@ -137,6 +139,33 @@ impl Tool for HfPlugin {
         Err(DeleteError::NotYetImplemented(
             "hf delete_all arrives in step 03-04".to_string(),
         ))
+    }
+
+    /// Per **ADR-010** §"Decision" + §"Implementation Guidance": override the
+    /// default `Unsupported` body to drive the per-file unlink loop.
+    /// Reuses [`crate::delete::delete_one_at`] for model files (inheriting
+    /// **ADR-009** ref-counting — a blob still referenced by a surviving
+    /// snapshot stays put; its bytes are NOT credited as freed). Sidecars
+    /// are unlinked directly with `std::fs::remove_file`. The sync filesystem
+    /// work is wrapped in `tokio::task::spawn_blocking` per **ADR-005**
+    /// so the runtime thread does not stall on the I/O.
+    ///
+    /// Step 01-03 implements the all-unique happy path; shared-file routing
+    /// (`paths_to_unlink_hf_only`) and partial-failure semantics land in
+    /// steps 03 and 04 respectively.
+    async fn delete_folder(
+        &self,
+        plan: &FolderDeletePlan,
+    ) -> Result<Vec<DeleteOutcome>, DeleteError> {
+        let hub = self.hub_root.clone();
+        let plan = plan.clone();
+        tokio::task::spawn_blocking(move || folder_delete::delete_folder_at(&hub, &plan))
+            .await
+            .map_err(|join_err| {
+                DeleteError::Io(std::io::Error::other(format!(
+                    "hf delete_folder task panicked: {join_err}"
+                )))
+            })?
     }
 }
 
