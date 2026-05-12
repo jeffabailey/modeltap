@@ -164,7 +164,7 @@ Feature: Delete a Hugging Face Folder Group
     And the right pane shows "Reclaimed: 13.2 GB"
     And the right pane shows "Retained: 0.8 GB (1 file also linked in Ollama)"
 
-  @skip @us-05c @milestone-3 @ac-13 @property
+  @us-05c @milestone-3 @ac-13 @property
   Scenario: For any folder, per-file classification matches compute_indicator on every child
     Given any populated HF folder group built from fixture "devon-hf-mixed"
     When the folder-delete dialog opens for that folder
