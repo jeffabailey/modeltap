@@ -25,6 +25,7 @@
 //! this across the whole render tree.
 
 use modeltap_core::logic::unification_status::UnificationStatus;
+use modeltap_core::ToolId;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -56,6 +57,11 @@ pub struct BarContext<'a> {
     /// Up/Down row label so the bar tells the truth ("tools" vs "models")
     /// in both focus states.
     pub focus: FocusPane,
+    /// The currently-selected real tool, when one is selected (synthetic
+    /// `[All Unified]` slots produce `None`). Drives the US-05c AC-5 / AC-18
+    /// dim of `[F] folder-delete` for non-HF active tools so the user never
+    /// sees Shift+F as an available action when it cannot do anything.
+    pub active_tool: Option<ToolId>,
 }
 
 impl<'a> BarContext<'a> {
@@ -76,12 +82,14 @@ impl<'a> BarContext<'a> {
             .map(|t| !t.model_ids.is_empty())
             .unwrap_or(false);
         let has_refresh_failures = !state.refresh_failed_tools.is_empty();
+        let active_tool = state.current_tool().map(|t| t.tool);
         Self {
             section,
             current_tool_has_models,
             detail,
             has_refresh_failures,
             focus: state.focus,
+            active_tool,
         }
     }
 }
@@ -163,7 +171,7 @@ fn is_available(entry: &Shortcut, ctx: &BarContext<'_>) -> bool {
 }
 
 fn is_available_main(entry: &Shortcut, ctx: &BarContext<'_>) -> bool {
-    use crossterm::event::KeyCode;
+    use crossterm::event::{KeyCode, KeyModifiers};
     match entry.key.code {
         // [z] zap tool requires the current tool to have models. Empty tools
         // get the dialog as a benign nothing-to-zap, but the shortcut is
@@ -179,6 +187,15 @@ fn is_available_main(entry: &Shortcut, ctx: &BarContext<'_>) -> bool {
         // `interactive::lift_delete_one_in_main` so the bar matches what the
         // keystroke will actually do (RCA: fix-delete-one-hang Root Cause C).
         KeyCode::Char('d') => ctx.current_tool_has_models,
+        // [F] folder-delete is HF-only (US-05c AC-5 / AC-18). Dim the entry
+        // for any non-HF active tool AND for the synthetic [All Unified]
+        // slot (`active_tool == None`). Mirrors the AC-5 guard in
+        // `keymap::dispatch_with_active_tool` so the dim is paired with the
+        // dispatch behavior — no color-only signalling (WCAG: the
+        // CROSSED_OUT modifier carries the affordance for NO_COLOR users).
+        KeyCode::Char('F') if entry.key.modifiers.contains(KeyModifiers::SHIFT) => {
+            matches!(&ctx.active_tool, Some(t) if t == &ToolId("hf"))
+        }
         // Everything else (arrows, ?, q) is always applicable on main.
         _ => true,
     }

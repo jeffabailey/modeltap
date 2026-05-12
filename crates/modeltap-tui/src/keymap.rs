@@ -189,7 +189,34 @@ pub fn dispatch(key: KeyEvent) -> Msg {
 /// navigate TOOLS (`SelectPrevTool` / `SelectNextTool`); when the right pane
 /// has focus, Up/Down navigate ROWS (`SelectPrevRow` / `SelectNextRow`).
 /// Left/Right and Tab are focus-independent.
+///
+/// Compatibility shim: delegates to `dispatch_with_active_tool` with
+/// `active_tool = None`. The active-tool guard is therefore inert for the
+/// legacy callers (Shift+F continues to dispatch RequestFolderDelete) — the
+/// composition root opts into the guard by calling `dispatch_with_active_tool`
+/// directly with the currently-selected tool.
 pub fn dispatch_focus_aware(key: KeyEvent, focus: FocusPane) -> Msg {
+    dispatch_with_active_tool(key, focus, None)
+}
+
+/// Active-tool-aware variant of `dispatch_focus_aware`. Adds the US-05c
+/// AC-5 / step 02-02 guard: `Shift+F` is a no-op (`Msg::UnboundKey`) when
+/// `active_tool` is `Some(t)` with `t != ToolId("hf")`. The intent is
+/// defense in depth — the bottom-bar render dims `[F]` for non-HF tools so
+/// the affordance never appears active, AND this guard ensures the keystroke
+/// cannot accidentally fire the folder-delete request even if the bar dim
+/// is bypassed (e.g., the user reads the key from the help overlay).
+///
+/// `active_tool == None` (e.g., the synthetic `[All Unified]` slot, or any
+/// caller that does not thread the active tool) preserves the legacy
+/// `dispatch_focus_aware` behaviour — Shift+F still dispatches the request.
+/// The composition root passes `Some(state.current_tool().tool)` so the
+/// guard is engaged whenever a real tool is selected.
+pub fn dispatch_with_active_tool(
+    key: KeyEvent,
+    focus: FocusPane,
+    active_tool: Option<&ToolId>,
+) -> Msg {
     // Focus-aware Up/Down: when the left pane has focus, Up/Down move the
     // tool selection so a single mental model ("arrow keys move the cursor in
     // the focused pane") works for both panes. Right-pane focus retains the
@@ -201,12 +228,29 @@ pub fn dispatch_focus_aware(key: KeyEvent, focus: FocusPane) -> Msg {
             _ => {}
         }
     }
+    // US-05c AC-5 (step 02-02): Shift+F guard. When a real tool is selected
+    // (`active_tool == Some(_)`) and that tool is not HF, Shift+F is a no-op.
+    // Folder-group delete is HF-only per ADR-010; non-HF plugins inherit the
+    // default `Tool::delete_folder` body that returns `DeleteError::Unsupported`.
+    // Short-circuiting at the keymap layer keeps the orchestrator and the
+    // JSONL `action.folder_delete` event from ever seeing the keystroke.
+    if is_shift_f(&key) && matches!(active_tool, Some(t) if t != &ToolId("hf")) {
+        return Msg::UnboundKey;
+    }
     for entry in SHORTCUT_TABLE {
         if key_event_matches(&entry.key, &key) {
             return entry.msg.clone();
         }
     }
     Msg::UnboundKey
+}
+
+/// True iff the `KeyEvent` is `Shift+F` (uppercase F with the SHIFT modifier
+/// set). Mirrors the `SHORTCUT_TABLE` row for `[F] folder-delete` — kept as
+/// a private helper so the AC-5 guard and the bottom-bar dim predicate refer
+/// to the same shape.
+fn is_shift_f(key: &KeyEvent) -> bool {
+    key.code == KeyCode::Char('F') && key.modifiers.contains(KeyModifiers::SHIFT)
 }
 
 /// Truthful bottom-bar / help-overlay label for the Up/Down arrow row given

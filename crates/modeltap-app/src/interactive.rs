@@ -329,7 +329,13 @@ fn translate_key(state: &AppState, key: KeyEvent) -> Msg {
     if dialog_open {
         return keymap::dispatch_in_dialog(key, state.unify_dialog.is_some());
     }
-    let raw = keymap::dispatch_focus_aware(key, state.focus);
+    // US-05c AC-5 (step 02-02): thread the currently-active tool through the
+    // keymap so the Shift+F guard short-circuits when a non-HF tool is
+    // selected. `current_tool()` returns `None` for the synthetic [All
+    // Unified] slot, which makes the guard inert there (no folder to act
+    // on anyway).
+    let active_tool = state.current_tool().map(|t| t.tool);
+    let raw = keymap::dispatch_with_active_tool(key, state.focus, active_tool.as_ref());
     let raw = lift_delete_one_in_main(state, raw);
     lift_delete_one_in_detail(state, raw)
 }

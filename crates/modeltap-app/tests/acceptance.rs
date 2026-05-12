@@ -63,6 +63,7 @@ mod acceptance {
     pub mod folder_delete_capability_boundary;
     pub mod folder_delete_confirmation_safety;
     pub mod folder_delete_mixed_dialog;
+    pub mod folder_delete_non_hf_noop;
     pub mod folder_delete_preflight_refusal;
     pub mod folder_delete_walking_skeleton;
 }

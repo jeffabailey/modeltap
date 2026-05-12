@@ -119,7 +119,8 @@ Feature: Delete a Hugging Face Folder Group
     And no files are removed from the Hugging Face fixture directory
     And the folder header still appears in the right pane
 
-  @skip @us-05c @milestone-2 @ac-5
+  # @skip removed in DELIVER step 02-02.
+  @us-05c @milestone-2 @ac-5
   Scenario: Shift+F is a no-op when the active tool is not Hugging Face
     Given Devon has fixture "devon-multi-tool" with both Ollama and Hugging Face installed
     And Devon has selected "Ollama" in the left pane
