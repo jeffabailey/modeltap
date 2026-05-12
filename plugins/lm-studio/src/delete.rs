@@ -33,6 +33,7 @@ pub fn delete_one_at(
             bytes_freed: size_bytes.unwrap_or(0),
             registration_removed: true,
             file_deleted: true,
+            failure_reason: None,
         }),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             Err(DeleteError::NotFound(model_id_in_tool.to_string()))

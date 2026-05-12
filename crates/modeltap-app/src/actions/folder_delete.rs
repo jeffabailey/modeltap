@@ -27,6 +27,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use modeltap_core::domain::last_action::TargetError;
 use modeltap_core::logic::folder_group::{build_folder_delete_plan, group_by_hf_repo};
 use modeltap_core::types::{
     DedupKey, DiscoveredModel, FolderClassification, FolderDeletePlan, ModelMeta, Sidecar,
@@ -54,6 +55,10 @@ pub struct FolderDeleteOutcome {
     /// DeleteOutcome is produced for any file in the folder").
     pub outcomes_count: u64,
     pub outcome: FolderDeleteResult,
+    /// Step 04-01 (ADR-010 §"Implementation Guidance"): per-file failure
+    /// detail surfaced verbatim in the post-action banner when `outcome ==
+    /// Partial` or `Failed`. Empty for success and cancel/refusal paths.
+    pub failures: Vec<TargetError>,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -245,8 +250,16 @@ pub async fn run(
     }
     cleanup_empty_dirs(&repo_dir);
 
-    // 7b. Aggregate. `files_removed` counts outcomes with registration_removed.
-    let files_removed: u64 = outcomes.iter().filter(|o| o.registration_removed).count() as u64;
+    // 7b. Aggregate. Step 04-01 (ADR-010 §"Implementation Guidance"): a file
+    // counts as "removed" iff the per-file outcome carries no `failure_reason`.
+    // A `registration_removed=true, file_deleted=false, failure_reason=Some`
+    // outcome (EACCES on the blob unlink) is a partial failure for the user,
+    // even though the snapshot symlink unlink succeeded — the blob is still
+    // on disk and the bytes are NOT freed.
+    let files_removed: u64 = outcomes
+        .iter()
+        .filter(|o| o.failure_reason.is_none())
+        .count() as u64;
     let outcomes_count: u64 = outcomes.len() as u64;
     let bytes_reclaimed: u64 = outcomes.iter().map(|o| o.bytes_freed).sum();
     let result = if files_removed == files_total {
@@ -265,6 +278,22 @@ pub async fn run(
         bytes_reclaimed
     };
 
+    // Step 04-01: collect per-file failure detail so the banner can render
+    // "filename — reason: ..." lines. Order preserved from the plugin's
+    // per-file loop. The orchestrator surfaces the leaf filename (NOT the
+    // absolute on-disk path) because the model_id_in_tool follows the
+    // <author>/<repo>/<file> shape and the user only recognises the trailing
+    // filename in the post-action banner.
+    let failures: Vec<TargetError> = outcomes
+        .iter()
+        .filter_map(|o| {
+            o.failure_reason.as_ref().map(|reason| TargetError {
+                path: o.model_id_in_tool.clone(),
+                reason: reason.clone(),
+            })
+        })
+        .collect();
+
     let outcome = FolderDeleteOutcome {
         tool: tool_id,
         folder_path,
@@ -274,6 +303,7 @@ pub async fn run(
         files_removed,
         outcomes_count,
         outcome: result,
+        failures,
     };
     emit(logger, &outcome);
     outcome
@@ -308,6 +338,7 @@ pub fn run_cancelled(
         files_removed: 0,
         outcomes_count: 0,
         outcome: result,
+        failures: Vec::new(),
     };
     emit(logger, &outcome);
     outcome
@@ -387,6 +418,7 @@ pub fn run_preflight_refused(
         files_removed: 0,
         outcomes_count: 0,
         outcome: refusal.result(),
+        failures: Vec::new(),
     };
     emit(logger, &outcome);
     outcome
@@ -453,6 +485,7 @@ fn emit_and_return_failed(
         files_removed: 0,
         outcomes_count: 0,
         outcome: FolderDeleteResult::Failed,
+        failures: Vec::new(),
     };
     emit(logger, &outcome);
     outcome

@@ -10,6 +10,16 @@ description = "Hugging Face cache plugin for modeltap (per ADR-001). Walks ~/.ca
 [lints.rust]
 unsafe_code = "forbid"
 
+[features]
+# Step 04-01: compiles the `MODELTAP_TEST_EBUSY_PATHS` env-var seam into the
+# per-file unlink loop so the M4 acceptance test in `modeltap-app` can drive a
+# real EBUSY-equivalent partial failure end-to-end. Production binaries do NOT
+# enable this feature (verified by the absence of the env-var name in stripped
+# release builds, per ADR-010 §D4). `cfg(test)` already enables the seam for
+# in-crate tests; `cfg(feature = "test-harness")` extends that to downstream
+# crates' tests by way of `dev-dependencies` propagation.
+test-harness = []
+
 [dependencies]
 modeltap-core = { path = "../../crates/modeltap-core" }
 

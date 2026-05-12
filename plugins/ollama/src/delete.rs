@@ -91,6 +91,7 @@ pub fn delete_one_at(root: &Path, target_id_in_tool: &str) -> Result<DeleteOutco
             bytes_freed: 0,
             registration_removed: false,
             file_deleted: false,
+            failure_reason: None,
         });
     }
 
@@ -131,6 +132,7 @@ pub fn delete_one_at(root: &Path, target_id_in_tool: &str) -> Result<DeleteOutco
         bytes_freed,
         registration_removed: true,
         file_deleted,
+        failure_reason: None,
     })
 }
 
@@ -324,6 +326,7 @@ fn zip_outcomes(
                 bytes_freed,
                 registration_removed: manifest_removed,
                 file_deleted,
+                failure_reason: None,
             },
         )
         .collect()

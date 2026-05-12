@@ -319,4 +319,38 @@ impl LastAction {
             folder_delete_files: None,
         }
     }
+
+    /// Construct a partial-success banner for a folder-delete (US-05c,
+    /// step 04-01 / ADR-010 § Concurrency). Some files unlinked, others
+    /// failed (EBUSY, EACCES, …). `failures` carries the per-file failure
+    /// detail the right pane surfaces verbatim. `retry_hint` is an optional
+    /// trailing-line message rendered when at least one failure was
+    /// "file open by <tool>" — set by the orchestrator from the failure
+    /// reasons so the renderer stays pure.
+    pub fn for_folder_delete_partial(
+        target: String,
+        bytes_reclaimed: u64,
+        bytes_retained: u64,
+        files_total: u64,
+        files_removed: u64,
+        failures: Vec<TargetError>,
+        retry_hint: Option<String>,
+    ) -> Self {
+        let successes = files_removed;
+        Self {
+            verb: ActionVerb::FolderDelete,
+            target,
+            status: ActionStatus::Partial {
+                successes,
+                failures,
+            },
+            bytes_reclaimed,
+            bytes_retained,
+            extra: retry_hint,
+            folder_delete_files: Some(FolderDeleteFiles {
+                total: files_total,
+                removed: files_removed,
+            }),
+        }
+    }
 }

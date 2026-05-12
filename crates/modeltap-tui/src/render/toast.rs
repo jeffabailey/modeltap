@@ -37,6 +37,15 @@ use crate::render::bytes::format_bytes;
 /// caller (right_pane) is responsible for clipping to the available area.
 pub fn view_lines(action: &LastAction) -> Vec<String> {
     match &action.status {
+        // Step 04-01: folder-delete Partial has its own banner schema in
+        // `last_action::view_lines` (Last action / Reclaimed / N of M files
+        // removed / per-file reason lines / retry hint). The toast format
+        // ("Unified ... into K of N", "OK <successes> targets linked",
+        // "[r] Retry-failed-only") is unify-specific. Route folder-delete
+        // Partial back to the last_action renderer.
+        ActionStatus::Partial { .. } if matches!(action.verb, ActionVerb::FolderDelete) => {
+            crate::render::last_action::view_lines(action)
+        }
         ActionStatus::Partial {
             successes,
             failures,

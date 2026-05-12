@@ -194,6 +194,7 @@ mod tests {
                 bytes_freed: self.bytes_freed,
                 registration_removed: self.registration_removed,
                 file_deleted: self.registration_removed,
+                failure_reason: None,
             })
         }
         async fn delete_all(&self) -> Result<Vec<DeleteOutcome>, DeleteError> {

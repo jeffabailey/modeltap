@@ -101,6 +101,7 @@ pub fn delete_one_at(
             bytes_freed: 0,
             registration_removed: false,
             file_deleted: false,
+            failure_reason: None,
         });
     }
 
@@ -109,19 +110,25 @@ pub fn delete_one_at(
     // this blob, keep it (some other model row will still load it).
     let blob_canon = std::fs::canonicalize(&blob_path).unwrap_or_else(|_| blob_path.clone());
     let still_referenced = other_snaps.iter().any(|(_, b)| b == &blob_canon);
-    let (file_deleted, bytes_freed) = if still_referenced {
-        (false, 0)
+    // Step 04-01 (ADR-010 §"Implementation Guidance"): the per-file unlink
+    // loop continues past per-file failures and the failed outcome carries a
+    // user-facing reason. Distinguish blob-unlink retained (ref-counted, no
+    // failure) from blob-unlink failed (genuine I/O error — propagate the
+    // human-readable reason). The orchestrator counts presence of
+    // `failure_reason` as the "this file did not complete" signal.
+    let (file_deleted, bytes_freed, failure_reason) = if still_referenced {
+        (false, 0, None)
     } else {
         match std::fs::remove_file(&blob_path) {
-            Ok(()) => (true, size_bytes),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, 0),
+            Ok(()) => (true, size_bytes, None),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => (false, 0, None),
             Err(e) => {
                 tracing::warn!(
                     target: "modeltap.hf.delete",
                     "delete_one: remove blob {}: {e}",
                     blob_path.display()
                 );
-                (false, 0)
+                (false, 0, Some(io_error_reason(&e)))
             }
         }
     };
@@ -132,7 +139,23 @@ pub fn delete_one_at(
         bytes_freed,
         registration_removed: true,
         file_deleted,
+        failure_reason,
     })
+}
+
+/// Map an `io::Error` to the user-facing reason string surfaced verbatim in
+/// the post-action banner. The set of reasons is small and stable:
+///
+///   - `PermissionDenied` → `"permission denied"`
+///   - `ResourceBusy` / `Other` matching EBUSY semantics → `"file open by <tool>"`
+///     (the calling site decides which tool's name to embed; this helper only
+///     covers the generic case)
+///   - everything else → the raw `io::Error` Display (good-enough triage info)
+fn io_error_reason(e: &std::io::Error) -> String {
+    match e.kind() {
+        std::io::ErrorKind::PermissionDenied => "permission denied".to_string(),
+        _ => format!("{e}"),
+    }
 }
 
 /// Delete the HF-side registration AND the HF-side blob path for a model
@@ -210,6 +233,7 @@ pub fn delete_one_hf_side_only_at(
             bytes_freed: 0,
             registration_removed: false,
             file_deleted: false,
+            failure_reason: None,
         });
     }
     // Unlink the HF-side blob path itself. The blob's inode survives because
@@ -238,6 +262,7 @@ pub fn delete_one_hf_side_only_at(
         bytes_freed: 0,
         registration_removed: true,
         file_deleted: false,
+        failure_reason: None,
     })
 }
 

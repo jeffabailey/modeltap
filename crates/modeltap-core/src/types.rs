@@ -196,6 +196,15 @@ pub struct DeleteOutcome {
     pub bytes_freed: u64,
     pub registration_removed: bool,
     pub file_deleted: bool,
+    /// US-05c folder-group-bulk-delete (step 04-01): per-file failure reason
+    /// the user sees verbatim in the post-action banner when the folder-delete
+    /// resulted in `partial`. Examples: `"file open by ollama"`,
+    /// `"permission denied"`. `None` on success and for plugins that do not
+    /// surface per-file reasons. Per ADR-010 § Concurrency the per-file loop
+    /// MUST continue past per-file failures, so this field is the structured
+    /// alternative to an early-return error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_reason: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

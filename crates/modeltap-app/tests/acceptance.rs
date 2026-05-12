@@ -65,6 +65,7 @@ mod acceptance {
     pub mod folder_delete_hardlink_survival;
     pub mod folder_delete_mixed_dialog;
     pub mod folder_delete_non_hf_noop;
+    pub mod folder_delete_partial_failure;
     pub mod folder_delete_preflight_refusal;
     pub mod folder_delete_walking_skeleton;
 }

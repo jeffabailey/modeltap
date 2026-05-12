@@ -1268,6 +1268,24 @@ fn build_folder_delete_last_action(outcome: &FolderDeleteOutcome) -> LastAction 
             outcome.files_total,
             outcome.files_removed,
         ),
+        // Step 04-01 (ADR-010 § Concurrency): partial-failure banner with
+        // per-file failure detail. The retry hint is rendered only when at
+        // least one failure was an in-use-by-tool case ("file open by ...").
+        // Other failures (permission denied, NotFound) leave the hint
+        // suppressed — re-running Shift+F there won't change the outcome
+        // until the user fixes the permission bits out-of-band.
+        FolderDeleteResult::Partial => {
+            let retry_hint = derive_retry_hint(&outcome.failures);
+            LastAction::for_folder_delete_partial(
+                outcome.folder_path.clone(),
+                outcome.bytes_reclaimed,
+                outcome.bytes_retained,
+                outcome.files_total,
+                outcome.files_removed,
+                outcome.failures.clone(),
+                retry_hint,
+            )
+        }
         // Step 04-03: pre-flight refusal variants surface their user-facing
         // message in the banner's `target` slot so the existing `view_lines`
         // renderer (modeltap-tui::render::last_action) puts the refusal
@@ -1285,13 +1303,26 @@ fn build_folder_delete_last_action(outcome: &FolderDeleteOutcome) -> LastAction 
             let msg = folder_delete::PreflightRefusal::FolderMissing.message();
             LastAction::for_folder_delete_failed(msg.to_string())
         }
-        FolderDeleteResult::Partial
-        | FolderDeleteResult::Failed
+        FolderDeleteResult::Failed
         | FolderDeleteResult::CancelledMismatch
         | FolderDeleteResult::CancelledEscape => {
             LastAction::for_folder_delete_failed(outcome.folder_path.clone())
         }
     }
+}
+
+/// Step 04-01: derive the trailing retry-hint line from the per-file failure
+/// reasons. If any failure is an in-use-by-tool case (`"file open by ..."`),
+/// the hint instructs the user to close that tool and press Shift+F again.
+/// Otherwise no hint — the user must remediate out-of-band before retrying.
+fn derive_retry_hint(
+    failures: &[modeltap_core::domain::last_action::TargetError],
+) -> Option<String> {
+    let tool = failures
+        .iter()
+        .find_map(|f| f.reason.strip_prefix("file open by "))
+        .map(|s| s.to_string())?;
+    Some(format!("Press [F] again after closing {tool} to finish"))
 }
 
 /// Map a `ZapOutcome` to a structured `LastAction` for the right-pane banner.

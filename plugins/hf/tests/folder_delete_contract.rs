@@ -1,16 +1,21 @@
-//! HF `Tool::delete_folder` plugin-contract tests — step 03-02.
+//! HF `Tool::delete_folder` plugin-contract tests — steps 03-02 and 04-01.
 //!
 //! Per `docs/feature/folder-group-bulk-delete/distill/plugin-contract-spec.md`
 //! §3.11, the HF plugin satisfies the **Supported** capability path. This
-//! file implements the 03-02 subset:
+//! file implements:
 //!
-//!   - 3.11.S.2 `test_delete_folder_mixed_shared_and_unique`
-//!   - 3.11.S.6 `test_delete_folder_preserves_cross_tool_hardlinks`
-//!   - 3.11.S.8 `test_delete_folder_only_sidecars`
+//!   - 3.11.S.2 `test_delete_folder_mixed_shared_and_unique` (step 03-02)
+//!   - 3.11.S.4 `test_delete_folder_partial_failure_continues` (step 04-01)
+//!   - 3.11.S.6 `test_delete_folder_preserves_cross_tool_hardlinks` (step 03-02)
+//!   - 3.11.S.8 `test_delete_folder_only_sidecars` (step 03-02)
 //!
 //! The all-unique happy path (3.11.S.1 / S.3 / S.7) is covered by
-//! `folder_delete_happy_path.rs` (step 01-03). Partial-failure paths
-//! (3.11.S.4 / S.5) land in step 04 per the deliver roadmap.
+//! `folder_delete_happy_path.rs` (step 01-03). Per D4 the partial-failure
+//! 3.11.S.4 uses a `mode 0555` directory — portable across macOS / Linux —
+//! to drive a real EACCES return from `remove_file`. The EBUSY-equivalent
+//! seam (`MODELTAP_TEST_EBUSY_PATHS`) is exercised end-to-end at the
+//! acceptance layer; here we only need to prove the per-file loop converts
+//! a real I/O error into a failed `DeleteOutcome` without aborting.
 //!
 //! Per architecture rule R2 (plugins do not depend on each other), we do NOT
 //! depend on `modeltap-plugin-ollama` for the cross-tool hardlink: we build
@@ -491,4 +496,189 @@ async fn delete_folder_sidecar_only_folder_is_fully_unlinked() {
         "S.8: empty repo dir {} must be removed",
         repo_dir.display()
     );
+}
+
+// ---------------------------------------------------------------------------
+// 3.11.S.4 — Partial failure continues the loop (step 04-01).
+//
+// Setup: one HF repo containing 3 model files. File 2's blob lives in a
+// sub-bucket of `blobs/` whose mode is flipped to 0555 (no write) — `remove_
+// file` on its blob path returns EACCES. Files 1 and 3 are in the normal
+// `blobs/` directory and unlink successfully. 0 sidecars.
+//
+// Assertions (per plugin-contract-spec.md §3.11.S.4):
+//   - delete_folder returns Ok(Vec<DeleteOutcome>) of length 3 (per-file loop
+//     does NOT abort on the EACCES).
+//   - File 1's entry: registration_removed=true, file_deleted=true.
+//   - File 2's entry: registration_removed=true (snap symlink unlinks fine —
+//     the snap dir is writable) but file_deleted=false, bytes_freed=0 because
+//     the blob unlink in the protected bucket failed with EACCES.
+//     `failure_reason` carries a permission-denied string (the orchestrator
+//     surfaces this verbatim to the user).
+//   - File 3's entry: registration_removed=true, file_deleted=true.
+//   - File 2's blob remains on disk; files 1 and 3 blobs are gone.
+// ---------------------------------------------------------------------------
+
+use std::os::unix::fs::PermissionsExt;
+
+#[tokio::test]
+async fn delete_folder_partial_failure_continues_loop_on_permission_denied() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+    let hub = root.join("hub");
+    let repo_path = "bartowski/Test-Repo-PartialPerm";
+    let repo_dir_name = "models--bartowski--Test-Repo-PartialPerm";
+    let repo_dir = hub.join(repo_dir_name);
+    let blobs_dir = repo_dir.join("blobs");
+    let protected_dir = blobs_dir.join("protected");
+    let snap_dir = repo_dir.join("snapshots").join(REV_SHA);
+    fs::create_dir_all(&blobs_dir).expect("create blobs");
+    fs::create_dir_all(&protected_dir).expect("create protected blobs");
+    fs::create_dir_all(&snap_dir).expect("create snap");
+
+    // Three blobs — file_2 lives in protected/, files 1 and 3 in blobs/.
+    let h1 = "4444444444444444444444444444444444444444444444444444444444444444";
+    let h2 = "5555555555555555555555555555555555555555555555555555555555555555";
+    let h3 = "6666666666666666666666666666666666666666666666666666666666666666";
+    let blob_1 = blobs_dir.join(h1);
+    let blob_2 = protected_dir.join(h2);
+    let blob_3 = blobs_dir.join(h3);
+    write_sparse(&blob_1, 256 * 1024 * 1024);
+    write_sparse(&blob_2, 256 * 1024 * 1024);
+    write_sparse(&blob_3, 256 * 1024 * 1024);
+
+    let snap_1 = snap_dir.join("file-1.gguf");
+    let snap_2 = snap_dir.join("file-2.gguf");
+    let snap_3 = snap_dir.join("file-3.gguf");
+    symlink(
+        PathBuf::from("..").join("..").join("blobs").join(h1),
+        &snap_1,
+    )
+    .unwrap();
+    symlink(
+        PathBuf::from("..")
+            .join("..")
+            .join("blobs")
+            .join("protected")
+            .join(h2),
+        &snap_2,
+    )
+    .unwrap();
+    symlink(
+        PathBuf::from("..").join("..").join("blobs").join(h3),
+        &snap_3,
+    )
+    .unwrap();
+
+    // Lock down the protected bucket — `remove_file(blob_2)` returns EACCES.
+    let mut perms = fs::metadata(&protected_dir).unwrap().permissions();
+    perms.set_mode(0o555);
+    fs::set_permissions(&protected_dir, perms).expect("chmod 0555 protected");
+
+    let model_1 = ModelMeta {
+        tool: ToolId("hf"),
+        id_in_tool: format!("{repo_path}/file-1.gguf"),
+        on_disk_path: blob_1.clone(),
+        size_bytes: 256 * 1024 * 1024,
+        format: Format::Gguf,
+        display_label: DisplayLabel::from("file-1.gguf"),
+        status: ModelStatus::Healthy,
+        dedup_key: DedupKey::Tentative(DisplayLabel::from("file-1.gguf")),
+    };
+    let model_2 = ModelMeta {
+        tool: ToolId("hf"),
+        id_in_tool: format!("{repo_path}/file-2.gguf"),
+        on_disk_path: blob_2.clone(),
+        size_bytes: 256 * 1024 * 1024,
+        format: Format::Gguf,
+        display_label: DisplayLabel::from("file-2.gguf"),
+        status: ModelStatus::Healthy,
+        dedup_key: DedupKey::Tentative(DisplayLabel::from("file-2.gguf")),
+    };
+    let model_3 = ModelMeta {
+        tool: ToolId("hf"),
+        id_in_tool: format!("{repo_path}/file-3.gguf"),
+        on_disk_path: blob_3.clone(),
+        size_bytes: 256 * 1024 * 1024,
+        format: Format::Gguf,
+        display_label: DisplayLabel::from("file-3.gguf"),
+        status: ModelStatus::Healthy,
+        dedup_key: DedupKey::Tentative(DisplayLabel::from("file-3.gguf")),
+    };
+    let folder = FolderGroup::new(
+        repo_path.to_string(),
+        repo_dir.clone(),
+        ToolId("hf"),
+        vec![model_1.clone(), model_2.clone(), model_3.clone()],
+        Vec::new(),
+    )
+    .expect("FolderGroup must construct");
+    let classification = FolderClassification {
+        unique: vec![model_1.clone(), model_2.clone(), model_3.clone()],
+        shared: Vec::new(),
+    };
+    let plan = FolderDeletePlan::new(
+        folder,
+        classification,
+        vec![blob_1.clone(), blob_2.clone(), blob_3.clone()],
+        Vec::new(),
+        (256 * 1024 * 1024) * 3,
+        0,
+    )
+    .expect("plan must construct");
+
+    let plugin = HfPlugin::new_with_hub_root(hub.clone());
+    let outcomes_result = plugin.delete_folder(&plan).await;
+
+    // Restore writability BEFORE any panicking assertion so tempdir teardown
+    // can succeed.
+    let mut perms = fs::metadata(&protected_dir).unwrap().permissions();
+    perms.set_mode(0o755);
+    let _ = fs::set_permissions(&protected_dir, perms);
+
+    let outcomes =
+        outcomes_result.expect("S.4: delete_folder must return Ok despite per-file EACCES");
+
+    assert_eq!(
+        outcomes.len(),
+        3,
+        "S.4: per-file loop must NOT abort on partial failure — expected 3 outcomes, got {outcomes:?}"
+    );
+
+    let outcome_for = |id: &str| {
+        outcomes
+            .iter()
+            .find(|o| o.model_id_in_tool == id)
+            .unwrap_or_else(|| panic!("expected outcome for {id}, got {outcomes:?}"))
+    };
+
+    let o1 = outcome_for(&format!("{repo_path}/file-1.gguf"));
+    assert!(
+        o1.registration_removed && o1.file_deleted,
+        "S.4 file-1: must be fully deleted, got {o1:?}"
+    );
+
+    let o2 = outcome_for(&format!("{repo_path}/file-2.gguf"));
+    assert!(
+        !o2.file_deleted,
+        "S.4 file-2: file_deleted must be false (blob remains in protected bucket), got {o2:?}"
+    );
+    assert_eq!(
+        o2.bytes_freed, 0,
+        "S.4 file-2: bytes_freed must be 0 (blob unlink failed)"
+    );
+    assert!(
+        o2.failure_reason.is_some(),
+        "S.4 file-2: failure_reason must be Some(...) for the EACCES, got {o2:?}"
+    );
+
+    let o3 = outcome_for(&format!("{repo_path}/file-3.gguf"));
+    assert!(
+        o3.registration_removed && o3.file_deleted,
+        "S.4 file-3: must be fully deleted, got {o3:?}"
+    );
+
+    assert!(!blob_1.exists(), "S.4: blob_1 must be removed");
+    assert!(blob_2.exists(), "S.4: blob_2 must remain on disk");
+    assert!(!blob_3.exists(), "S.4: blob_3 must be removed");
 }

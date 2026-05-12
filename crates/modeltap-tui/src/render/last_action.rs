@@ -8,7 +8,7 @@
 //! so the right-pane renderer can lay them out wherever the design calls
 //! for. The widget code (paragraph + position) lives in `right_pane`.
 
-use modeltap_core::domain::last_action::{ActionStatus, LastAction};
+use modeltap_core::domain::last_action::{ActionStatus, ActionVerb, LastAction};
 use ratatui::layout::Rect;
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -46,21 +46,32 @@ pub fn view_lines(action: &LastAction) -> Vec<String> {
             // remain green.
             let is_folder_delete_with_retain =
                 action.folder_delete_files.is_some() && action.bytes_retained > 0;
+            // Step 04-01: when the folder-delete is Partial, we render the
+            // per-file failure detail (one line per failed file) and an
+            // optional retry hint. Suppress the `extra` parenthetical on the
+            // Reclaimed/Retained line so the retry hint does not collide
+            // with the partial-failure rendering.
+            let is_folder_delete_partial = matches!(action.verb, ActionVerb::FolderDelete)
+                && matches!(action.status, ActionStatus::Partial { .. });
             if is_folder_delete_with_retain {
                 lines.push(format!("Reclaimed: {}", format_gb(action.bytes_reclaimed)));
                 let mut retained = format!("Retained: {}", format_gb(action.bytes_retained));
                 if let Some(extra) = &action.extra {
-                    retained.push_str(" (");
-                    retained.push_str(extra);
-                    retained.push(')');
+                    if !is_folder_delete_partial {
+                        retained.push_str(" (");
+                        retained.push_str(extra);
+                        retained.push(')');
+                    }
                 }
                 lines.push(retained);
             } else {
                 let mut body = format!("Reclaimed: {}", format_bytes(action.bytes_reclaimed));
                 if let Some(extra) = &action.extra {
-                    body.push_str(" (");
-                    body.push_str(extra);
-                    body.push(')');
+                    if !is_folder_delete_partial {
+                        body.push_str(" (");
+                        body.push_str(extra);
+                        body.push(')');
+                    }
                 } else if action.bytes_retained > 0 {
                     body.push_str(&format!(
                         " ({} retained — also linked from other tools)",
@@ -77,6 +88,34 @@ pub fn view_lines(action: &LastAction) -> Vec<String> {
                     "{} of {} files removed",
                     files.removed, files.total
                 ));
+            }
+            // Step 04-01: per-file failure detail for folder-delete Partial.
+            // Render as TWO lines per failed file so the 80-col right pane
+            // doesn't truncate the reason:
+            //
+            //   <basename>
+            //   reason: <reason>
+            //
+            // The basename (not the full <author>/<repo>/<file> id) is enough
+            // for the user to identify the file — they already know the repo
+            // from the banner header. Acceptance test (AC-12) accepts any of
+            // "<basename> reason: ...", "<basename>\nreason: ...", or the
+            // bare "reason: ..." substring.
+            if is_folder_delete_partial {
+                if let ActionStatus::Partial { failures, .. } = &action.status {
+                    for failure in failures {
+                        let basename = std::path::Path::new(&failure.path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(failure.path.as_str())
+                            .to_string();
+                        lines.push(basename);
+                        lines.push(format!("reason: {}", failure.reason));
+                    }
+                    if let Some(hint) = &action.extra {
+                        lines.push(hint.clone());
+                    }
+                }
             }
         }
     }

@@ -20,7 +20,15 @@ path = "src/lib.rs"
 # `cargo build --release --no-default-features` (see CI's release job + the
 # CONTRIBUTING.md "Adding a plugin" walk-through).
 default = ["test-fixtures"]
-test-fixtures = ["dep:modeltap-plugin-atomic-chat-fixture"]
+test-fixtures = [
+    "dep:modeltap-plugin-atomic-chat-fixture",
+    # Step 04-01: the M4 EBUSY acceptance test spawns the modeltap binary and
+    # sets `MODELTAP_TEST_EBUSY_PATHS`. The seam that reads that env-var lives
+    # in plugins/hf behind its own `test-harness` feature; enable it only when
+    # this crate's `test-fixtures` feature is on so production binaries built
+    # with `--no-default-features` never compile the seam (ADR-010 §D4).
+    "modeltap-plugin-hf/test-harness",
+]
 
 [[bin]]
 name = "modeltap"

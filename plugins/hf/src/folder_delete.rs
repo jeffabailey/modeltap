@@ -188,6 +188,23 @@ pub fn delete_folder_at(
     for model in &plan.folder.models {
         let is_shared = hf_only.contains(model.on_disk_path.as_path());
         let is_unique = unlink_fully.contains(model.on_disk_path.as_path());
+        // Step 04-01 EBUSY test seam (ADR-010 §D4): if the test-harness has
+        // marked this blob path as busy, short-circuit BEFORE either filesystem
+        // call so both the snapshot symlink and the blob remain. Production
+        // builds compile this branch out entirely (cfg(test) for in-crate use;
+        // cfg(feature = "test-harness") for downstream acceptance tests).
+        #[cfg(any(test, feature = "test-harness"))]
+        if is_test_ebusy_path(&model.on_disk_path) {
+            outcomes.push(DeleteOutcome {
+                tool,
+                model_id_in_tool: model.id_in_tool.clone(),
+                bytes_freed: 0,
+                registration_removed: false,
+                file_deleted: false,
+                failure_reason: Some("file open by ollama".to_string()),
+            });
+            continue;
+        }
         let result = if is_shared {
             delete_one_hf_side_only_at(hub_root, &model.on_disk_path, &model.id_in_tool)
         } else if is_unique {
@@ -206,6 +223,7 @@ pub fn delete_folder_at(
                 bytes_freed: 0,
                 registration_removed: false,
                 file_deleted: false,
+                failure_reason: None,
             });
             continue;
         };
@@ -223,6 +241,7 @@ pub fn delete_folder_at(
                     bytes_freed: 0,
                     registration_removed: false,
                     file_deleted: false,
+                    failure_reason: None,
                 }
             }
         };
@@ -250,6 +269,7 @@ pub fn delete_folder_at(
                 bytes_freed: sidecar.size_bytes,
                 registration_removed: true,
                 file_deleted: true,
+                failure_reason: None,
             },
             Err(e) => {
                 tracing::warn!(
@@ -263,6 +283,7 @@ pub fn delete_folder_at(
                     bytes_freed: 0,
                     registration_removed: false,
                     file_deleted: false,
+                    failure_reason: None,
                 }
             }
         };
@@ -278,6 +299,38 @@ pub fn delete_folder_at(
 // ---------------------------------------------------------------------------
 // Empty-tree cleanup
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// EBUSY test seam (step 04-01)
+// ---------------------------------------------------------------------------
+//
+// Gated behind cfg(any(test, feature = "test-harness")) so production builds
+// (which compile this crate without `--features test-harness`) do not include
+// the env-var read or the string match. Per ADR-010 §D4, verification: the
+// stripped release binary MUST NOT contain the byte sequence
+// `MODELTAP_TEST_EBUSY_PATHS`.
+
+/// Returns `true` iff `MODELTAP_TEST_EBUSY_PATHS` is set and lists `path`
+/// (canonicalised) in its colon-separated entries. Used by the per-file unlink
+/// loop to simulate an in-use-by-another-tool file without a real `flock` or
+/// sibling process — portable across macOS and Linux.
+#[cfg(any(test, feature = "test-harness"))]
+fn is_test_ebusy_path(path: &Path) -> bool {
+    let raw = match std::env::var("MODELTAP_TEST_EBUSY_PATHS") {
+        Ok(v) if !v.is_empty() => v,
+        _ => return false,
+    };
+    let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    raw.split(':').any(|entry| {
+        if entry.is_empty() {
+            return false;
+        }
+        let entry_path = std::path::Path::new(entry);
+        let entry_canon =
+            std::fs::canonicalize(entry_path).unwrap_or_else(|_| entry_path.to_path_buf());
+        entry_canon == canon
+    })
+}
 
 /// Best-effort: bottom-up `remove_dir` on every directory under `repo_dir`,
 /// then `repo_dir` itself. Non-empty directories are silently skipped — they

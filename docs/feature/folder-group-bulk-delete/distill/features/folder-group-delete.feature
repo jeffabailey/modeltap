@@ -184,7 +184,8 @@ Feature: Delete a Hugging Face Folder Group
   # Per ADR-010 § Concurrency: no rollback, continue-and-report.
   # ===========================================================================
 
-  @skip @us-05c @milestone-4 @ac-12 @ac-16 @destructive @infrastructure-failure
+  # @skip removed in DELIVER step 04-01.
+  @us-05c @milestone-4 @ac-12 @ac-16 @destructive @infrastructure-failure
   Scenario: Ollama holds 2 model files open and folder-delete continues for the rest
     Given Devon has fixture "devon-hf-busy" with the repo "bartowski/Llama-3.2-1B-Instruct-GGUF" (21 files, 14.7 GB)
     And the FsProbe adapter is configured with fake-lsof reporting "ollama PID 4421 holds Llama-3.2-1B-Instruct-Q4_K_M.gguf and Llama-3.2-1B-Instruct-Q4_0.gguf open"
@@ -211,7 +212,8 @@ Feature: Delete a Hugging Face Folder Group
     And the right pane shows "Last action: folder-delete bartowski/Llama-3.2-1B-Instruct-GGUF (success)"
     And the folder header no longer appears in the right pane
 
-  @skip @us-05c @milestone-4 @ac-12 @destructive @infrastructure-failure
+  # @skip removed in DELIVER step 04-01.
+  @us-05c @milestone-4 @ac-12 @destructive @infrastructure-failure
   Scenario: A permission-denied file does not block the rest of the folder
     Given Devon has fixture "devon-hf-perm" with the repo "bartowski/Llama-3.2-1B-Instruct-GGUF" (5 files, 2.1 GB)
     And one model file "Llama-3.2-1B-Instruct-Q8_0.gguf" lives in a directory with mode 0555
