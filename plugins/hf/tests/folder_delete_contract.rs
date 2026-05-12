@@ -682,3 +682,194 @@ async fn delete_folder_partial_failure_continues_loop_on_permission_denied() {
     assert!(blob_2.exists(), "S.4: blob_2 must remain on disk");
     assert!(!blob_3.exists(), "S.4: blob_3 must be removed");
 }
+
+// ---------------------------------------------------------------------------
+// 3.11.S.5 — Idempotent retry after partial failure (step 04-02).
+//
+// Per plugin-contract-spec.md §3.11.S.5:
+//   "Setup: the post-state of test 3.11.S.4 — 1 file remains on disk in
+//   models--<author>--<repo>/. The harness now removes the EBUSY simulation
+//   (or chmod's the directory back to 0755)."
+//
+// Rather than re-running a real partial-failure pass (which would couple this
+// unit-level contract test to the EBUSY env-var seam — feature-gated and
+// thus inactive for the standalone contract crate), we CONSTRUCT the
+// post-partial-failure state directly: a `models--<author>--<repo>/` tree
+// containing exactly ONE surviving model file (snapshot symlink + blob),
+// no sidecars. This is byte-equivalent to what stateless rediscovery would
+// see after a partial pass that left one EBUSY blob behind.
+//
+// Two assertions then exercise the idempotence contract:
+//
+//   1. Retry (call 1): plan lists the surviving file. `delete_folder`
+//      returns Ok(Vec<DeleteOutcome>) of length 1; the entry has
+//      `registration_removed: true, file_deleted: true, bytes_freed: <size>`;
+//      the file is gone AND `remove_empty_repo_tree` removes the now-empty
+//      `models--<author>--<repo>/` tree from disk.
+//
+//   2. Empty-folder call (call 2): re-running with a plan that has zero
+//      files (the rediscovery output for a folder that's already gone) must
+//      NOT panic. Per spec the plugin MAY return either `Ok(Vec::new())` OR
+//      `Err(DeleteError::NotFound(...))` — both are acceptable as long as
+//      no panic and no destructive side effect occurs. The HF plugin's
+//      per-file loop iterates an empty `paths_to_unlink_fully` and returns
+//      `Ok(Vec::new())` naturally; `remove_empty_repo_tree` is a no-op on
+//      a non-existent dir.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn delete_folder_idempotent_retry_clears_remaining_files_and_empty_folder_does_not_panic() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path().to_path_buf();
+    let hub = root.join("hub");
+    let repo_path = "bartowski/Test-Repo-IdempotentRetry";
+    let repo_dir_name = "models--bartowski--Test-Repo-IdempotentRetry";
+    let repo_dir = hub.join(repo_dir_name);
+    let blobs_dir = repo_dir.join("blobs");
+    let snap_dir = repo_dir.join("snapshots").join(REV_SHA);
+    fs::create_dir_all(&blobs_dir).expect("create blobs");
+    fs::create_dir_all(&snap_dir).expect("create snap");
+
+    // Post-partial-failure state: only the surviving file. blob_2 + snap_2
+    // are the leftovers after a hypothetical partial pass; the other model
+    // files' blobs and snapshot symlinks are already gone, the directory
+    // structure is still there because `remove_empty_repo_tree` skipped the
+    // non-empty subtree.
+    let h2 = "8888888888888888888888888888888888888888888888888888888888888888";
+    let blob_2 = blobs_dir.join(h2);
+    write_sparse(&blob_2, 64 * 1024 * 1024);
+
+    let snap_2 = snap_dir.join("file-2.gguf");
+    symlink(
+        PathBuf::from("..").join("..").join("blobs").join(h2),
+        &snap_2,
+    )
+    .unwrap();
+
+    let model_2 = ModelMeta {
+        tool: ToolId("hf"),
+        id_in_tool: format!("{repo_path}/file-2.gguf"),
+        on_disk_path: blob_2.clone(),
+        size_bytes: 64 * 1024 * 1024,
+        format: Format::Gguf,
+        display_label: DisplayLabel::from("file-2.gguf"),
+        status: ModelStatus::Healthy,
+        dedup_key: DedupKey::Tentative(DisplayLabel::from("file-2.gguf")),
+    };
+
+    let plugin = HfPlugin::new_with_hub_root(hub.clone());
+
+    // ---- Retry: holding constraint cleared, plan = sole survivor ---------
+    let folder_remaining = FolderGroup::new(
+        repo_path.to_string(),
+        repo_dir.clone(),
+        ToolId("hf"),
+        vec![model_2.clone()],
+        Vec::new(),
+    )
+    .expect("survivor FolderGroup must construct");
+    let classification_remaining = FolderClassification {
+        unique: vec![model_2.clone()],
+        shared: Vec::new(),
+    };
+    let plan_remaining = FolderDeletePlan::new(
+        folder_remaining,
+        classification_remaining,
+        vec![blob_2.clone()],
+        Vec::new(),
+        64 * 1024 * 1024,
+        0,
+    )
+    .expect("remaining plan must construct");
+
+    let outcomes_second = plugin
+        .delete_folder(&plan_remaining)
+        .await
+        .expect("S.5: retry delete_folder must return Ok");
+    assert_eq!(
+        outcomes_second.len(),
+        1,
+        "S.5: retry must produce exactly one DeleteOutcome (for the survivor), got {outcomes_second:?}",
+    );
+    let o = &outcomes_second[0];
+    assert_eq!(
+        o.model_id_in_tool,
+        format!("{repo_path}/file-2.gguf"),
+        "S.5: retry outcome must reference file-2"
+    );
+    assert!(
+        o.registration_removed,
+        "S.5: retry outcome registration_removed must be true, got {o:?}"
+    );
+    assert!(
+        o.file_deleted,
+        "S.5: retry outcome file_deleted must be true, got {o:?}"
+    );
+    assert_eq!(
+        o.bytes_freed,
+        64 * 1024 * 1024,
+        "S.5: retry outcome bytes_freed must equal blob_2 size, got {o:?}"
+    );
+    assert!(
+        !blob_2.exists(),
+        "S.5: blob_2 must be gone after retry, but {} still exists",
+        blob_2.display()
+    );
+    assert!(
+        !repo_dir.exists(),
+        "S.5: empty repo dir {} must be removed by remove_empty_repo_tree",
+        repo_dir.display()
+    );
+
+    // ---- Third pass: empty/vanished folder, idempotence guard ------------
+    // Per spec §3.11.S.5 the plugin MAY return either Ok(Vec::new()) OR
+    // Err(DeleteError::NotFound). DELIVER picks one; the contract permits
+    // both as long as no panic and no destructive side effect occurs. The
+    // HF plugin's per-file loop iterates empty paths and returns
+    // Ok(Vec::new()) naturally; `remove_empty_repo_tree` is a no-op on a
+    // non-existent dir (early `if !exists() { return; }` guard).
+    let folder_empty = FolderGroup::new(
+        repo_path.to_string(),
+        repo_dir.clone(),
+        ToolId("hf"),
+        Vec::new(),
+        Vec::new(),
+    )
+    .expect("empty FolderGroup must construct");
+    let classification_empty = FolderClassification {
+        unique: Vec::new(),
+        shared: Vec::new(),
+    };
+    let plan_empty = FolderDeletePlan::new(
+        folder_empty,
+        classification_empty,
+        Vec::new(),
+        Vec::new(),
+        0,
+        0,
+    )
+    .expect("empty plan must construct");
+
+    let third_result = plugin.delete_folder(&plan_empty).await;
+    match third_result {
+        Ok(outcomes) => {
+            assert!(
+                outcomes.is_empty(),
+                "S.5 third call: Ok must carry an empty Vec, got {outcomes:?}",
+            );
+        }
+        Err(modeltap_core::types::DeleteError::NotFound(_)) => {
+            // Contract permits this branch too — no further assertion.
+        }
+        Err(other) => {
+            panic!(
+                "S.5 third call: only Ok(Vec::new()) or Err(NotFound) permitted, got Err({other:?})"
+            );
+        }
+    }
+    assert!(
+        !repo_dir.exists(),
+        "S.5 third call: must not have re-created the repo dir {}",
+        repo_dir.display()
+    );
+}

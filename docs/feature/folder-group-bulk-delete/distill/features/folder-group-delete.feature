@@ -199,7 +199,8 @@ Feature: Delete a Hugging Face Folder Group
     And the right pane lists "Llama-3.2-1B-Instruct-Q4_0.gguf reason: file open by ollama"
     And the right pane hints "Press [F] again after closing ollama to finish"
 
-  @skip @us-05c @milestone-4 @ac-12 @destructive
+  # @skip removed in DELIVER step 04-02.
+  @us-05c @milestone-4 @ac-12 @destructive
   Scenario: Re-running folder-delete after closing the holding tool removes the remaining files
     Given Devon completed a partial folder-delete leaving 2 EBUSY files in "bartowski/Llama-3.2-1B-Instruct-GGUF"
     And the holding tool has been closed
