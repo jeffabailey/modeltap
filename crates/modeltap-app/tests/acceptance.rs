@@ -64,6 +64,7 @@ mod acceptance {
     pub mod folder_delete_confirmation_safety;
     pub mod folder_delete_hardlink_survival;
     pub mod folder_delete_idempotent_retry;
+    pub mod folder_delete_integration_checkpoints;
     pub mod folder_delete_kpis;
     pub mod folder_delete_mixed_dialog;
     pub mod folder_delete_non_hf_noop;

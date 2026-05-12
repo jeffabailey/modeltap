@@ -36,14 +36,16 @@ Feature: Folder-Group Delete — Cross-Cutting Integration Invariants
     When the folder-delete dialog renders
     Then "folder_group.bytes_to_reclaim + folder_group.bytes_to_retain" equals "folder_group.total_bytes" within rounding tolerance of 1 byte
 
-  @skip @us-05c @int-fgd-6 @destructive
+  # @skip removed in DELIVER step 06-02 (feature exit gate).
+  @us-05c @int-fgd-6 @destructive
   Scenario: After a successful folder-delete, total disk_usage decreases by exactly bytes_reclaimed
     Given Devon's pre-delete "total.disk_usage" was recorded as X
     And Devon's "last_action.bytes_reclaimed" after the folder-delete was recorded as Y
     When the summary bar refreshes within 500 milliseconds
     Then the new "total.disk_usage" equals "X - Y" within rounding tolerance of 1 byte
 
-  @skip @us-05c @int-fgd-1 @destructive
+  # @skip removed in DELIVER step 06-02 (feature exit gate).
+  @us-05c @int-fgd-1 @destructive
   Scenario: After a successful folder-delete, summary bar total equals sum of tool disk_usage
     Given Devon has completed a folder-delete against any HF fixture
     When the summary bar refreshes
@@ -65,7 +67,8 @@ Feature: Folder-Group Delete — Cross-Cutting Integration Invariants
   # Inventory consistency after the action
   # ---------------------------------------------------------------------------
 
-  @skip @us-05c @int-fgd-5 @destructive
+  # @skip removed in DELIVER step 06-02 (feature exit gate).
+  @us-05c @int-fgd-5 @destructive
   Scenario: After a successful folder-delete, the folder is gone from list_models and list_folder_groups
     Given Devon has completed a folder-delete for "bartowski/Llama-3.2-1B-Instruct-GGUF"
     When the next inventory rebuild runs
@@ -76,7 +79,8 @@ Feature: Folder-Group Delete — Cross-Cutting Integration Invariants
   # Typed-confirmation provenance (no hardcoded literal)
   # ---------------------------------------------------------------------------
 
-  @skip @us-05c @int-fgd-7 @property
+  # @skip removed in DELIVER step 06-02 (feature exit gate).
+  @us-05c @int-fgd-7 @property
   Scenario: The typed-confirmation comparator reads folder_group.path, not a hardcoded literal
     Given any folder-delete dialog opening for any HF folder with path P
     When the typed input is compared to the expected confirmation string
@@ -111,7 +115,8 @@ Feature: Folder-Group Delete — Cross-Cutting Integration Invariants
   # Regression gate: parent journey scenarios still pass
   # ---------------------------------------------------------------------------
 
-  @skip @us-05c @int-fgd-8
+  # @skip removed in DELIVER step 06-02 (feature exit gate).
+  @us-05c @int-fgd-8
   Scenario: Parent feature scenarios continue to pass after folder-delete is introduced
     Given the folder-group-bulk-delete feature is merged into modeltap
     When the parent acceptance suite runs against fixture "devon-multi-tool"
