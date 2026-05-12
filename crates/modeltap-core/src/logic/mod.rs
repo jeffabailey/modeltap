@@ -8,5 +8,6 @@
 pub mod canonical_selector;
 pub mod compatibility;
 pub mod dedup;
+pub mod folder_group;
 pub mod plan;
 pub mod unification_status;
