@@ -54,6 +54,11 @@ pub struct FolderDeleteOutcome {
     /// `outcomes_count` — used by the M6 @property invariant ("no
     /// DeleteOutcome is produced for any file in the folder").
     pub outcomes_count: u64,
+    /// Step 06-01 (K-FGD-2 / D3): total keystrokes the folder-confirm
+    /// dialog observed from open-to-decision. Mirrored into the JSONL
+    /// event as `keystroke_count`. May be 0 on pre-flight refusal paths
+    /// (the dialog never opened).
+    pub keystroke_count: u64,
     pub outcome: FolderDeleteResult,
     /// Step 04-01 (ADR-010 §"Implementation Guidance"): per-file failure
     /// detail surfaced verbatim in the post-action banner when `outcome ==
@@ -134,6 +139,7 @@ pub async fn run(
     folder_path: String,
     hub_root: &std::path::Path,
     sidecar_enumerator: &dyn SidecarEnumerator,
+    keystroke_count: u64,
     logger: &mut LaunchLogger,
 ) -> FolderDeleteOutcome {
     // 1. Discover HF models. The walking-skeleton fixture is small (5 files);
@@ -146,7 +152,7 @@ pub async fn run(
                 target: "modeltap.action.folder_delete",
                 "hf discover failed: {e}"
             );
-            return emit_and_return_failed(logger, tool_id, folder_path);
+            return emit_and_return_failed(logger, tool_id, folder_path, keystroke_count);
         }
     };
     // 2. Project DiscoveredModel -> ModelMeta and group by <author>/<repo>.
@@ -163,7 +169,7 @@ pub async fn run(
             target: "modeltap.action.folder_delete",
             "malformed folder_path (no '/'): {folder_path}"
         );
-        return emit_and_return_failed(logger, tool_id, folder_path);
+        return emit_and_return_failed(logger, tool_id, folder_path, keystroke_count);
     };
     let repo_dir = hub_root.join(format!("models--{author}--{repo_name}"));
     let target_models: Vec<PathBuf> = models
@@ -202,7 +208,7 @@ pub async fn run(
                 target: "modeltap.action.folder_delete",
                 "no folder group matched {folder_path}",
             );
-            return emit_and_return_failed(logger, tool_id, folder_path);
+            return emit_and_return_failed(logger, tool_id, folder_path, keystroke_count);
         }
     };
     // group_by_hf_repo synthesizes a RELATIVE absolute_path
@@ -236,7 +242,7 @@ pub async fn run(
             // Distinguish Unsupported from genuine I/O failure for the JSONL
             // event; both surface as Failed for the banner.
             let _ = e; // (kept for tracing only)
-            return emit_and_return_failed(logger, tool_id, folder_path);
+            return emit_and_return_failed(logger, tool_id, folder_path, keystroke_count);
         }
     };
 
@@ -302,6 +308,7 @@ pub async fn run(
         files_total,
         files_removed,
         outcomes_count,
+        keystroke_count,
         outcome: result,
         failures,
     };
@@ -323,6 +330,7 @@ pub fn run_cancelled(
     tool_id: ToolId,
     folder_path: String,
     cancel: CancelReason,
+    keystroke_count: u64,
     logger: &mut LaunchLogger,
 ) -> FolderDeleteOutcome {
     let result = match cancel {
@@ -337,6 +345,7 @@ pub fn run_cancelled(
         files_total: 0,
         files_removed: 0,
         outcomes_count: 0,
+        keystroke_count,
         outcome: result,
         failures: Vec::new(),
     };
@@ -417,6 +426,10 @@ pub fn run_preflight_refused(
         files_total: 0,
         files_removed: 0,
         outcomes_count: 0,
+        // Step 06-01: pre-flight refusal short-circuits BEFORE the dialog
+        // opens, so no keystrokes have been observed. The JSONL field is
+        // still emitted (always present per the schema) with value 0.
+        keystroke_count: 0,
         outcome: refusal.result(),
         failures: Vec::new(),
     };
@@ -475,6 +488,7 @@ fn emit_and_return_failed(
     logger: &mut LaunchLogger,
     tool_id: ToolId,
     folder_path: String,
+    keystroke_count: u64,
 ) -> FolderDeleteOutcome {
     let outcome = FolderDeleteOutcome {
         tool: tool_id,
@@ -484,6 +498,7 @@ fn emit_and_return_failed(
         files_total: 0,
         files_removed: 0,
         outcomes_count: 0,
+        keystroke_count,
         outcome: FolderDeleteResult::Failed,
         failures: Vec::new(),
     };
@@ -500,6 +515,7 @@ fn emit(logger: &mut LaunchLogger, outcome: &FolderDeleteOutcome) {
         bytes_reclaimed: outcome.bytes_reclaimed,
         bytes_retained: outcome.bytes_retained,
         outcomes_count: outcome.outcomes_count,
+        keystroke_count: outcome.keystroke_count,
         outcome: outcome.outcome.as_str(),
     });
 }

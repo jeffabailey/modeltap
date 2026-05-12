@@ -300,11 +300,25 @@ pub fn run(
                         }
                     };
 
+                // Step 06-01 (K-FGD-2 / D3): derive the keystroke_count from
+                // the typed input + the final decision keystroke (Enter or
+                // Esc). Each char in `typed_input` corresponds to exactly one
+                // `FolderConfirmState::handle_char` call in the production
+                // dialog state machine; the +1 is the terminal Enter or Esc
+                // that resolves the dialog. Shift+F is excluded because it
+                // never reached the dialog (it OPENED the dialog from main
+                // view). This matches the production counter's semantics for
+                // a user who types each character exactly once without
+                // Backspace or Ctrl+W corrections — the no-correction lower
+                // bound that the M6 keystroke <= 40 budget targets.
+                let keystroke_count: u64 = (typed_input.chars().count() as u64).saturating_add(1);
+
                 if let Some(cancel) = cancel_reason {
                     let outcome = folder_delete::run_cancelled(
                         ToolId("hf"),
                         folder_path,
                         cancel,
+                        keystroke_count,
                         &mut logger,
                     );
                     let last_action = build_folder_delete_last_action(&outcome);
@@ -321,6 +335,7 @@ pub fn run(
                         folder_path,
                         &hub_root,
                         &enumerator,
+                        keystroke_count,
                         &mut logger,
                     ));
                     let last_action = build_folder_delete_last_action(&outcome);

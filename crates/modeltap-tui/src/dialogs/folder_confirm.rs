@@ -86,6 +86,15 @@ pub struct FolderConfirmState {
     /// other tools whose hardlinks keep its inode alive.
     pub shared_models: Vec<SharedModel>,
     typed_input: String,
+    /// Step 06-01 (K-FGD-2 / D3): total keystroke events the dialog has
+    /// observed since opening. Incremented by `handle_char`,
+    /// `handle_backspace`, and `handle_word_delete`. Does NOT include the
+    /// Shift+F that opened the dialog (that event never reached this
+    /// state machine) nor the final Enter / Esc (those are decision events
+    /// consumed by `decide_on_*`, surfaced by the orchestrator separately).
+    /// Read by the orchestrator and copied verbatim into the JSONL
+    /// `action.folder_delete.keystroke_count` field.
+    keystroke_count: u64,
 }
 
 impl FolderConfirmState {
@@ -112,6 +121,7 @@ impl FolderConfirmState {
             running_tool_warning: None,
             shared_models: Vec::new(),
             typed_input: String::new(),
+            keystroke_count: 0,
         }
     }
 
@@ -141,6 +151,7 @@ impl FolderConfirmState {
             running_tool_warning: None,
             shared_models: shared,
             typed_input: String::new(),
+            keystroke_count: 0,
         }
     }
 
@@ -156,14 +167,51 @@ impl FolderConfirmState {
         &self.typed_input
     }
 
-    /// Append one printable character to the typed-input buffer.
+    /// Append one printable character to the typed-input buffer. Increments
+    /// the K-FGD-2 keystroke counter (every observed input event counts —
+    /// see the rationale on the field's docstring).
     pub fn handle_char(&mut self, c: char) {
         self.typed_input.push(c);
+        self.keystroke_count = self.keystroke_count.saturating_add(1);
     }
 
     /// Remove the last character of the typed-input buffer. No-op on empty.
+    /// ALWAYS increments the keystroke counter — even if the buffer was
+    /// already empty, the user pressed the key and the dialog observed the
+    /// event (D3: "Backspace counts toward total"). The K-FGD-2 bound is a
+    /// user-facing keystroke budget, not a typed-buffer-length tally.
     pub fn handle_backspace(&mut self) {
         self.typed_input.pop();
+        self.keystroke_count = self.keystroke_count.saturating_add(1);
+    }
+
+    /// Step 06-01 (D3): word-delete (Ctrl+W). Removes characters from the
+    /// end of the typed buffer back to (and including) the preceding word
+    /// boundary, AND counts as exactly ONE keystroke regardless of how
+    /// many characters were removed — the user pressed one key.
+    pub fn handle_word_delete(&mut self) {
+        // Strip trailing whitespace first, then the preceding non-whitespace
+        // run. This matches the conventional terminal Ctrl+W behaviour. The
+        // typed-confirm comparator is byte-exact, so a deletion that
+        // overshoots the boundary is a user-visible correction, not a
+        // semantic edit.
+        while self.typed_input.ends_with(char::is_whitespace) {
+            self.typed_input.pop();
+        }
+        while let Some(c) = self.typed_input.chars().last() {
+            if c.is_whitespace() {
+                break;
+            }
+            self.typed_input.pop();
+        }
+        self.keystroke_count = self.keystroke_count.saturating_add(1);
+    }
+
+    /// Read-only access to the K-FGD-2 keystroke counter. The orchestrator
+    /// reads this value at Enter/Esc time and emits it into the JSONL
+    /// `action.folder_delete.keystroke_count` field.
+    pub fn keystroke_count(&self) -> u64 {
+        self.keystroke_count
     }
 
     /// Decide on Enter. BYTE-EQUAL, CASE-SENSITIVE match against
@@ -291,6 +339,55 @@ mod tests {
         let folder = fixture_folder();
         let d = FolderConfirmState::for_folder(folder, 3, 2, 1, 4_000_000_000, 2_000_000_000);
         assert_eq!(d.file_count(), 6);
+    }
+
+    /// Step 06-01 (K-FGD-2 / D3): `keystroke_count` accumulates every input
+    /// event the dialog handles — printable chars AND corrections (Backspace,
+    /// Ctrl+W). It is the property the M6 acceptance scenario asserts is
+    /// `<= 40` and `INDEPENDENT of file_count`. Shift+F is excluded because
+    /// it transitions FROM main view TO dialog state (it never reaches the
+    /// dialog's input handler).
+    #[test]
+    fn keystroke_count_accumulates_char_input_backspace_and_word_delete() {
+        let folder = fixture_folder();
+        let mut d = FolderConfirmState::for_folder(folder, 1, 0, 0, 1_000_000_000, 0);
+        // Initial state: dialog just opened, no keystrokes yet.
+        assert_eq!(d.keystroke_count(), 0);
+
+        // Type 5 chars — each char counts as 1 keystroke.
+        for c in "alice".chars() {
+            d.handle_char(c);
+        }
+        assert_eq!(d.keystroke_count(), 5);
+
+        // Backspace counts toward the total per D3.
+        d.handle_backspace();
+        assert_eq!(d.keystroke_count(), 6);
+
+        // Ctrl+W (word-delete) counts toward the total per D3. The dialog
+        // exposes `handle_word_delete` so the keymap can route Ctrl+W to a
+        // single, instrumented mutation rather than emitting N Backspaces.
+        d.handle_word_delete();
+        assert_eq!(d.keystroke_count(), 7);
+    }
+
+    /// Step 06-01: a Backspace on an empty buffer is still a keystroke
+    /// (the user pressed the key; the dialog observed it). This is what
+    /// makes K-FGD-2's "<= 40" a USER-FACING bound rather than a
+    /// production-code state-shape artifact.
+    #[test]
+    fn keystroke_count_counts_backspace_even_on_empty_buffer() {
+        let folder = fixture_folder();
+        let mut d = FolderConfirmState::for_folder(folder, 1, 0, 0, 1_000_000_000, 0);
+        d.handle_backspace();
+        d.handle_backspace();
+        d.handle_backspace();
+        assert_eq!(
+            d.keystroke_count(),
+            3,
+            "every Backspace counts, even when typed_input is already empty",
+        );
+        assert_eq!(d.typed_input(), "");
     }
 
     /// Step 03-01: `for_folder_with_shared` derives `shared_count` from the

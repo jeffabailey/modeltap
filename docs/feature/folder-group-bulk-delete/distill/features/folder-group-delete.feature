@@ -256,7 +256,8 @@ Feature: Delete a Hugging Face Folder Group
   # K-FGD-2 keystrokes, K-FGD-3 mis-target rate.
   # ===========================================================================
 
-  @skip @us-05c @milestone-6 @kpi-instrumentation @destructive
+  # @skip removed in DELIVER step 06-01.
+  @us-05c @milestone-6 @kpi-instrumentation @destructive
   Scenario: Keystroke count for a 20-file folder is bounded and independent of file count
     Given Devon has fixture "devon-hf-20files" with "bartowski/Llama-3.2-1B-Instruct-GGUF" containing 20 model files
     When Devon completes a folder-delete via Shift+F, typed path "bartowski/Llama-3.2-1B-Instruct-GGUF", and Enter
@@ -264,7 +265,8 @@ Feature: Delete a Hugging Face Folder Group
     And the JSONL log "action.folder_delete" event has "keystroke_count" independent of the folder's file_count
     And the JSONL log "action.folder_delete" event has "outcome" == "success"
 
-  @skip @us-05c @milestone-6 @ac-8 @property @kpi-instrumentation
+  # @skip removed in DELIVER step 06-01.
+  @us-05c @milestone-6 @ac-8 @property @kpi-instrumentation
   Scenario: Every aborted typed-confirmation results in zero filesystem mutations
     Given any folder-delete dialog opening for any HF folder
     When the user enters any input that is not the byte-exact folder path

@@ -119,6 +119,13 @@ pub enum RecordKind {
     /// `outcomes_count` is the size of the `Vec<DeleteOutcome>` returned by
     /// `Tool::delete_folder`; ALWAYS 0 on the cancel paths because the plugin
     /// is never called (step 02-01, M6 @property invariant).
+    /// `keystroke_count` (step 06-01, K-FGD-2 / D3): total input events the
+    /// folder-confirm dialog observed from open-to-decision — printable
+    /// chars + Backspace + Ctrl+W. Shift+F is excluded (it transitions
+    /// FROM main view TO dialog state). Always emitted on EVERY path
+    /// (success, cancel, refusal) so the M6 @property test cannot pass
+    /// vacuously. May be 0 on pre-flight refusal paths (the dialog never
+    /// opened) — that is the correct semantic value, not a missing field.
     ActionFolderDelete {
         tool: String,
         folder_path: String,
@@ -127,6 +134,7 @@ pub enum RecordKind {
         bytes_reclaimed: u64,
         bytes_retained: u64,
         outcomes_count: u64,
+        keystroke_count: u64,
         outcome: &'static str,
     },
     /// One entry per discovered model. Written to a separate `models.log`
@@ -330,6 +338,7 @@ impl LaunchLogger {
                 bytes_reclaimed,
                 bytes_retained,
                 outcomes_count,
+                keystroke_count,
                 outcome,
             } => {
                 let mut env = self.base_envelope("action.folder_delete");
@@ -340,6 +349,7 @@ impl LaunchLogger {
                 env["bytes_reclaimed"] = json!(bytes_reclaimed);
                 env["bytes_retained"] = json!(bytes_retained);
                 env["outcomes_count"] = json!(outcomes_count);
+                env["keystroke_count"] = json!(keystroke_count);
                 env["outcome"] = json!(outcome);
                 env
             }
