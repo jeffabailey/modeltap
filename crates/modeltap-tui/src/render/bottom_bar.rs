@@ -62,6 +62,15 @@ pub struct BarContext<'a> {
     /// dim of `[F] folder-delete` for non-HF active tools so the user never
     /// sees Shift+F as an available action when it cannot do anything.
     pub active_tool: Option<ToolId>,
+    /// Maximum render width (in columns) for the bar, or `None` for
+    /// unconstrained rendering. The production caller sets this from
+    /// `area.width` so the bar can drop the lowest-priority entry
+    /// (`[F] folder-delete`) when the full set of Main shortcuts would
+    /// overflow and push `[q] quit` off the visible row. Unit tests that
+    /// construct the context via `BarContext::for_state` keep `None`, so
+    /// the historical "always show every applicable shortcut" contract
+    /// holds when callers do not opt into width-aware filtering.
+    pub max_width: Option<u16>,
 }
 
 impl<'a> BarContext<'a> {
@@ -90,13 +99,20 @@ impl<'a> BarContext<'a> {
             has_refresh_failures,
             focus: state.focus,
             active_tool,
+            max_width: None,
         }
     }
 }
 
 /// Top-level frame entry point: render the bar widget into `area`.
+///
+/// Threads `area.width` into the `BarContext` so the bar can omit the
+/// lowest-priority shortcut (`[F] folder-delete`) when the full Main set
+/// would overflow at the terminal width — keeping `[q] quit` visible on
+/// 100-col headless terminals (US-01 / INT-FGD-8 regression gate).
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
-    let ctx = BarContext::for_state(state);
+    let mut ctx = BarContext::for_state(state);
+    ctx.max_width = Some(area.width);
     let line = render_bottom_bar(&ctx, no_color_active());
     frame.render_widget(Paragraph::new(line), area);
 }
@@ -104,7 +120,14 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 /// Pure: build the bar line from `SHORTCUT_TABLE` filtered by section.
 /// Unavailable entries get an extra `Modifier::DIM`. This is the function
 /// unit-tested at port granularity (US-08 B2..B5).
+///
+/// When `ctx.max_width` is `Some(w)` and the rendered Main bar would exceed
+/// `w` columns, the lowest-priority entry (`[F] folder-delete`) is omitted
+/// so the higher-priority `[?] help` and `[q] quit` shortcuts remain
+/// visible. Callers that want every applicable shortcut regardless of
+/// width leave `max_width = None` (the default from `for_state`).
 pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static> {
+    let drop_folder_delete = should_drop_folder_delete(ctx);
     let mut spans: Vec<Span<'static>> = Vec::new();
     let active = Style::default().add_modifier(Modifier::DIM);
     let unavailable = Style::default()
@@ -119,6 +142,13 @@ pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static>
         // [r] retry is conditionally visible — omit entirely when no
         // refresh failures are pending (US-11.AC-2).
         if is_retry_entry(entry) && !ctx.has_refresh_failures {
+            continue;
+        }
+        // Width-aware drop: omit [F] folder-delete entirely when the full
+        // bar would not fit in the available terminal width. The Main bar
+        // is the only section dense enough to overflow at 100 cols; Detail
+        // / Help bars are shorter and unaffected.
+        if drop_folder_delete && is_folder_delete_entry(entry) {
             continue;
         }
         if !first {
@@ -146,6 +176,60 @@ pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static>
         spans.push(Span::styled(label, style));
     }
     Line::from(spans)
+}
+
+/// True when the bar would overflow `ctx.max_width` AND dropping
+/// `[F] folder-delete` is the appropriate relief valve. The drop is
+/// scoped to the Main section since the Detail and Help bars do not
+/// include the entry; the Help section already always fits.
+fn should_drop_folder_delete(ctx: &BarContext<'_>) -> bool {
+    let max = match ctx.max_width {
+        Some(w) => w,
+        None => return false,
+    };
+    if ctx.section != BarSection::Main {
+        return false;
+    }
+    full_bar_width(ctx) > max as usize
+}
+
+/// Compute the plain-text width the bar WOULD render at given the current
+/// context — i.e. the sum of every applicable label plus the 2-char
+/// separators between them. Used solely by `should_drop_folder_delete`
+/// to decide whether to omit `[F] folder-delete`.
+fn full_bar_width(ctx: &BarContext<'_>) -> usize {
+    let mut total = 0usize;
+    let mut first = true;
+    for entry in SHORTCUT_TABLE {
+        if !entry.sections.contains(&ctx.section) {
+            continue;
+        }
+        if is_retry_entry(entry) && !ctx.has_refresh_failures {
+            continue;
+        }
+        let label_len = if entry.key.code == crossterm::event::KeyCode::Up
+            && entry.key.modifiers == crossterm::event::KeyModifiers::NONE
+        {
+            up_down_bar_label(ctx.focus).len()
+        } else {
+            entry.label.len()
+        };
+        if !first {
+            total += 2; // "  " separator
+        }
+        first = false;
+        total += label_len;
+    }
+    total
+}
+
+/// True when this entry is the `[F] folder-delete` shortcut. Identified by
+/// KeyCode + SHIFT modifier (same shape as the AC-5 guard in `keymap`) so
+/// the width-aware drop and the dispatch guard share the same predicate
+/// shape — a future label rename would not silently bypass the drop.
+fn is_folder_delete_entry(entry: &Shortcut) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    entry.key.code == KeyCode::Char('F') && entry.key.modifiers.contains(KeyModifiers::SHIFT)
 }
 
 /// Convert a rendered bar `Line` to plain text (concatenation of spans).
