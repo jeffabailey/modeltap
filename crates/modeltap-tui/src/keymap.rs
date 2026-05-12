@@ -136,6 +136,18 @@ pub const SHORTCUT_TABLE: &[Shortcut] = &[
         // appropriately for each screen.
         sections: &[BarSection::Main, BarSection::Detail],
     },
+    // US-05c.AC-4 / AC-19: Shift+F — folder-group bulk delete. The keymap
+    // emits the bare `RequestFolderDelete` request; the composition root
+    // (step 01-05) resolves the cursor's folder from AppState. INT-FGD-7's
+    // single-source-of-truth invariant: NO hardcoded `<author>/<repo>`
+    // literal lives in this file — see `tests/lint.rs` for the architecture
+    // lint that enforces it.
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Char('F'), KeyModifiers::SHIFT),
+        label: "[F] folder-delete",
+        msg: Msg::RequestFolderDelete,
+        sections: &[BarSection::Main],
+    },
     // ----- Global ---------------------------------------------------------
     Shortcut {
         key: KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),

@@ -10,6 +10,8 @@ pub mod bottom_bar;
 pub mod bytes;
 pub mod colors;
 pub mod delete_one_dialog;
+pub mod folder_confirm_dialog;
+pub mod folder_header;
 pub mod icons;
 pub mod indicator;
 pub mod last_action;

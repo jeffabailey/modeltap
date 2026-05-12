@@ -1,0 +1,6 @@
+---
+source: crates/modeltap-tui/tests/folder_header_and_dialog_snapshots.rs
+assertion_line: 150
+expression: rendered
+---
+[-] bartowski/Llama-3.2-1B-Instruct-GGUF  4 files, 3.7 GB (3 unique, 0 shared)

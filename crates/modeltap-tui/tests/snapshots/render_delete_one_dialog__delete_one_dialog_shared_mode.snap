@@ -42,4 +42,4 @@ expression: frame
 │                                  ││                                                                                  │
 └──────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘
 Total: 0 models | Disk: 0 B | Dedup-able: computing...                                                                  
-[<-/->] tools  [up/down] tools  [u] unify  [z] zap tool  [d] delete-from-one  [?] help  [q] quit
+[<-/->] tools  [up/down] tools  [u] unify  [z] zap tool  [d] delete-from-one  [F] folder-delete  [?] help  [q] quit

@@ -328,6 +328,24 @@ pub enum Msg {
     /// `update()` clears `state.unify_highlight` to `None`.
     UnifyHighlightExpired,
 
+    // -----------------------------------------------------------------------
+    // US-05c folder-group bulk delete (step 01-04).
+    //
+    // The keymap dispatches `Msg::RequestFolderDelete` on Shift+F (per AC-4 /
+    // AC-19). Payload is intentionally empty — the composition root resolves
+    // the cursor's currently-targeted folder from `state` at handle time, the
+    // same pattern `RetryRefresh(ToolId(""))` uses. This keeps SHORTCUT_TABLE
+    // a `const` array (no heap-allocated payload). Per the running-tool
+    // contract (US-05c.AC-5), a Shift+F on a non-folder row or against a
+    // non-HF active tool is a no-op at the composition-root resolver, not at
+    // dispatch — keeping the bottom-bar single-source-of-truth invariant
+    // (INT-FGD-7) clean.
+    // -----------------------------------------------------------------------
+    /// User pressed `Shift+F`. Open the folder-delete dialog for the currently-
+    /// targeted folder. The composition root reads the FolderGroup from the
+    /// cursor (right-pane row context) at step 01-05 wiring time.
+    RequestFolderDelete,
+
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,
 }

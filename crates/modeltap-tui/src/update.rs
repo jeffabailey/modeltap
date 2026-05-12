@@ -310,6 +310,10 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             },
             UpdateEffect::default(),
         ),
+        // US-05c folder-group bulk delete (step 01-04).
+        // Pure-update is a state-noop. The composition root handles the
+        // cursor → FolderGroup resolution + dialog open at step 01-05.
+        Msg::RequestFolderDelete => (state, UpdateEffect::default()),
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
 }

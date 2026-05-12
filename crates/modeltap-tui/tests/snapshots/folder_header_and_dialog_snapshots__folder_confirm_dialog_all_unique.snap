@@ -1,0 +1,25 @@
+---
+source: crates/modeltap-tui/tests/folder_header_and_dialog_snapshots.rs
+assertion_line: 188
+expression: rendered
+---
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+               ┌ Delete folder (HF repo) ───────────────────────────────────────────┐               
+               │Delete folder 'bartowski/Llama-3.2-1B-Instruct-GGUF'?               │               
+               │                                                                    │               
+               │Folder:      bartowski/Llama-3.2-1B-Instruct-GGUF                   │               
+               │On disk:                                                            │               
+               │/home/devon/.cache/huggingface/hub/models--bartowski--Llama-3.2-1B-I│               
+               │nstruct-GGUF                                                        │               
+               │Files:       4                                                      │               
+               │  Unique:    3                                                      │               
+               │  Shared:    0                                                      │               
+               │  Sidecars:  1                                                      │               
+               │Reclaim:     3.7 GB                                                 │               
+               │Retain:      0 B                                                    │               
+               │                                                                    │               
+               │Type the folder path exactly, then [Enter] to confirm.              │               
+               └────────────────────────────────────────────────────────────────────┘
