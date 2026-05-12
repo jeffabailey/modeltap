@@ -20,6 +20,22 @@ pub mod ports;
 pub mod tool;
 pub mod types;
 
+/// Parametrized plugin contract-test harness. Gated behind the `test-helpers`
+/// cargo feature so production binaries do not include it.
+///
+/// Plugin crates opt-in via:
+///
+/// ```toml
+/// [dev-dependencies]
+/// modeltap-core = { path = "../../crates/modeltap-core", features = ["test-helpers"] }
+/// ```
+///
+/// See `tests::plugin_contract` for the harness body. Used by every plugin
+/// crate's `tests/folder_delete_contract.rs` per `docs/feature/
+/// folder-group-bulk-delete/distill/plugin-contract-spec.md`.
+#[cfg(feature = "test-helpers")]
+pub mod tests;
+
 pub use domain::{DedupGlyph, DedupSummary, LeftPaneSlot, SyntheticSlot, UnifiedRow};
 pub use plugin_factory::PluginFactory;
 pub use tool::Tool;

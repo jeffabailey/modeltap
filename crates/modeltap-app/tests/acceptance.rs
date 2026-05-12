@@ -60,6 +60,7 @@ mod acceptance {
     // confirmation-safety scenarios (wrong path / trailing slash / Esc).
     // ---------------------------------------------------------------------
     pub mod dir_manifest;
+    pub mod folder_delete_capability_boundary;
     pub mod folder_delete_confirmation_safety;
     pub mod folder_delete_mixed_dialog;
     pub mod folder_delete_preflight_refusal;

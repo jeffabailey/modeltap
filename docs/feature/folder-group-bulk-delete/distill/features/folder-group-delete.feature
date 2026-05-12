@@ -225,7 +225,13 @@ Feature: Delete a Hugging Face Folder Group
   # contract via the dedicated plugin-contract-spec.md suite, not here.
   # ===========================================================================
 
-  @skip @us-05c @milestone-5 @ac-5 @plugin-trait
+  # @skip removed in DELIVER step 05-01 — Layer A is implemented in
+  # crates/modeltap-app/tests/acceptance/folder_delete_capability_boundary.rs
+  # and Layer B in plugins/<name>/tests/folder_delete_contract.rs. The
+  # Examples table is updated to match the workspace (no `llama-cli` crate
+  # exists; `Atomic Chat` is the third non-HF plugin that inherits the
+  # ADR-010 default body).
+  @us-05c @milestone-5 @ac-5 @plugin-trait
   Scenario Outline: Non-HF plugins return Unsupported when asked to delete a folder
     Given Devon has fixture "devon-multi-tool" with the <plugin> plugin installed
     And the orchestrator attempts a folder-delete dispatch against the <plugin> plugin
@@ -237,8 +243,8 @@ Feature: Delete a Hugging Face Folder Group
     Examples:
       | plugin      |
       | ollama      |
-      | llama-cli   |
       | lm-studio   |
+      | Atomic Chat |
 
   # ===========================================================================
   # MILESTONE 6 — KPI guardrails (from outcome-kpis.md)
