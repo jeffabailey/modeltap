@@ -86,7 +86,7 @@ Feature: Folder-Group Delete — Cross-Cutting Integration Invariants
   # Pre-flight refusal (cache writeable + folder still exists)
   # ---------------------------------------------------------------------------
 
-  @skip @us-05c @ac-15 @infrastructure-failure
+  @us-05c @ac-15 @infrastructure-failure
   Scenario: Read-only HF cache refuses before the dialog opens
     Given Devon has fixture "devon-hf-readonly" with the HF cache directory at mode 0555
     And Devon has navigated the cursor to a folder header in the HF right pane
@@ -95,7 +95,7 @@ Feature: Folder-Group Delete — Cross-Cutting Integration Invariants
     And the right pane shows "Hugging Face cache is read-only -- cannot delete folder"
     And the Hugging Face fixture directory is unchanged
 
-  @skip @us-05c @ac-20 @infrastructure-failure
+  @us-05c @ac-20 @infrastructure-failure
   Scenario: Folder deleted out-of-band between launch and Shift+F triggers re-discovery
     Given Devon has fixture "devon-hf-allunique" with the repo "bartowski/Llama-3.2-1B-Instruct-GGUF"
     And Devon has launched modeltap and the folder header is visible

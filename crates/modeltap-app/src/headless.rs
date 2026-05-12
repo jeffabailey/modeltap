@@ -218,6 +218,56 @@ pub fn run(
                         return 1;
                     }
                 };
+                // Step 04-03: pre-flight refusal gates per F-FGD-8 / ADR-010.
+                // Both checks happen BEFORE any confirmation-state computation
+                // so the user sees no dialog frame for the refusal path.
+                //
+                //   1. AC-15 — cache-writeable check: `<HF_HOME>/hub/` must be
+                //      writeable (probe-and-remove). If false, dispatch
+                //      `run_preflight_refused(ReadonlyCache, …)`.
+                //   2. AC-20 — folder-still-exists check: the targeted
+                //      `models--<author>--<repo>/` subtree must still be on
+                //      disk. If false (out-of-band remove between launch and
+                //      Shift+F), dispatch `run_preflight_refused(FolderMissing,
+                //      …)` and signal that the inventory will refresh.
+                //
+                // Both paths short-circuit BEFORE any cancel-reason logic so
+                // the JSONL event carries `outcome=refused_*` rather than
+                // `cancelled_*` even when the user's typed input would also
+                // mismatch.
+                let hub_root = modeltap_plugin_hf::discover::resolve_hub_root();
+                let preflight_refusal: Option<folder_delete::PreflightRefusal> =
+                    if !folder_delete::is_cache_writable(&hub_root) {
+                        Some(folder_delete::PreflightRefusal::ReadonlyCache)
+                    } else if let Some((author, repo_name)) = folder_path.split_once('/') {
+                        let repo_dir = hub_root.join(format!("models--{author}--{repo_name}"));
+                        if !repo_dir.exists() {
+                            Some(folder_delete::PreflightRefusal::FolderMissing)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                if let Some(refusal) = preflight_refusal {
+                    let outcome = folder_delete::run_preflight_refused(
+                        ToolId("hf"),
+                        folder_path.clone(),
+                        refusal,
+                        &mut logger,
+                    );
+                    let last_action = build_folder_delete_last_action(&outcome);
+                    let (next, _) =
+                        update(std::mem::take(&mut state), Msg::SetLastAction(last_action));
+                    state = next;
+                    if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                        eprintln!("modeltap: <folder-delete> redraw failed: {e}");
+                        return 1;
+                    }
+                    continue;
+                }
+
                 // Step 02-01: M2 confirmation-safety seam. The headless
                 // harness simulates the dialog state machine by replaying
                 // the user's typed input + decision through
@@ -262,7 +312,8 @@ pub fn run(
                         update(std::mem::take(&mut state), Msg::SetLastAction(last_action));
                     state = next;
                 } else if let Some(plugin) = find_plugin(&plugins, ToolId("hf")) {
-                    let hub_root = modeltap_plugin_hf::discover::resolve_hub_root();
+                    // `hub_root` declared above as part of the pre-flight check
+                    // is re-used here for the happy-path dispatch.
                     let enumerator = HfSidecarEnumerator;
                     let outcome = rt.block_on(folder_delete::run(
                         plugin,
@@ -1217,6 +1268,23 @@ fn build_folder_delete_last_action(outcome: &FolderDeleteOutcome) -> LastAction 
             outcome.files_total,
             outcome.files_removed,
         ),
+        // Step 04-03: pre-flight refusal variants surface their user-facing
+        // message in the banner's `target` slot so the existing `view_lines`
+        // renderer (modeltap-tui::render::last_action) puts the refusal
+        // text into the rendered header line WITHOUT requiring any TUI
+        // changes. The folder-path is omitted from the header so the
+        // message fits inside the right pane (typically ~80 cols). The
+        // path is still present in the JSONL event for observability.
+        // Acceptance tests grep stdout for the message substring per
+        // AC-15 / AC-20.
+        FolderDeleteResult::RefusedReadonlyCache => {
+            let msg = folder_delete::PreflightRefusal::ReadonlyCache.message();
+            LastAction::for_folder_delete_failed(msg.to_string())
+        }
+        FolderDeleteResult::RefusedFolderMissing => {
+            let msg = folder_delete::PreflightRefusal::FolderMissing.message();
+            LastAction::for_folder_delete_failed(msg.to_string())
+        }
         FolderDeleteResult::Partial
         | FolderDeleteResult::Failed
         | FolderDeleteResult::CancelledMismatch

@@ -73,6 +73,18 @@ pub enum FolderDeleteResult {
     /// no filesystem mutation. JSONL outcome = `"cancelled_escape"`,
     /// `outcomes_count=0`.
     CancelledEscape,
+    /// Step 04-03 (AC-15): pre-flight refusal because the HF cache directory
+    /// (`<HF_HOME>/hub/`) is not writeable. The dialog is never opened, the
+    /// plugin is never called, the filesystem stays byte-identical.
+    /// JSONL outcome = `"refused_readonly_cache"`, `outcomes_count=0`.
+    RefusedReadonlyCache,
+    /// Step 04-03 (AC-20): pre-flight refusal because the targeted on-disk
+    /// folder (`<HF_HOME>/hub/models--<author>--<repo>/`) no longer exists —
+    /// an out-of-band process removed it between launch and Shift+F. The
+    /// dialog is never opened; the right pane signals that the inventory
+    /// will refresh. JSONL outcome = `"refused_folder_missing"`,
+    /// `outcomes_count=0`.
+    RefusedFolderMissing,
 }
 
 impl FolderDeleteResult {
@@ -83,6 +95,8 @@ impl FolderDeleteResult {
             FolderDeleteResult::Failed => "failed",
             FolderDeleteResult::CancelledMismatch => "cancelled_mismatch",
             FolderDeleteResult::CancelledEscape => "cancelled_escape",
+            FolderDeleteResult::RefusedReadonlyCache => "refused_readonly_cache",
+            FolderDeleteResult::RefusedFolderMissing => "refused_folder_missing",
         }
     }
 }
@@ -308,6 +322,106 @@ pub enum CancelReason {
     Mismatch,
     /// Esc pressed during the dialog.
     Escape,
+}
+
+/// Step 04-03: reason a folder-delete was refused at pre-flight, BEFORE the
+/// dialog opens. Both variants short-circuit the orchestrator: no plugin
+/// call, no filesystem mutation, exactly one JSONL `action.folder_delete`
+/// event with `outcomes_count=0`. Per F-FGD-8 / ADR-010.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum PreflightRefusal {
+    /// AC-15: `<HF_HOME>/hub/` is not writeable — the user-facing right pane
+    /// shows `"Hugging Face cache is read-only -- cannot delete folder"` and
+    /// the JSONL event carries `outcome="refused_readonly_cache"`.
+    ReadonlyCache,
+    /// AC-20: the targeted `models--<author>--<repo>/` directory has been
+    /// removed out-of-band between launch and Shift+F — the right pane shows
+    /// `"folder no longer exists -- inventory will refresh"` and the JSONL
+    /// event carries `outcome="refused_folder_missing"`.
+    FolderMissing,
+}
+
+impl PreflightRefusal {
+    /// The user-facing message rendered in the right pane (and carried via
+    /// `LastAction.extra`). Per the feature scenarios, the literal text
+    /// MUST be these strings — acceptance tests grep stdout for them.
+    pub fn message(&self) -> &'static str {
+        match self {
+            PreflightRefusal::ReadonlyCache => {
+                "Hugging Face cache is read-only -- cannot delete folder"
+            }
+            PreflightRefusal::FolderMissing => "folder no longer exists -- inventory will refresh",
+        }
+    }
+
+    fn result(&self) -> FolderDeleteResult {
+        match self {
+            PreflightRefusal::ReadonlyCache => FolderDeleteResult::RefusedReadonlyCache,
+            PreflightRefusal::FolderMissing => FolderDeleteResult::RefusedFolderMissing,
+        }
+    }
+}
+
+/// Step 04-03: orchestrator's pre-flight refusal path. Invoked by the
+/// composition root when a pre-flight check (cache-writeable, folder-still-
+/// exists) fails BEFORE the confirmation dialog opens. The plugin is never
+/// called, the filesystem is never mutated. The HF cache directory is
+/// byte-identical pre/post this call (asserted by the AC-15 / AC-20
+/// acceptance tests via `DirManifest`).
+///
+/// Emits exactly one `action.folder_delete` JSONL event with
+/// `outcomes_count=0` and `outcome` set to `"refused_readonly_cache"` or
+/// `"refused_folder_missing"` per the `refusal` argument.
+pub fn run_preflight_refused(
+    tool_id: ToolId,
+    folder_path: String,
+    refusal: PreflightRefusal,
+    logger: &mut LaunchLogger,
+) -> FolderDeleteOutcome {
+    let outcome = FolderDeleteOutcome {
+        tool: tool_id,
+        folder_path,
+        bytes_reclaimed: 0,
+        bytes_retained: 0,
+        files_total: 0,
+        files_removed: 0,
+        outcomes_count: 0,
+        outcome: refusal.result(),
+    };
+    emit(logger, &outcome);
+    outcome
+}
+
+/// Step 04-03: writability probe for the HF cache directory used by the
+/// AC-15 pre-flight check. Returns `true` iff a probe file can be created
+/// inside `dir` (the probe file is removed immediately on success — no side
+/// effects). Modelled after the existing private `is_writable` helper in
+/// `observability.rs`. Inline at this seam (rather than a new `FsProbe`
+/// port method) because the check has one consumer and lives at the same
+/// architectural layer as the orchestrator.
+///
+/// A `0o555` (read+execute, no write) directory rejects `create_new`; a
+/// `0o755` directory accepts it. Conservative: any I/O error short-circuits
+/// to `false`, preserving the refuse-by-default policy when the cache state
+/// cannot be probed.
+pub fn is_cache_writable(dir: &std::path::Path) -> bool {
+    if !dir.exists() {
+        return false;
+    }
+    let probe = dir.join(".modeltap-preflight-probe");
+    // Use `create_new` so we never clobber a real entry. On success, remove
+    // immediately so the byte-identical post-condition holds.
+    match std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe)
+    {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
 }
 
 fn project_to_model_meta(tool: ToolId, d: DiscoveredModel) -> ModelMeta {
