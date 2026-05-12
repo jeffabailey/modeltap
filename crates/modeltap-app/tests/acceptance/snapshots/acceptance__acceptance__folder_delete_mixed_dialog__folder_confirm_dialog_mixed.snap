@@ -1,0 +1,27 @@
+---
+source: crates/modeltap-app/tests/acceptance/folder_delete_mixed_dialog.rs
+expression: rendered
+---
+                                                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                                    
+               ┌ Delete folder (HF repo) ───────────────────────────────────────────┐               
+               │Delete folder 'bartowski/Llama-3.2-1B-Instruct-GGUF'?               │               
+               │                                                                    │               
+               │Folder:      bartowski/Llama-3.2-1B-Instruct-GGUF                   │               
+               │On disk:                                                            │               
+               │/home/devon/.cache/huggingface/hub/models--bartowski--Llama-3.2-1B-I│               
+               │nstruct-GGUF                                                        │               
+               │Files:       19 unique + 1 shared + 3 sidecars                      │               
+               │  Llama-3.2-1B-Instruct-Q4_K_M.gguf — also linked in ollama         │               
+               │Reclaim:     13.2 GB                                                │               
+               │Retained:    0.8 GB                                                 │               
+               │                                                                    │               
+               │Type the folder path exactly, then [Enter] to confirm.              │               
+               │> _                                                                 │               
+               │                                                                    │               
+               │Type the folder path, then [Enter]   [Esc] cancel                   │               
+               │                                                                    │               
+               │                                                                    │               
+               └────────────────────────────────────────────────────────────────────┘

@@ -26,7 +26,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
 
 use crate::dialogs::folder_confirm::FolderConfirmState;
-use crate::render::bytes::format_bytes;
+use crate::render::bytes::{format_bytes, format_gb};
 
 /// Render the folder-confirm dialog modal centered in `parent_area`. Caller
 /// is the top-level `view()` (wiring lands at step 01-05); gates rendering
@@ -45,26 +45,69 @@ pub fn render(frame: &mut Frame<'_>, parent_area: Rect, dialog: &FolderConfirmSt
     frame.render_widget(paragraph, inner);
 }
 
-/// Build the lines shown in the dialog body. All-unique mode for step 01-04;
-/// mixed shared/unique itemization lands at 03-01 (the `shared_count > 0`
-/// branch is suppressed here on purpose).
+/// Build the lines shown in the dialog body. All-unique mode keeps the
+/// step-01-04 schema (`Reclaim:` / `Retain:` lines + indented per-bucket
+/// counts). Mixed shared/unique mode (step 03-01, when `shared_count > 0`)
+/// swaps in the itemised "N unique + M shared + K sidecars" summary line,
+/// names each shared file alongside the tools whose hardlinks keep its
+/// inode alive, and uses the always-GB `Retained:` line so the user reads
+/// reclaim and retain in the same unit.
 fn build_lines(dialog: &FolderConfirmState) -> Vec<Line<'static>> {
-    let reclaim = format_bytes(dialog.bytes_to_reclaim);
-    let retain = format_bytes(dialog.bytes_to_retain);
     let abs_path = dialog.folder.absolute_path.display().to_string();
     let mut lines: Vec<Line<'static>> = vec![
         Line::from(format!("Delete folder '{}'?", dialog.folder.path)),
         Line::from(""),
         Line::from(format!("Folder:      {}", dialog.folder.path)),
         Line::from(format!("On disk:     {}", abs_path)),
-        Line::from(format!("Files:       {}", dialog.file_count())),
-        Line::from(format!("  Unique:    {}", dialog.unique_count)),
-        Line::from(format!("  Shared:    {}", dialog.shared_count)),
-        Line::from(format!("  Sidecars:  {}", dialog.sidecar_count)),
-        Line::from(format!("Reclaim:     {}", reclaim)),
-        Line::from(format!("Retain:      {}", retain)),
-        Line::from(""),
     ];
+
+    if dialog.shared_count > 0 {
+        // Mixed mode (03-01) — itemised counts, per-shared-file detail,
+        // separate Reclaim/Retained lines.
+        lines.push(Line::from(format!(
+            "Files:       {} unique + {} shared + {} sidecars",
+            dialog.unique_count, dialog.shared_count, dialog.sidecar_count
+        )));
+        for shared in &dialog.shared_models {
+            let file_name = shared
+                .model
+                .on_disk_path
+                .file_name()
+                .map(|s| s.to_string_lossy().into_owned())
+                .unwrap_or_else(|| shared.model.id_in_tool.clone());
+            let other_tools = shared
+                .other_tools
+                .iter()
+                .map(|t| t.0)
+                .collect::<Vec<_>>()
+                .join(", ");
+            lines.push(Line::from(format!(
+                "  {} — also linked in {}",
+                file_name, other_tools
+            )));
+        }
+        lines.push(Line::from(format!(
+            "Reclaim:     {}",
+            format_gb(dialog.bytes_to_reclaim)
+        )));
+        lines.push(Line::from(format!(
+            "Retained:    {}",
+            format_gb(dialog.bytes_to_retain)
+        )));
+    } else {
+        // All-unique mode (01-04) — original schema preserved verbatim so
+        // the `folder_confirm_dialog_all_unique` snapshot stays green.
+        let reclaim = format_bytes(dialog.bytes_to_reclaim);
+        let retain = format_bytes(dialog.bytes_to_retain);
+        lines.push(Line::from(format!("Files:       {}", dialog.file_count())));
+        lines.push(Line::from(format!("  Unique:    {}", dialog.unique_count)));
+        lines.push(Line::from(format!("  Shared:    {}", dialog.shared_count)));
+        lines.push(Line::from(format!("  Sidecars:  {}", dialog.sidecar_count)));
+        lines.push(Line::from(format!("Reclaim:     {}", reclaim)));
+        lines.push(Line::from(format!("Retain:      {}", retain)));
+    }
+
+    lines.push(Line::from(""));
     if let Some(warning) = dialog.running_tool_warning.as_ref() {
         lines.push(Line::from(Span::styled(
             warning.clone(),

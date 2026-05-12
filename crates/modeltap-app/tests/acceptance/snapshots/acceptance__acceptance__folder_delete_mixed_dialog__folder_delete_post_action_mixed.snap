@@ -1,0 +1,8 @@
+---
+source: crates/modeltap-app/tests/acceptance/folder_delete_mixed_dialog.rs
+expression: frame
+---
+Last action: folder-delete bartowski/Llama-3.2-1B-Instruct-GGUF (success)
+Reclaimed: 13.2 GB
+Retained: 0.8 GB (1 file also linked in ollama)
+23 of 23 files removed

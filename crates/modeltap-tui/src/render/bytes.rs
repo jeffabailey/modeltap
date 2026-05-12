@@ -26,6 +26,17 @@ pub fn format_bytes(bytes: u64) -> String {
     }
 }
 
+/// Format a byte count ALWAYS in GB with one decimal place. Used by the
+/// folder-delete mixed-mode dialog and post-action banner so reclaim and
+/// retain values share a unit and align column-wise, even when the retain
+/// total is sub-GB (e.g. a single 808 MB shared file rendered as "0.8 GB"
+/// alongside a 13.2 GB reclaim). Decimal SI (1 GB == 10^9 B) to stay
+/// consistent with `format_bytes`.
+pub fn format_gb(bytes: u64) -> String {
+    const GB: u64 = 1_000_000_000;
+    format!("{:.1} GB", bytes as f64 / GB as f64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

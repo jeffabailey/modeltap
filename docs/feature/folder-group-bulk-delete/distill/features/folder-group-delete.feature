@@ -134,7 +134,8 @@ Feature: Delete a Hugging Face Folder Group
   # Mirrors US-05b classification rubric for per-file decisions.
   # ===========================================================================
 
-  @skip @us-05c @milestone-3 @ac-6 @ac-7
+  # @skip removed in DELIVER step 03-01.
+  @us-05c @milestone-3 @ac-6 @ac-7
   Scenario: Dialog itemises unique, shared, and sidecar counts for a mixed folder
     Given Devon has fixture "devon-hf-mixed" with the HF cache containing "bartowski/Llama-3.2-1B-Instruct-GGUF"
     And the folder contains 19 model files unique to Hugging Face totaling 13.2 GB
@@ -157,7 +158,8 @@ Feature: Delete a Hugging Face Folder Group
     And the Ollama path "blobs/sha256-<llama-q4-hash>" still exists
     And the Ollama path stats to a live inode with the original SHA256 content
 
-  @skip @us-05c @milestone-3 @ac-7 @ac-16 @destructive
+  # @skip removed in DELIVER step 03-01.
+  @us-05c @milestone-3 @ac-7 @ac-16 @destructive
   Scenario: Post-action summary reports bytes reclaimed and retained separately for a mixed folder
     Given Devon has completed a folder-delete against fixture "devon-hf-mixed" for "bartowski/Llama-3.2-1B-Instruct-GGUF"
     And the folder had 19 unique files (13.2 GB), 1 shared file (0.8 GB), 3 sidecars (1.3 MB)

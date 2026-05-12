@@ -25,7 +25,7 @@
 //!   `FolderConfirmDecision::Confirm`; the orchestrator (in
 //!   `modeltap-app`) then calls `Tool::delete_folder`.
 
-use modeltap_core::types::FolderGroup;
+use modeltap_core::types::{FolderGroup, SharedModel};
 
 /// Decision returned by `decide_on_enter` / `decide_on_esc`. The `update()`
 /// function maps `Confirm` to a `UpdateEffect::trigger_folder_delete` (lands
@@ -79,6 +79,12 @@ pub struct FolderConfirmState {
     /// no warning. Step 01-04 never sets a non-`None` value; running-tool
     /// detection lands at 03-04.
     pub running_tool_warning: Option<String>,
+    /// Per-shared-file detail for mixed shared/unique itemisation (step
+    /// 03-01). Empty in the all-unique case; populated by
+    /// `for_folder_with_shared` from the classifier's `Vec<SharedModel>` so
+    /// the mixed-mode renderer can name each shared file and list the
+    /// other tools whose hardlinks keep its inode alive.
+    pub shared_models: Vec<SharedModel>,
     typed_input: String,
 }
 
@@ -104,6 +110,36 @@ impl FolderConfirmState {
             bytes_to_reclaim,
             bytes_to_retain,
             running_tool_warning: None,
+            shared_models: Vec::new(),
+            typed_input: String::new(),
+        }
+    }
+
+    /// Construct a dialog snapshot for a mixed shared/unique folder (step
+    /// 03-01). `shared_count` is derived from `shared.len()` — the slice
+    /// carries the per-shared-file detail (which other tools hold the
+    /// inode) that the mixed-mode renderer surfaces as
+    /// "<filename> — also linked in <tool>". The reclaim/retain promises
+    /// come from the same `build_folder_delete_plan` producer as the
+    /// all-unique path.
+    pub fn for_folder_with_shared(
+        folder: FolderGroup,
+        unique_count: usize,
+        sidecar_count: usize,
+        bytes_to_reclaim: u64,
+        bytes_to_retain: u64,
+        shared: Vec<SharedModel>,
+    ) -> Self {
+        let shared_count = shared.len();
+        Self {
+            folder,
+            unique_count,
+            shared_count,
+            sidecar_count,
+            bytes_to_reclaim,
+            bytes_to_retain,
+            running_tool_warning: None,
+            shared_models: shared,
             typed_input: String::new(),
         }
     }
@@ -255,5 +291,41 @@ mod tests {
         let folder = fixture_folder();
         let d = FolderConfirmState::for_folder(folder, 3, 2, 1, 4_000_000_000, 2_000_000_000);
         assert_eq!(d.file_count(), 6);
+    }
+
+    /// Step 03-01: `for_folder_with_shared` derives `shared_count` from the
+    /// `Vec<SharedModel>` slice — the caller passes the shared list directly
+    /// (the dialog renders per-shared-file detail) instead of just the count.
+    #[test]
+    fn for_folder_with_shared_derives_shared_count_from_slice() {
+        use modeltap_core::types::SharedModel;
+        let folder = fixture_folder();
+        let shared_model = ModelMeta {
+            tool: ToolId("hf"),
+            id_in_tool: "alice/foo/shared.gguf".to_string(),
+            on_disk_path: PathBuf::from("/cache/alice/foo/shared.gguf"),
+            size_bytes: 500_000_000,
+            format: Format::Gguf,
+            dedup_key: DedupKey::Tentative(DisplayLabel::from("alice/foo/shared.gguf@500m")),
+            display_label: DisplayLabel::from("alice/foo/shared.gguf"),
+            status: ModelStatus::Healthy,
+        };
+        let shared = vec![SharedModel {
+            model: shared_model,
+            other_tools: vec![ToolId("ollama")],
+        }];
+        let d = FolderConfirmState::for_folder_with_shared(
+            folder,
+            1,
+            0,
+            1_000_000_000,
+            500_000_000,
+            shared,
+        );
+        assert_eq!(d.shared_count, 1, "shared_count derived from slice length");
+        assert_eq!(d.unique_count, 1);
+        assert_eq!(d.bytes_to_retain, 500_000_000);
+        assert_eq!(d.shared_models.len(), 1);
+        assert_eq!(d.shared_models[0].other_tools, vec![ToolId("ollama")]);
     }
 }
