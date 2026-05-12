@@ -135,6 +135,112 @@ pub fn delete_one_at(
     })
 }
 
+/// Delete the HF-side registration AND the HF-side blob path for a model
+/// whose inode is shared with another tool via a cross-tool hardlink. The
+/// inode survives because the other tool still holds a hardlink to it (per
+/// `FolderDeletePlan.paths_to_unlink_hf_only` per **ADR-010**).
+///
+/// Distinction from [`delete_one_at`]:
+///   - `delete_one_at` is HF-internal ref-counting: a blob shared by two
+///     snapshots WITHIN the same repo. If another snapshot still references
+///     the blob, keep it; bytes_freed=0 because intra-repo dedup is internal.
+///   - `delete_one_hf_side_only_at` is CROSS-TOOL ref-counting: a blob whose
+///     inode has `nlink > 1` because another tool (Ollama, LM Studio,
+///     Atomic Chat) holds a hardlink. We DO unlink the HF-side path so the
+///     directory cleanup can succeed and the user-visible HF cache view is
+///     gone, but we report `file_deleted=false, bytes_freed=0` because the
+///     data isn't truly freed — the OS keeps the inode alive via the other
+///     tool's hardlink.
+///
+/// The "did we free disk?" question is answered by `nlink` on the blob
+/// metadata BEFORE the unlink: if `nlink > 1`, unlinking the HF path
+/// decrements the count but the data persists. Hence the outcome shape
+/// `file_deleted=false, bytes_freed=0` — the orchestrator credits these
+/// bytes to `bytes_to_retain` not `bytes_to_reclaim`.
+///
+/// Used by `folder_delete::delete_folder_at` for files routed through
+/// `paths_to_unlink_hf_only` (the cross-tool-shared case). The OS hardlink
+/// semantics guarantee the inode survives via the other tool's path — this
+/// function's outcome shape encodes that guarantee (INT-FGD-4).
+pub fn delete_one_hf_side_only_at(
+    hub_root: &Path,
+    target_blob: &Path,
+    model_id_in_tool: &str,
+) -> Result<DeleteOutcome, DeleteError> {
+    let tool: ToolId = TOOL_NAME;
+    if !hub_root.exists() {
+        return Err(DeleteError::NotFound(model_id_in_tool.to_string()));
+    }
+    let snaps = list_snapshot_files(hub_root);
+    let target_blob_canon =
+        std::fs::canonicalize(target_blob).unwrap_or_else(|_| target_blob.to_path_buf());
+    let mut snap_path: Option<PathBuf> = None;
+    let mut other_snaps: Vec<PathBuf> = Vec::new();
+    for snap in &snaps {
+        if let Resolved::Ok { target_path, .. } = resolve_snapshot_target(&snap.file_path) {
+            let resolved_canon =
+                std::fs::canonicalize(&target_path).unwrap_or_else(|_| target_path.clone());
+            if resolved_canon == target_blob_canon {
+                if snap_path.is_none() {
+                    snap_path = Some(snap.file_path.clone());
+                } else {
+                    other_snaps.push(snap.file_path.clone());
+                }
+            }
+        }
+    }
+    let Some(snap_path) = snap_path else {
+        return Err(DeleteError::NotFound(model_id_in_tool.to_string()));
+    };
+    let registration_removed = match std::fs::remove_file(&snap_path) {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::warn!(
+                target: "modeltap.hf.delete",
+                "delete_one_hf_side_only: remove snapshot symlink {}: {e}",
+                snap_path.display()
+            );
+            false
+        }
+    };
+    if !registration_removed {
+        return Ok(DeleteOutcome {
+            tool,
+            model_id_in_tool: model_id_in_tool.to_string(),
+            bytes_freed: 0,
+            registration_removed: false,
+            file_deleted: false,
+        });
+    }
+    // Unlink the HF-side blob path itself. The blob's inode survives because
+    // another tool holds an additional hardlink (nlink ≥ 2 pre-unlink). If
+    // another HF snapshot within this same repo also references the blob,
+    // skip the blob-path unlink to preserve intra-repo dedup (delegate to
+    // ref-counting). The S.2 contract test requires `!blob_shared_1.exists()`
+    // post-delete, which this branch satisfies for the cross-tool case.
+    let intra_repo_shared = !other_snaps.is_empty();
+    if !intra_repo_shared {
+        if let Err(e) = std::fs::remove_file(target_blob) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(
+                    target: "modeltap.hf.delete",
+                    "delete_one_hf_side_only: remove HF-side blob path {}: {e}",
+                    target_blob.display()
+                );
+            }
+        }
+    }
+    // Outcome shape per plugin-contract-spec.md §3.11.S.2: the inode survives
+    // via the other tool's hardlink, so bytes are not credited as freed.
+    Ok(DeleteOutcome {
+        tool,
+        model_id_in_tool: model_id_in_tool.to_string(),
+        bytes_freed: 0,
+        registration_removed: true,
+        file_deleted: false,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

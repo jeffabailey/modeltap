@@ -150,7 +150,8 @@ Feature: Delete a Hugging Face Folder Group
     And the dialog shows "Reclaim: 13.2 GB"
     And the dialog shows "Retained: 0.8 GB"
 
-  @skip @us-05c @milestone-3 @ac-10 @int-fgd-4 @destructive @real-io
+  # @skip removed in DELIVER step 03-02.
+  @us-05c @milestone-3 @ac-10 @int-fgd-4 @destructive @real-io
   Scenario: Folder-delete preserves the Ollama-side hardlink for a shared model file
     Given Devon has fixture "devon-hf-mixed" with "Llama-3.2-1B-Instruct-Q4_K_M.gguf" hardlinked into both Hugging Face and Ollama
     And the Hugging Face and Ollama paths stat to the same inode pre-delete

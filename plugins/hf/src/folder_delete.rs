@@ -41,7 +41,7 @@ use modeltap_core::types::{
 
 use walkdir::WalkDir;
 
-use crate::delete::delete_one_at;
+use crate::delete::{delete_one_at, delete_one_hf_side_only_at};
 use crate::TOOL_NAME;
 
 // ---------------------------------------------------------------------------
@@ -159,9 +159,57 @@ pub fn delete_folder_at(
         .map(|m| m.on_disk_path.clone())
         .collect();
 
-    // Model files first — registration symlink + ref-counted blob removal.
+    // Model files first — branch by plan classification:
+    //
+    //   - paths_to_unlink_hf_only ⇒ shared with another tool via cross-tool
+    //     hardlink. Unlink only the HF-side snapshot symlink; leave the blob
+    //     so the surviving tool's hardlink keeps the inode alive. Outcome
+    //     reports registration_removed=true, file_deleted=false, bytes_freed=0
+    //     (plugin-contract-spec.md §3.11.S.2; ADR-010).
+    //
+    //   - paths_to_unlink_fully ⇒ unique (or assumed unique by classifier).
+    //     Route through delete_one_at to reuse ADR-009 ref-counting and
+    //     credit bytes_freed accordingly.
+    //
+    // Anything not appearing in either list is conservatively skipped — the
+    // plan is the source of truth for what to touch (ADR-010 §"Plan as
+    // Source of Truth").
+    let hf_only: std::collections::HashSet<&Path> = plan
+        .paths_to_unlink_hf_only
+        .iter()
+        .map(|p| p.as_path())
+        .collect();
+    let unlink_fully: std::collections::HashSet<&Path> = plan
+        .paths_to_unlink_fully
+        .iter()
+        .map(|p| p.as_path())
+        .collect();
+
     for model in &plan.folder.models {
-        let outcome = match delete_one_at(hub_root, &model.on_disk_path, &model.id_in_tool) {
+        let is_shared = hf_only.contains(model.on_disk_path.as_path());
+        let is_unique = unlink_fully.contains(model.on_disk_path.as_path());
+        let result = if is_shared {
+            delete_one_hf_side_only_at(hub_root, &model.on_disk_path, &model.id_in_tool)
+        } else if is_unique {
+            delete_one_at(hub_root, &model.on_disk_path, &model.id_in_tool)
+        } else {
+            // Defensive: model not in either bucket. Treat as a no-op outcome
+            // so the orchestrator's per-file accounting stays balanced.
+            tracing::warn!(
+                target: "modeltap.hf.delete_folder",
+                "model {} not in paths_to_unlink_fully or paths_to_unlink_hf_only; skipping",
+                model.id_in_tool,
+            );
+            outcomes.push(DeleteOutcome {
+                tool,
+                model_id_in_tool: model.id_in_tool.clone(),
+                bytes_freed: 0,
+                registration_removed: false,
+                file_deleted: false,
+            });
+            continue;
+        };
+        let outcome = match result {
             Ok(o) => o,
             Err(e) => {
                 tracing::warn!(

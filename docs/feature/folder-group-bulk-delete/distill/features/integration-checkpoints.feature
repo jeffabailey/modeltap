@@ -53,7 +53,8 @@ Feature: Folder-Group Delete — Cross-Cutting Integration Invariants
   # Cross-tool hardlink preservation
   # ---------------------------------------------------------------------------
 
-  @skip @us-05c @int-fgd-4 @destructive @real-io
+  # @skip removed in DELIVER step 03-02.
+  @us-05c @int-fgd-4 @destructive @real-io
   Scenario: For every shared file, the other tool's hardlink survives the folder-delete
     Given Devon has completed a folder-delete against any HF fixture that contained shared files
     When the post-action discovery rebuild completes
