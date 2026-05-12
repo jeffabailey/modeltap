@@ -35,6 +35,9 @@ use ratatui::Terminal;
 use tokio_util::sync::CancellationToken;
 
 use crate::actions::delete_one::{self, DeleteOneOutcome};
+use crate::actions::folder_delete::{
+    self, FolderDeleteOutcome, FolderDeleteResult, SidecarEnumerator,
+};
 use crate::actions::reclassify;
 use crate::actions::unify::{self, DryRunOutcome, UnifyOutcome, UnifyResult};
 use crate::actions::zap::{self, ZapOutcome, ZapResult};
@@ -197,6 +200,50 @@ pub fn run(
                     return 1;
                 }
                 continue; // skip to next script token
+            }
+            // US-05c walking-skeleton (step 01-05): `<folder-delete>` sentinel
+            // dispatches the folder-group bulk-delete orchestration directly,
+            // bypassing the (not-yet-implemented) production confirmation
+            // dialog. The targeted folder is read from
+            // `MODELTAP_HEADLESS_FOLDER_PATH` (same env-var seam pattern as
+            // `MODELTAP_HEADLESS_DETAIL_REGS` for US-10 / US-05b).
+            if t == "folder-delete" {
+                let folder_path = match std::env::var("MODELTAP_HEADLESS_FOLDER_PATH") {
+                    Ok(p) if !p.is_empty() => p,
+                    _ => {
+                        eprintln!(
+                            "modeltap: <folder-delete> requires \
+                             MODELTAP_HEADLESS_FOLDER_PATH"
+                        );
+                        return 1;
+                    }
+                };
+                if let Some(plugin) = find_plugin(&plugins, ToolId("hf")) {
+                    let hub_root = modeltap_plugin_hf::discover::resolve_hub_root();
+                    let enumerator = HfSidecarEnumerator;
+                    let outcome = rt.block_on(folder_delete::run(
+                        plugin,
+                        ToolId("hf"),
+                        folder_path,
+                        &hub_root,
+                        &enumerator,
+                        &mut logger,
+                    ));
+                    let last_action = build_folder_delete_last_action(&outcome);
+                    let (next, _) =
+                        update(std::mem::take(&mut state), Msg::SetLastAction(last_action));
+                    state = next;
+                } else {
+                    tracing::warn!(
+                        target: "modeltap.action.folder_delete",
+                        "no hf plugin available; <folder-delete> is a no-op"
+                    );
+                }
+                if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                    eprintln!("modeltap: <folder-delete> redraw failed: {e}");
+                    return 1;
+                }
+                continue;
             }
         }
         let dialog_open = state.zap_dialog.is_some()
@@ -1095,6 +1142,37 @@ fn build_unify_last_action(outcome: &UnifyOutcome, target_name: String) -> LastA
             LastAction::for_unify_partial(target_name, outcome.bytes_reclaimed, successes, failures)
         }
         UnifyResult::Failed => LastAction::for_unify_failed(target_name),
+    }
+}
+
+/// HF-plugin-owned sidecar walker, injected into `folder_delete::run` via the
+/// `SidecarEnumerator` port so the orchestrator stays plugin-agnostic.
+struct HfSidecarEnumerator;
+
+impl SidecarEnumerator for HfSidecarEnumerator {
+    fn enumerate(
+        &self,
+        repo_dir: &std::path::Path,
+        model_files: &[std::path::PathBuf],
+    ) -> Vec<modeltap_core::types::Sidecar> {
+        modeltap_plugin_hf::folder_delete::enumerate_sidecars(repo_dir, model_files)
+    }
+}
+
+/// Map a `FolderDeleteOutcome` to a structured `LastAction` for the right-pane
+/// banner (US-05c, step 01-05).
+fn build_folder_delete_last_action(outcome: &FolderDeleteOutcome) -> LastAction {
+    match outcome.outcome {
+        FolderDeleteResult::Success => LastAction::for_folder_delete_success(
+            outcome.folder_path.clone(),
+            outcome.bytes_reclaimed,
+            outcome.bytes_retained,
+            outcome.files_total,
+            outcome.files_removed,
+        ),
+        FolderDeleteResult::Partial | FolderDeleteResult::Failed => {
+            LastAction::for_folder_delete_failed(outcome.folder_path.clone())
+        }
     }
 }
 

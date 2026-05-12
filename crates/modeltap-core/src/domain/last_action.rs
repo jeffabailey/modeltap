@@ -16,11 +16,14 @@ use crate::types::ToolId;
 
 /// Which mutating action produced this banner. Only `Zap` is reachable in
 /// the WS slice; `Unify` lands in 03-02, `Delete` (single-model) in 03-06.
+/// `FolderDelete` (folder-group-bulk-delete, US-05c) lands in step 01-05 — the
+/// walking-skeleton orchestration for the HF plugin's `delete_folder` path.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ActionVerb {
     Zap,
     Unify,
     Delete,
+    FolderDelete,
 }
 
 impl ActionVerb {
@@ -29,6 +32,7 @@ impl ActionVerb {
             ActionVerb::Zap => "zap",
             ActionVerb::Unify => "unify",
             ActionVerb::Delete => "delete",
+            ActionVerb::FolderDelete => "folder-delete",
         }
     }
 }
@@ -94,6 +98,24 @@ pub struct LastAction {
     /// Optional extra string for the body line. Used by unify to render
     /// "1 inode, 3 hardlinks" per the US-06 scenario; None for zap.
     pub extra: Option<String>,
+    /// US-05c folder-delete: how many files the FolderDeletePlan promised
+    /// vs how many actually had their registration removed. `None` for every
+    /// non-folder-delete action so the existing two-line banner schema is
+    /// preserved verbatim for zap / unify / delete-one.
+    pub folder_delete_files: Option<FolderDeleteFiles>,
+}
+
+/// Per-action file-tally for the folder-delete banner body line
+/// (`5 of 5 files removed`). Built by
+/// `modeltap_app::orchestration::execute_folder_delete` from the
+/// aggregate `Vec<DeleteOutcome>` returned by `Tool::delete_folder`.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct FolderDeleteFiles {
+    /// Total files the plan covered (`plan.folder.file_count()`).
+    pub total: u64,
+    /// Files whose registration was actually removed
+    /// (`outcomes.iter().filter(|o| o.registration_removed).count()`).
+    pub removed: u64,
 }
 
 impl LastAction {
@@ -108,6 +130,7 @@ impl LastAction {
             bytes_reclaimed,
             bytes_retained,
             extra: None,
+            folder_delete_files: None,
         }
     }
 
@@ -121,6 +144,7 @@ impl LastAction {
             bytes_reclaimed: 0,
             bytes_retained: 0,
             extra: None,
+            folder_delete_files: None,
         }
     }
 
@@ -142,6 +166,7 @@ impl LastAction {
             bytes_reclaimed,
             bytes_retained: 0,
             extra: None,
+            folder_delete_files: None,
         }
     }
 
@@ -157,6 +182,7 @@ impl LastAction {
             bytes_reclaimed,
             bytes_retained: 0,
             extra: Some(format!("1 inode, {hardlink_count} hardlinks")),
+            folder_delete_files: None,
         }
     }
 
@@ -173,6 +199,7 @@ impl LastAction {
             extra: Some(format!(
                 "already unified: 1 inode, {hardlink_count} hardlinks"
             )),
+            folder_delete_files: None,
         }
     }
 
@@ -193,6 +220,7 @@ impl LastAction {
             bytes_reclaimed,
             bytes_retained: 0,
             extra: None,
+            folder_delete_files: None,
         }
     }
 
@@ -206,6 +234,7 @@ impl LastAction {
             bytes_reclaimed: 0,
             bytes_retained: 0,
             extra: None,
+            folder_delete_files: None,
         }
     }
 
@@ -230,6 +259,7 @@ impl LastAction {
             bytes_reclaimed,
             bytes_retained: 0,
             extra,
+            folder_delete_files: None,
         }
     }
 
@@ -243,6 +273,50 @@ impl LastAction {
             bytes_reclaimed: 0,
             bytes_retained: 0,
             extra: None,
+            folder_delete_files: None,
+        }
+    }
+
+    /// Construct a success banner for a confirmed folder-delete
+    /// (US-05c walking-skeleton — step 01-05). `target` is the canonical
+    /// `<author>/<repo>` string the user typed at the confirmation prompt
+    /// (NOT a tool id — folder-delete acts on a single repo within HF).
+    /// `bytes_reclaimed` sums the unlinked bytes (unique-model + sidecar
+    /// bytes); `bytes_retained` sums the kept-on-purpose bytes (shared models
+    /// whose HF registration was unlinked but whose inode is preserved by
+    /// another tool's hardlink — 0 for the all-unique WS path).
+    pub fn for_folder_delete_success(
+        target: String,
+        bytes_reclaimed: u64,
+        bytes_retained: u64,
+        files_total: u64,
+        files_removed: u64,
+    ) -> Self {
+        Self {
+            verb: ActionVerb::FolderDelete,
+            target,
+            status: ActionStatus::Success,
+            bytes_reclaimed,
+            bytes_retained,
+            extra: None,
+            folder_delete_files: Some(FolderDeleteFiles {
+                total: files_total,
+                removed: files_removed,
+            }),
+        }
+    }
+
+    /// Construct a failure banner for a folder-delete that errored before
+    /// any work (or where pre-flight refused).
+    pub fn for_folder_delete_failed(target: String) -> Self {
+        Self {
+            verb: ActionVerb::FolderDelete,
+            target,
+            status: ActionStatus::Failed,
+            bytes_reclaimed: 0,
+            bytes_retained: 0,
+            extra: None,
+            folder_delete_files: None,
         }
     }
 }

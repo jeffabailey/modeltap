@@ -47,6 +47,15 @@ pub fn view_lines(action: &LastAction) -> Vec<String> {
                 ));
             }
             lines.push(body);
+            // US-05c (folder-group-bulk-delete, step 01-05): append a third
+            // file-tally line `N of M files removed` per AC-16 when the
+            // banner carries folder-delete file counts.
+            if let Some(files) = action.folder_delete_files {
+                lines.push(format!(
+                    "{} of {} files removed",
+                    files.removed, files.total
+                ));
+            }
         }
     }
     lines

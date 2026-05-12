@@ -108,6 +108,21 @@ pub enum RecordKind {
         cross_fs_targets: u64,
         outcome: &'static str,
     },
+    /// Result of a confirmed folder-group-bulk-delete action (US-05c,
+    /// step 01-05; ADR-010). Per the privacy rule (`kpi-instrumentation.md`
+    /// §"Privacy"): NO on-disk paths, NO blob hex digests. The `folder_path`
+    /// field is the canonical `<author>/<repo>` identifier the user typed
+    /// at the confirmation prompt — a logical identifier, NOT a filesystem
+    /// path. `outcome` is one of `"success"`, `"partial"`, `"failed"`.
+    ActionFolderDelete {
+        tool: String,
+        folder_path: String,
+        files_total: u64,
+        files_removed: u64,
+        bytes_reclaimed: u64,
+        bytes_retained: u64,
+        outcome: &'static str,
+    },
     /// One entry per discovered model. Written to a separate `models.log`
     /// file (NOT `launch.log`) so per-model metadata stays out of the
     /// privacy-sensitive launch event stream. Used by acceptance tests to
@@ -298,6 +313,25 @@ impl LaunchLogger {
                 env["tools_to_unify"] = json!(tools_to_unify);
                 env["bytes_would_reclaim"] = json!(bytes_would_reclaim);
                 env["cross_fs_targets"] = json!(cross_fs_targets);
+                env["outcome"] = json!(outcome);
+                env
+            }
+            RecordKind::ActionFolderDelete {
+                tool,
+                folder_path,
+                files_total,
+                files_removed,
+                bytes_reclaimed,
+                bytes_retained,
+                outcome,
+            } => {
+                let mut env = self.base_envelope("action.folder_delete");
+                env["tool"] = json!(tool);
+                env["folder_path"] = json!(folder_path);
+                env["files_total"] = json!(files_total);
+                env["files_removed"] = json!(files_removed);
+                env["bytes_reclaimed"] = json!(bytes_reclaimed);
+                env["bytes_retained"] = json!(bytes_retained);
                 env["outcome"] = json!(outcome);
                 env
             }

@@ -49,4 +49,14 @@ mod acceptance {
     pub mod us_u7_all_unified_pseudo_slot;
     pub mod us_u8_all_unified_empty_state;
     pub mod us_u9_detail_inode_proof;
+
+    // ---------------------------------------------------------------------
+    // folder-group-bulk-delete feature (DISTILL artifacts):
+    //   docs/feature/folder-group-bulk-delete/distill/features/folder-group-delete.feature
+    //
+    // Step 01-05 enables ONLY the @walking-skeleton (M1) scenario; every
+    // other scenario in that feature file remains @skip-tagged and lands in
+    // phases 02..06 per the deliver roadmap.
+    // ---------------------------------------------------------------------
+    pub mod folder_delete_walking_skeleton;
 }
