@@ -218,7 +218,50 @@ pub fn run(
                         return 1;
                     }
                 };
-                if let Some(plugin) = find_plugin(&plugins, ToolId("hf")) {
+                // Step 02-01: M2 confirmation-safety seam. The headless
+                // harness simulates the dialog state machine by replaying
+                // the user's typed input + decision through
+                // `FolderConfirmState::decide_on_*`. When the decision is
+                // Confirm, dispatch the WS happy-path (folder_delete::run).
+                // When CancelMismatch / CancelEscape, dispatch the cancel-
+                // and-emit path (folder_delete::run_cancelled) so the JSONL
+                // event carries `outcome=cancelled_mismatch` /
+                // `outcome=cancelled_escape` with `outcomes_count=0` and the
+                // plugin is never called (fixture stays byte-identical).
+                let typed_input = std::env::var("MODELTAP_HEADLESS_FOLDER_TYPED_INPUT")
+                    .unwrap_or_else(|_| folder_path.clone());
+                let decision_mode = std::env::var("MODELTAP_HEADLESS_FOLDER_DECISION_MODE")
+                    .unwrap_or_else(|_| "confirm".to_string());
+                let cancel_reason: Option<folder_delete::CancelReason> =
+                    match decision_mode.as_str() {
+                        "esc" => Some(folder_delete::CancelReason::Escape),
+                        "enter" | "confirm" => {
+                            if typed_input == folder_path {
+                                None
+                            } else {
+                                Some(folder_delete::CancelReason::Mismatch)
+                            }
+                        }
+                        other => {
+                            eprintln!(
+                            "modeltap: unknown MODELTAP_HEADLESS_FOLDER_DECISION_MODE={other:?}"
+                        );
+                            return 1;
+                        }
+                    };
+
+                if let Some(cancel) = cancel_reason {
+                    let outcome = folder_delete::run_cancelled(
+                        ToolId("hf"),
+                        folder_path,
+                        cancel,
+                        &mut logger,
+                    );
+                    let last_action = build_folder_delete_last_action(&outcome);
+                    let (next, _) =
+                        update(std::mem::take(&mut state), Msg::SetLastAction(last_action));
+                    state = next;
+                } else if let Some(plugin) = find_plugin(&plugins, ToolId("hf")) {
                     let hub_root = modeltap_plugin_hf::discover::resolve_hub_root();
                     let enumerator = HfSidecarEnumerator;
                     let outcome = rt.block_on(folder_delete::run(
@@ -1160,7 +1203,11 @@ impl SidecarEnumerator for HfSidecarEnumerator {
 }
 
 /// Map a `FolderDeleteOutcome` to a structured `LastAction` for the right-pane
-/// banner (US-05c, step 01-05).
+/// banner (US-05c, step 01-05). Step 02-01 extends this to handle the cancel
+/// paths — they currently surface as `for_folder_delete_failed` because the
+/// dedicated cancel-banner ("dialog closed — no destructive action") lands
+/// later in M3 along with the mixed-mode rendering work. The JSONL event is
+/// the precise observability stream for the cancel paths.
 fn build_folder_delete_last_action(outcome: &FolderDeleteOutcome) -> LastAction {
     match outcome.outcome {
         FolderDeleteResult::Success => LastAction::for_folder_delete_success(
@@ -1170,7 +1217,10 @@ fn build_folder_delete_last_action(outcome: &FolderDeleteOutcome) -> LastAction 
             outcome.files_total,
             outcome.files_removed,
         ),
-        FolderDeleteResult::Partial | FolderDeleteResult::Failed => {
+        FolderDeleteResult::Partial
+        | FolderDeleteResult::Failed
+        | FolderDeleteResult::CancelledMismatch
+        | FolderDeleteResult::CancelledEscape => {
             LastAction::for_folder_delete_failed(outcome.folder_path.clone())
         }
     }

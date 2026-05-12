@@ -47,6 +47,12 @@ pub struct FolderDeleteOutcome {
     pub bytes_retained: u64,
     pub files_total: u64,
     pub files_removed: u64,
+    /// Step 02-01: size of the `Vec<DeleteOutcome>` returned by
+    /// `Tool::delete_folder`. ALWAYS 0 on the cancel paths because the
+    /// plugin is never called. Mirrored into the JSONL event as
+    /// `outcomes_count` — used by the M6 @property invariant ("no
+    /// DeleteOutcome is produced for any file in the folder").
+    pub outcomes_count: u64,
     pub outcome: FolderDeleteResult,
 }
 
@@ -59,6 +65,14 @@ pub enum FolderDeleteResult {
     /// The plugin returned an error before any file work; or the folder was
     /// not found in the discovered inventory.
     Failed,
+    /// Step 02-01: the user pressed Enter with a typed input that did NOT
+    /// byte-exactly match `folder.path`. No plugin call, no filesystem
+    /// mutation. JSONL outcome = `"cancelled_mismatch"`, `outcomes_count=0`.
+    CancelledMismatch,
+    /// Step 02-01: the user pressed Esc during the dialog. No plugin call,
+    /// no filesystem mutation. JSONL outcome = `"cancelled_escape"`,
+    /// `outcomes_count=0`.
+    CancelledEscape,
 }
 
 impl FolderDeleteResult {
@@ -67,6 +81,8 @@ impl FolderDeleteResult {
             FolderDeleteResult::Success => "success",
             FolderDeleteResult::Partial => "partial",
             FolderDeleteResult::Failed => "failed",
+            FolderDeleteResult::CancelledMismatch => "cancelled_mismatch",
+            FolderDeleteResult::CancelledEscape => "cancelled_escape",
         }
     }
 }
@@ -217,6 +233,7 @@ pub async fn run(
 
     // 7b. Aggregate. `files_removed` counts outcomes with registration_removed.
     let files_removed: u64 = outcomes.iter().filter(|o| o.registration_removed).count() as u64;
+    let outcomes_count: u64 = outcomes.len() as u64;
     let bytes_reclaimed: u64 = outcomes.iter().map(|o| o.bytes_freed).sum();
     let result = if files_removed == files_total {
         FolderDeleteResult::Success
@@ -241,10 +258,56 @@ pub async fn run(
         bytes_retained: bytes_to_retain,
         files_total,
         files_removed,
+        outcomes_count,
         outcome: result,
     };
     emit(logger, &outcome);
     outcome
+}
+
+/// Step 02-01: orchestrator's cancel-and-emit path for the typed-confirm
+/// dialog. Invoked when the user dismisses the confirmation prompt via Esc
+/// or by entering text that does not byte-exactly match `folder_path`. The
+/// plugin is never called — zero DeleteOutcomes, zero filesystem mutation
+/// (the HF cache directory is byte-identical pre/post this call, asserted
+/// by the M2 acceptance tests via `DirManifest`).
+///
+/// Emits exactly one `action.folder_delete` JSONL event with
+/// `outcomes_count=0` and `outcome` set to either `"cancelled_mismatch"` or
+/// `"cancelled_escape"` per the `cancel` argument.
+pub fn run_cancelled(
+    tool_id: ToolId,
+    folder_path: String,
+    cancel: CancelReason,
+    logger: &mut LaunchLogger,
+) -> FolderDeleteOutcome {
+    let result = match cancel {
+        CancelReason::Mismatch => FolderDeleteResult::CancelledMismatch,
+        CancelReason::Escape => FolderDeleteResult::CancelledEscape,
+    };
+    let outcome = FolderDeleteOutcome {
+        tool: tool_id,
+        folder_path,
+        bytes_reclaimed: 0,
+        bytes_retained: 0,
+        files_total: 0,
+        files_removed: 0,
+        outcomes_count: 0,
+        outcome: result,
+    };
+    emit(logger, &outcome);
+    outcome
+}
+
+/// Reason a folder-delete was cancelled before any plugin call. Maps onto
+/// the JSONL `outcome` field via `FolderDeleteResult::as_str`.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CancelReason {
+    /// Typed input did not byte-exactly match `folder_path` (wrong case,
+    /// trailing slash, leading whitespace, …).
+    Mismatch,
+    /// Esc pressed during the dialog.
+    Escape,
 }
 
 fn project_to_model_meta(tool: ToolId, d: DiscoveredModel) -> ModelMeta {
@@ -274,6 +337,7 @@ fn emit_and_return_failed(
         bytes_retained: 0,
         files_total: 0,
         files_removed: 0,
+        outcomes_count: 0,
         outcome: FolderDeleteResult::Failed,
     };
     emit(logger, &outcome);
@@ -288,6 +352,7 @@ fn emit(logger: &mut LaunchLogger, outcome: &FolderDeleteOutcome) {
         files_removed: outcome.files_removed,
         bytes_reclaimed: outcome.bytes_reclaimed,
         bytes_retained: outcome.bytes_retained,
+        outcomes_count: outcome.outcomes_count,
         outcome: outcome.outcome.as_str(),
     });
 }

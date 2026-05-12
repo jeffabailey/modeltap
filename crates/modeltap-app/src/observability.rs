@@ -113,7 +113,12 @@ pub enum RecordKind {
     /// §"Privacy"): NO on-disk paths, NO blob hex digests. The `folder_path`
     /// field is the canonical `<author>/<repo>` identifier the user typed
     /// at the confirmation prompt — a logical identifier, NOT a filesystem
-    /// path. `outcome` is one of `"success"`, `"partial"`, `"failed"`.
+    /// path. `outcome` is one of `"success"`, `"partial"`, `"failed"`,
+    /// `"cancelled_mismatch"` (typed-confirm byte-mismatch — step 02-01),
+    /// or `"cancelled_escape"` (Esc pressed during the dialog — step 02-01).
+    /// `outcomes_count` is the size of the `Vec<DeleteOutcome>` returned by
+    /// `Tool::delete_folder`; ALWAYS 0 on the cancel paths because the plugin
+    /// is never called (step 02-01, M6 @property invariant).
     ActionFolderDelete {
         tool: String,
         folder_path: String,
@@ -121,6 +126,7 @@ pub enum RecordKind {
         files_removed: u64,
         bytes_reclaimed: u64,
         bytes_retained: u64,
+        outcomes_count: u64,
         outcome: &'static str,
     },
     /// One entry per discovered model. Written to a separate `models.log`
@@ -323,6 +329,7 @@ impl LaunchLogger {
                 files_removed,
                 bytes_reclaimed,
                 bytes_retained,
+                outcomes_count,
                 outcome,
             } => {
                 let mut env = self.base_envelope("action.folder_delete");
@@ -332,6 +339,7 @@ impl LaunchLogger {
                 env["files_removed"] = json!(files_removed);
                 env["bytes_reclaimed"] = json!(bytes_reclaimed);
                 env["bytes_retained"] = json!(bytes_retained);
+                env["outcomes_count"] = json!(outcomes_count);
                 env["outcome"] = json!(outcome);
                 env
             }

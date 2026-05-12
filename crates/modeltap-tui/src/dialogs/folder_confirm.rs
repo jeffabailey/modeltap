@@ -36,8 +36,16 @@ pub enum FolderConfirmDecision {
     /// Typed input matches `folder.path` exactly → proceed with
     /// `delete_folder`.
     Confirm,
-    /// Typed input does not match (or Esc pressed) → close dialog, no-op.
-    Cancel,
+    /// Typed input does not match `folder.path` byte-exactly (including
+    /// trailing whitespace, leading slash, wrong case, trailing slash, …).
+    /// Closes the dialog with no destructive side-effect. The orchestrator
+    /// emits an `action.folder_delete` event with `outcome=cancelled_mismatch`
+    /// and `outcomes_count=0` (step 02-01).
+    CancelMismatch,
+    /// Esc was pressed at any point. Closes the dialog with no destructive
+    /// side-effect. The orchestrator emits an `action.folder_delete` event
+    /// with `outcome=cancelled_escape` and `outcomes_count=0` (step 02-01).
+    CancelEscape,
 }
 
 /// Pure state for the folder-confirm dialog. All mutation is through
@@ -123,18 +131,22 @@ impl FolderConfirmState {
     }
 
     /// Decide on Enter. BYTE-EQUAL, CASE-SENSITIVE match against
-    /// `folder.path` — INT-FGD-7's single-source-of-truth invariant.
+    /// `folder.path` — INT-FGD-7's single-source-of-truth invariant. Any
+    /// byte-difference (trailing slash, leading whitespace, wrong case, …)
+    /// returns `CancelMismatch` — the orchestrator distinguishes this from
+    /// `CancelEscape` to emit the correct JSONL outcome (step 02-01).
     pub fn decide_on_enter(&self) -> FolderConfirmDecision {
         if self.typed_input == self.folder.path {
             FolderConfirmDecision::Confirm
         } else {
-            FolderConfirmDecision::Cancel
+            FolderConfirmDecision::CancelMismatch
         }
     }
 
-    /// Esc always cancels.
+    /// Esc always cancels with `CancelEscape` — distinct from a mismatched
+    /// Enter so the JSONL outcome reflects the user's intent (step 02-01).
     pub fn decide_on_esc(&self) -> FolderConfirmDecision {
-        FolderConfirmDecision::Cancel
+        FolderConfirmDecision::CancelEscape
     }
 }
 
@@ -177,21 +189,53 @@ mod tests {
     }
 
     #[test]
-    fn typed_path_case_mismatch_cancels() {
+    fn typed_path_case_mismatch_cancels_with_mismatch_variant() {
         let folder = fixture_folder();
         let mut d = FolderConfirmState::for_folder(folder, 1, 0, 0, 1_000_000_000, 0);
         for c in "ALICE/FOO".chars() {
             d.handle_char(c);
         }
         // Wrong case — must cancel per INT-FGD-7 byte-equal contract.
-        assert_eq!(d.decide_on_enter(), FolderConfirmDecision::Cancel);
+        assert_eq!(d.decide_on_enter(), FolderConfirmDecision::CancelMismatch);
     }
 
+    /// Step 02-01: byte-exact comparator rejects a trailing slash. The HF
+    /// canonical `<author>/<repo>` form has no trailing slash; typing one
+    /// must cancel rather than confirm (D2 decision: no normalization).
     #[test]
-    fn esc_always_cancels() {
+    fn typed_path_with_trailing_slash_cancels_with_mismatch_variant() {
+        let folder = fixture_folder();
+        let mut d = FolderConfirmState::for_folder(folder, 1, 0, 0, 1_000_000_000, 0);
+        for c in "alice/foo/".chars() {
+            d.handle_char(c);
+        }
+        assert_eq!(d.decide_on_enter(), FolderConfirmDecision::CancelMismatch);
+    }
+
+    /// Step 02-01: Esc returns CancelEscape, distinct from CancelMismatch
+    /// returned by `decide_on_enter` on a mismatched typed input. The
+    /// orchestrator uses this distinction to emit the correct JSONL outcome
+    /// (`cancelled_escape` vs `cancelled_mismatch`).
+    #[test]
+    fn esc_always_cancels_with_escape_variant() {
         let folder = fixture_folder();
         let d = FolderConfirmState::for_folder(folder, 1, 0, 0, 1_000_000_000, 0);
-        assert_eq!(d.decide_on_esc(), FolderConfirmDecision::Cancel);
+        assert_eq!(d.decide_on_esc(), FolderConfirmDecision::CancelEscape);
+    }
+
+    /// Step 02-01: CancelMismatch and CancelEscape are distinct variants;
+    /// the orchestrator's `cancelled_mismatch` vs `cancelled_escape` JSONL
+    /// outcomes depend on this distinction. If a future refactor collapses
+    /// them back to a single Cancel variant, this assertion fails and forces
+    /// re-evaluation of the JSONL contract (kpi-instrumentation.md §
+    /// "action.folder_delete").
+    #[test]
+    fn cancel_mismatch_and_cancel_escape_are_distinguishable() {
+        assert_ne!(
+            FolderConfirmDecision::CancelMismatch,
+            FolderConfirmDecision::CancelEscape,
+            "CancelMismatch and CancelEscape must be distinct so the orchestrator can route to the right JSONL outcome",
+        );
     }
 
     #[test]

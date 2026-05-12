@@ -89,7 +89,8 @@ Feature: Delete a Hugging Face Folder Group
   # MILESTONE 2 — Confirmation safety (typed-confirm guardrails)
   # ===========================================================================
 
-  @skip @us-05c @milestone-2 @ac-8 @destructive
+  # @skip removed in DELIVER step 02-01.
+  @us-05c @milestone-2 @ac-8 @destructive
   Scenario: Wrong typed path cancels the folder delete with no destructive action
     Given Devon has fixture "devon-hf-allunique" with the repo "bartowski/Llama-3.2-1B-Instruct-GGUF" (5 files, 2.1 GB)
     And Devon has opened the folder-delete dialog for "bartowski/Llama-3.2-1B-Instruct-GGUF"
@@ -98,7 +99,8 @@ Feature: Delete a Hugging Face Folder Group
     And no files are removed from the Hugging Face fixture directory
     And the folder header still appears in the right pane
 
-  @skip @us-05c @milestone-2 @ac-9
+  # @skip removed in DELIVER step 02-01.
+  @us-05c @milestone-2 @ac-9
   Scenario: Esc cancels the folder delete with no destructive action
     Given Devon has fixture "devon-hf-allunique" with the repo "bartowski/Llama-3.2-1B-Instruct-GGUF" (5 files, 2.1 GB)
     And Devon has opened the folder-delete dialog for "bartowski/Llama-3.2-1B-Instruct-GGUF"
@@ -107,7 +109,8 @@ Feature: Delete a Hugging Face Folder Group
     And no files are removed from the Hugging Face fixture directory
     And the folder header still appears in the right pane
 
-  @skip @us-05c @milestone-2 @ac-8 @destructive
+  # @skip removed in DELIVER step 02-01.
+  @us-05c @milestone-2 @ac-8 @destructive
   Scenario: Typed path with trailing slash is treated as mismatch
     Given Devon has fixture "devon-hf-allunique" with the repo "bartowski/Llama-3.2-1B-Instruct-GGUF" (5 files, 2.1 GB)
     And Devon has opened the folder-delete dialog for "bartowski/Llama-3.2-1B-Instruct-GGUF"

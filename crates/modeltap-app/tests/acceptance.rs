@@ -56,7 +56,10 @@ mod acceptance {
     //
     // Step 01-05 enables ONLY the @walking-skeleton (M1) scenario; every
     // other scenario in that feature file remains @skip-tagged and lands in
-    // phases 02..06 per the deliver roadmap.
+    // phases 02..06 per the deliver roadmap. Step 02-01 adds the 3 M2
+    // confirmation-safety scenarios (wrong path / trailing slash / Esc).
     // ---------------------------------------------------------------------
+    pub mod dir_manifest;
+    pub mod folder_delete_confirmation_safety;
     pub mod folder_delete_walking_skeleton;
 }
