@@ -31,3 +31,6 @@ inventory = "0.3"
 # Property-based testing for the compatibility-indicator engine invariant
 # (US-09 @property scenario). Used by tests/compatibility_property.rs.
 proptest = "1"
+# Async runtime for testing async trait methods (step 01-01: `Tool::delete_folder`
+# default body). Dev-only — modeltap-core itself remains I/O-free.
+tokio = { workspace = true }

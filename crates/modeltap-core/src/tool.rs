@@ -23,8 +23,8 @@ use std::path::Path;
 use async_trait::async_trait;
 
 use crate::types::{
-    DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, Format, LinkError, LinkOutcome,
-    ModelMeta, ToolId,
+    DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, FolderDeletePlan, Format,
+    LinkError, LinkOutcome, ModelMeta, ToolId,
 };
 
 /// The plugin port. Object-safe (per ADR-001) so `Vec<Box<dyn Tool>>` works
@@ -61,4 +61,31 @@ pub trait Tool: Send + Sync {
     /// over `delete_one`; tools with batch-optimized delete may override.
     /// Implemented in step 03-04; stubbed in 01-02.
     async fn delete_all(&self) -> Result<Vec<DeleteOutcome>, DeleteError>;
+
+    /// Delete every file in a folder-group from this tool's storage.
+    ///
+    /// Per ADR-010, the default body returns
+    /// `Err(DeleteError::Unsupported { tool: self.name() })` so plugins that
+    /// do not have a folder-grouped layout (Ollama, llama-cli, LM Studio,
+    /// atomic-chat) compile without an override and the orchestrator can
+    /// surface a coherent no-op-with-message at the UI layer when (somehow)
+    /// folder-delete is dispatched to a non-folder-aware plugin. The HF
+    /// plugin overrides this default in step 01-03.
+    ///
+    /// Contract (when overridden):
+    /// - Iterates the plan's paths and returns one `DeleteOutcome` per file.
+    /// - On per-file failure: continues; failed entry has
+    ///   `registration_removed: false`, `file_deleted: false`,
+    ///   `bytes_freed: 0`.
+    /// - Cross-tool hardlinks must survive: shared model files have only
+    ///   the plugin-side path unlinked.
+    /// - On full success: the now-empty repo directory tree is removed.
+    /// - Idempotent on retry against a partial folder.
+    async fn delete_folder(
+        &self,
+        plan: &FolderDeletePlan,
+    ) -> Result<Vec<DeleteOutcome>, DeleteError> {
+        let _ = plan;
+        Err(DeleteError::Unsupported { tool: self.name() })
+    }
 }
