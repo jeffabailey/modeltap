@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.6]
+
+### Added
+
+- per-tool PNG icons in left pane via ratatui-image
+- add FolderGroup types + Tool::delete_folder default body (Step 01-01)
+- add pure folder-group logic (group/classify/plan) (Step 01-02)
+- add folder header + Shift+F keymap + folder confirm dialog (Step 01-04)
+- implement delete_folder happy path (Step 01-03)
+- orchestrate folder-delete + M1 walking-skeleton green (Step 01-05)
+- add @property proptests for folder-group invariants (Step 03-03)
+- wrong-path + trailing-slash + Esc cancel paths (Step 02-01)
+- itemize mixed-folder dialog + post-action accounting (Step 03-01)
+- pre-flight refusals for read-only cache + vanished folder (Step 04-03)
+- folder-delete plugin-contract tests + M5 boundary (Step 05-01)
+- Shift+F is no-op on non-HF tools + dim [F] indicator (Step 02-02)
+- mixed-folder delete preserves cross-tool hardlinks (Step 03-02)
+- partial-failure handling + EBUSY test seam (Step 04-01)
+- idempotent folder-delete retry after busy resolved (Step 04-02)
+- KPI instrumentation + keystroke-count + mis-target invariant (Step 06-01)
+- integration checkpoints + feature exit gate (Step 06-02)
+- show folder grouping in HF right pane (recovery step 01-06)
+- folder collapse/expand with default collapsed (Step 01-07)
+
+### Fixed
+
+- keep bottom-bar within 80 cols by shortening [F] label
+
+### Misc
+
+- If a git tree falls in a forest and no one is around to hear it, does it make a sound?
+- kill surviving mutants in classify_sidecar / path_starts_with_subdir
+- If a git tree falls in a forest and no one is around to hear it, does it make a sound?
+
 ## [0.2.5]
 
 ### Added
