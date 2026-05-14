@@ -4,30 +4,30 @@
     "parent_feature": "modeltap-tui",
     "user_story": "US-05c",
     "created_at": "2026-05-11T00:00:00Z",
-    "total_steps": 14,
+    "total_steps": 16,
     "phases": 6
   },
   "phases": [
     {
       "id": "01",
-      "name": "Walking Skeleton — Devon deletes an all-unique HF folder end-to-end",
+      "name": "Walking Skeleton \u2014 Devon deletes an all-unique HF folder end-to-end",
       "description": "Thinnest end-to-end vertical slice that proves the architecture for folder-group delete: modeltap-core grows the FolderGroup / FolderDeletePlan / FolderDeleteOutcome / Sidecar types and the Tool::delete_folder trait method (default Err(DeleteError::Unsupported)), the HF plugin implements the happy-path override for an all-unique folder (sidecar enumeration + per-file unlink loop + empty-tree cleanup), modeltap-tui adds the folder-header row type, the [+]/[-] indicator, the Shift+F keymap entry, and the folder-confirm dialog, modeltap-app orchestrates the plan + dispatch + post-action LastAction. Exit gate = the M1 @walking-skeleton scenario in folder-group-delete.feature passes against a real HF tempdir fixture using the real HF plugin override. Closes the riskiest assumption (the trait extension is source-compatible AND the per-file unlink + empty-tree cleanup is correct) before any confirmation safety or partial-failure work begins.",
-      "release_target": "Release 3 — Folder-group delete (sub-release of parent Release 2 'Reclaim disk safely')",
+      "release_target": "Release 3 \u2014 Folder-group delete (sub-release of parent Release 2 'Reclaim disk safely')",
       "exit_gate": "The M1 walking-skeleton scenario 'Devon deletes an all-unique HF repo folder and reclaims disk' in docs/feature/folder-group-bulk-delete/distill/features/folder-group-delete.feature passes on macOS and Linux CI, AND the workspace continues to satisfy `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` (parent regression gate INT-FGD-8 partial preview).",
       "estimated_total_hours": 24,
       "steps": [
         {
           "id": "01-01",
           "name": "Core types and Tool trait extension (FolderGroup, FolderDeletePlan, FolderDeleteOutcome, Sidecar, DeleteError::Unsupported, Tool::delete_folder default body)",
-          "description": "Lands the algebraic types and the trait surface that every later step composes against. Adds FolderGroup, Sidecar, SidecarKind, FolderClassification (with SharedModel), and FolderDeletePlan to modeltap-core::types per data-models.md sections 1–4. Adds the DeleteError::Unsupported { tool: ToolId } variant to the existing DeleteError enum and ensures every existing exhaustive match compiles (the compiler enforces the update across modeltap-app and the plugins). Extends the Tool trait in modeltap-core::tool with the seventh method `async fn delete_folder(&self, plan: &FolderDeletePlan) -> Result<Vec<DeleteOutcome>, DeleteError>` whose default body returns Err(DeleteError::Unsupported { tool: self.name() }). FolderGroup's smart-constructor invariants (path regex, absolute_path naming convention, model tool == hf, sidecars-may-be-empty) are enforced by construction. FolderDeletePlan's invariants (paths counts, classification counts, reclaim+retain==total within rounding) are unit-tested directly. No behavior change to existing plugins — Ollama / llama-cli / lm-studio inherit the default body and compile without source changes. Pure-logic-only step; no I/O, no async edges touched yet.",
+          "description": "Lands the algebraic types and the trait surface that every later step composes against. Adds FolderGroup, Sidecar, SidecarKind, FolderClassification (with SharedModel), and FolderDeletePlan to modeltap-core::types per data-models.md sections 1\u20134. Adds the DeleteError::Unsupported { tool: ToolId } variant to the existing DeleteError enum and ensures every existing exhaustive match compiles (the compiler enforces the update across modeltap-app and the plugins). Extends the Tool trait in modeltap-core::tool with the seventh method `async fn delete_folder(&self, plan: &FolderDeletePlan) -> Result<Vec<DeleteOutcome>, DeleteError>` whose default body returns Err(DeleteError::Unsupported { tool: self.name() }). FolderGroup's smart-constructor invariants (path regex, absolute_path naming convention, model tool == hf, sidecars-may-be-empty) are enforced by construction. FolderDeletePlan's invariants (paths counts, classification counts, reclaim+retain==total within rounding) are unit-tested directly. No behavior change to existing plugins \u2014 Ollama / llama-cli / lm-studio inherit the default body and compile without source changes. Pure-logic-only step; no I/O, no async edges touched yet.",
           "criteria": [
-            "FolderGroup type compiles in modeltap-core::types with fields path, absolute_path, tool, models, sidecars (data-models.md §1)",
-            "Sidecar and SidecarKind types compile with the variants Readme, Imatrix, Urls, HfInternal, Other (data-models.md §2)",
-            "FolderClassification and SharedModel types compile (data-models.md §3)",
-            "FolderDeletePlan type compiles with the documented invariants asserted by build_folder_delete_plan unit tests (data-models.md §4)",
+            "FolderGroup type compiles in modeltap-core::types with fields path, absolute_path, tool, models, sidecars (data-models.md \u00a71)",
+            "Sidecar and SidecarKind types compile with the variants Readme, Imatrix, Urls, HfInternal, Other (data-models.md \u00a72)",
+            "FolderClassification and SharedModel types compile (data-models.md \u00a73)",
+            "FolderDeletePlan type compiles with the documented invariants asserted by build_folder_delete_plan unit tests (data-models.md \u00a74)",
             "DeleteError::Unsupported { tool } variant is added; every existing exhaustive match on DeleteError compiles workspace-wide",
-            "Tool trait grows the delete_folder method with a default body returning Err(DeleteError::Unsupported { tool: self.name() }) (ADR-010 Decision; data-models.md §7)",
-            "Calling .delete_folder(&plan) on every existing plugin (Ollama, llama-cli, lm-studio, hf) compiles without override (default body covers them) — preserves the M5 prerequisite for scenario 'Non-HF plugins return Unsupported when asked to delete a folder'"
+            "Tool trait grows the delete_folder method with a default body returning Err(DeleteError::Unsupported { tool: self.name() }) (ADR-010 Decision; data-models.md \u00a77)",
+            "Calling .delete_folder(&plan) on every existing plugin (Ollama, llama-cli, lm-studio, hf) compiles without override (default body covers them) \u2014 preserves the M5 prerequisite for scenario 'Non-HF plugins return Unsupported when asked to delete a folder'"
           ],
           "test_file": "crates/modeltap-core/tests/folder_group_types.rs",
           "scenario_name": [
@@ -43,7 +43,13 @@
             "crates/modeltap-core/src/tool.rs",
             "crates/modeltap-core/tests/folder_group_types.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "cargo build -p modeltap-core succeeds",
             "cargo test -p modeltap-core --test folder_group_types passes",
@@ -51,19 +57,23 @@
             "cargo fmt --all and cargo clippy --workspace --all-targets -- -D warnings clean",
             "Rustdoc references ADR-010 on the Tool::delete_folder method"
           ],
-          "adr_references": ["ADR-001", "ADR-009", "ADR-010"]
+          "adr_references": [
+            "ADR-001",
+            "ADR-009",
+            "ADR-010"
+          ]
         },
         {
           "id": "01-02",
-          "name": "Pure folder-group logic (group_by_hf_repo, classify_unique_vs_shared, build_folder_delete_plan) — single-engine invariant enforced at the call site",
-          "description": "Lands the pure-function surface in modeltap-core::logic::folder_group per component-boundaries.md §'New module: modeltap-core::logic::folder_group' and the C4-L3 in architecture-design.md §4.3. Three functions: group_by_hf_repo partitions HF ToolInventory.models by the `<author>/<repo>` prefix of id_in_tool and pairs each group with the sidecars supplied by the HF plugin; classify_unique_vs_shared routes EVERY child model through compatibility::compute_indicator and projects the result into FolderClassification (Shared → shared with other_tools; Compatible | FormatLocked | Unknown → unique per data-models.md §3 mapping table); build_folder_delete_plan computes paths_to_unlink_fully (unique models + all sidecars), paths_to_unlink_hf_only (shared models' HF-side paths), bytes_to_reclaim, bytes_to_retain, and asserts the reclaim+retain==total invariant. The single-engine invariant (AC-13 / D-FGD-4) is enforced at the call site: classify_unique_vs_shared is the ONLY producer of FolderClassification and its body MUST call compute_indicator for each model. No I/O, no async, no tokio in this module.",
+          "name": "Pure folder-group logic (group_by_hf_repo, classify_unique_vs_shared, build_folder_delete_plan) \u2014 single-engine invariant enforced at the call site",
+          "description": "Lands the pure-function surface in modeltap-core::logic::folder_group per component-boundaries.md \u00a7'New module: modeltap-core::logic::folder_group' and the C4-L3 in architecture-design.md \u00a74.3. Three functions: group_by_hf_repo partitions HF ToolInventory.models by the `<author>/<repo>` prefix of id_in_tool and pairs each group with the sidecars supplied by the HF plugin; classify_unique_vs_shared routes EVERY child model through compatibility::compute_indicator and projects the result into FolderClassification (Shared \u2192 shared with other_tools; Compatible | FormatLocked | Unknown \u2192 unique per data-models.md \u00a73 mapping table); build_folder_delete_plan computes paths_to_unlink_fully (unique models + all sidecars), paths_to_unlink_hf_only (shared models' HF-side paths), bytes_to_reclaim, bytes_to_retain, and asserts the reclaim+retain==total invariant. The single-engine invariant (AC-13 / D-FGD-4) is enforced at the call site: classify_unique_vs_shared is the ONLY producer of FolderClassification and its body MUST call compute_indicator for each model. No I/O, no async, no tokio in this module.",
           "criteria": [
-            "logic::folder_group::group_by_hf_repo partitions HF ToolInventory.models by <author>/<repo> prefix into a deterministic Vec<FolderGroup> (component-boundaries.md §New module)",
-            "logic::folder_group::classify_unique_vs_shared routes every child model through compatibility::compute_indicator — verified by inspection and by the property test that no classification path produces a Shared bucket without a corresponding compute_indicator == Shared call (AC-13 / D-FGD-4)",
-            "Tentative dedup keys never yield Shared classification (architecture-design.md §10 R1 mitigation; supports M3 @property scenario 'For any folder, per-file classification matches compute_indicator on every child')",
+            "logic::folder_group::group_by_hf_repo partitions HF ToolInventory.models by <author>/<repo> prefix into a deterministic Vec<FolderGroup> (component-boundaries.md \u00a7New module)",
+            "logic::folder_group::classify_unique_vs_shared routes every child model through compatibility::compute_indicator \u2014 verified by inspection and by the property test that no classification path produces a Shared bucket without a corresponding compute_indicator == Shared call (AC-13 / D-FGD-4)",
+            "Tentative dedup keys never yield Shared classification (architecture-design.md \u00a710 R1 mitigation; supports M3 @property scenario 'For any folder, per-file classification matches compute_indicator on every child')",
             "logic::folder_group::build_folder_delete_plan returns a plan satisfying bytes_to_reclaim + bytes_to_retain == folder.total_bytes() within rounding tolerance of 1 byte (INT-FGD-3 / acceptance-criteria.md INT-FGD-3)",
             "logic::folder_group::build_folder_delete_plan returns a plan satisfying paths_to_unlink_fully.len() + paths_to_unlink_hf_only.len() == folder.file_count() (INT-FGD-2 / acceptance-criteria.md INT-FGD-2)",
-            "All three functions are pure: no I/O, no tokio, no spawn_blocking, no walkdir, no std::fs — the modeltap-core crate's dep graph is unchanged"
+            "All three functions are pure: no I/O, no tokio, no spawn_blocking, no walkdir, no std::fs \u2014 the modeltap-core crate's dep graph is unchanged"
           ],
           "test_file": "crates/modeltap-core/tests/folder_group_logic.rs",
           "scenario_name": [
@@ -74,33 +84,43 @@
             "build_folder_delete_plan satisfies INT-FGD-3 (reclaim + retain == total within rounding)",
             "Property: Tentative dedup keys never produce Shared classification"
           ],
-          "deps": ["01-01"],
+          "deps": [
+            "01-01"
+          ],
           "time_estimate_hours": 4,
           "implementation_scope": [
             "crates/modeltap-core/src/logic/mod.rs",
             "crates/modeltap-core/src/logic/folder_group.rs",
             "crates/modeltap-core/tests/folder_group_logic.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "cargo test -p modeltap-core --test folder_group_logic passes (including the proptest invariant)",
             "Rustdoc on classify_unique_vs_shared cites AC-13 and the single-engine invariant",
-            "cargo metadata-based architecture lint (parent's tests/architecture.rs) still passes — modeltap-core has not gained any new deps",
+            "cargo metadata-based architecture lint (parent's tests/architecture.rs) still passes \u2014 modeltap-core has not gained any new deps",
             "cargo fmt + cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-010"]
+          "adr_references": [
+            "ADR-010"
+          ]
         },
         {
           "id": "01-03",
           "name": "HF plugin override for the all-unique happy path (delete_folder, enumerate_sidecars, delete_folder_at, remove_empty_repo_tree)",
-          "description": "Lands the HF plugin's Tool::delete_folder override for the simplest case: all-unique model files plus sidecars, no EBUSY, no shared files. Wires plugins/hf::folder_delete::HfPlugin::delete_folder to wrap the sync work in tokio::task::spawn_blocking per the existing ADR-005 pattern. Implements enumerate_sidecars(repo_dir) — owned by the HF plugin per AC-14 / B-FGD-2 — using walkdir to find README.md, .imatrix, .gguf.urls, and HF-internal refs/blobs entries scoped to this repo's snapshot. Implements delete_folder_at(hub, plan) — the per-file unlink loop — that routes model files through the existing crate::delete::delete_one_at (reusing ADR-009 ref-counting) and sidecars through direct std::fs::remove_file, collecting one DeleteOutcome per file. Implements remove_empty_repo_tree(repo_dir) — best-effort cleanup of the now-empty models--<author>--<repo>/ directory tree. The contract from architecture-design.md §4.4 and ADR-010 §Implementation Guidance applies: per-file failures continue (no early return) but the walking skeleton only exercises the all-success path. No partial-failure work in this step (that lands in phase 04). No shared-file classification yet beyond the unique-only happy path (that work lands in phase 03). The exact sidecar suffix list is a software-crafter decision per architecture-design.md §13 open item and component-boundaries.md §Open items deferred to DELIVER.",
+          "description": "Lands the HF plugin's Tool::delete_folder override for the simplest case: all-unique model files plus sidecars, no EBUSY, no shared files. Wires plugins/hf::folder_delete::HfPlugin::delete_folder to wrap the sync work in tokio::task::spawn_blocking per the existing ADR-005 pattern. Implements enumerate_sidecars(repo_dir) \u2014 owned by the HF plugin per AC-14 / B-FGD-2 \u2014 using walkdir to find README.md, .imatrix, .gguf.urls, and HF-internal refs/blobs entries scoped to this repo's snapshot. Implements delete_folder_at(hub, plan) \u2014 the per-file unlink loop \u2014 that routes model files through the existing crate::delete::delete_one_at (reusing ADR-009 ref-counting) and sidecars through direct std::fs::remove_file, collecting one DeleteOutcome per file. Implements remove_empty_repo_tree(repo_dir) \u2014 best-effort cleanup of the now-empty models--<author>--<repo>/ directory tree. The contract from architecture-design.md \u00a74.4 and ADR-010 \u00a7Implementation Guidance applies: per-file failures continue (no early return) but the walking skeleton only exercises the all-success path. No partial-failure work in this step (that lands in phase 04). No shared-file classification yet beyond the unique-only happy path (that work lands in phase 03). The exact sidecar suffix list is a software-crafter decision per architecture-design.md \u00a713 open item and component-boundaries.md \u00a7Open items deferred to DELIVER.",
           "criteria": [
-            "HfPlugin::delete_folder returns Ok(Vec<DeleteOutcome>) for an all-unique plan with one entry per file (models + sidecars), each with registration_removed: true and file_deleted: true (plugin-contract-spec.md §3.11.S.3)",
-            "Sum of bytes_freed across the returned outcomes equals plan.bytes_to_reclaim (plugin-contract-spec.md §3.11.S.1)",
+            "HfPlugin::delete_folder returns Ok(Vec<DeleteOutcome>) for an all-unique plan with one entry per file (models + sidecars), each with registration_removed: true and file_deleted: true (plugin-contract-spec.md \u00a73.11.S.3)",
+            "Sum of bytes_freed across the returned outcomes equals plan.bytes_to_reclaim (plugin-contract-spec.md \u00a73.11.S.1)",
             "After delete_folder completes against an all-unique fixture, every named model file and sidecar no longer exists on disk (folder-group-delete.feature M1 'the 2 model files are removed', 'the 3 sidecar files are removed')",
-            "After delete_folder completes, the models--<author>--<repo>/ directory tree is fully removed and the parent <HF_HOME>/hub/ directory still exists (folder-group-delete.feature M1 'the now-empty directory tree is removed'; plugin-contract-spec.md §3.11.S.7)",
-            "enumerate_sidecars enumeration is owned by the HF plugin (no sidecar-suffix-list hardcoded in modeltap-core) — verified by code-review / grep over modeltap-core/src (AC-14 / B-FGD-2)",
-            "delete_one_at is reused for model files — verified by absence of any direct blob-unlink path in folder_delete.rs (preserves ADR-009 ref-counting; supports INT-FGD-4 cross-tool hardlink survival in phase 03)"
+            "After delete_folder completes, the models--<author>--<repo>/ directory tree is fully removed and the parent <HF_HOME>/hub/ directory still exists (folder-group-delete.feature M1 'the now-empty directory tree is removed'; plugin-contract-spec.md \u00a73.11.S.7)",
+            "enumerate_sidecars enumeration is owned by the HF plugin (no sidecar-suffix-list hardcoded in modeltap-core) \u2014 verified by code-review / grep over modeltap-core/src (AC-14 / B-FGD-2)",
+            "delete_one_at is reused for model files \u2014 verified by absence of any direct blob-unlink path in folder_delete.rs (preserves ADR-009 ref-counting; supports INT-FGD-4 cross-tool hardlink survival in phase 03)"
           ],
           "test_file": "plugins/hf/tests/folder_delete_happy_path.rs",
           "scenario_name": [
@@ -108,14 +128,23 @@
             "HF plugin removes the empty repo tree after successful deletion",
             "HF plugin enumerates README.md, .imatrix, .gguf.urls and HF-internal refs/blobs sidecars from a real tempdir tree"
           ],
-          "deps": ["01-01", "01-02"],
+          "deps": [
+            "01-01",
+            "01-02"
+          ],
           "time_estimate_hours": 6,
           "implementation_scope": [
             "plugins/hf/src/lib.rs",
             "plugins/hf/src/folder_delete.rs",
             "plugins/hf/tests/folder_delete_happy_path.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "cargo test -p modeltap-plugin-hf --test folder_delete_happy_path passes against a real tempfile-backed fixture",
             "No new dependency added to plugins/hf/Cargo.toml beyond walkdir (already present in HF discovery)",
@@ -123,20 +152,24 @@
             "delete_folder is wrapped in spawn_blocking per ADR-005",
             "cargo clippy --workspace --all-targets -- -D warnings clean (especially on the per-file outcome collection loop)"
           ],
-          "adr_references": ["ADR-005", "ADR-009", "ADR-010"]
+          "adr_references": [
+            "ADR-005",
+            "ADR-009",
+            "ADR-010"
+          ]
         },
         {
           "id": "01-04",
           "name": "TUI folder-header row + Shift+F keymap binding + folder-confirm dialog view",
-          "description": "Lands the user-facing surfaces. Extends modeltap-tui::view::two_pane with the folder-header row type per requirements.md F-FGD-1: header row format `[+]/[-] <author>/<repo>  N files, X GB (M unique, K shared)` for folders with >=2 files; single-file folder collapses to a US-04 row form. Folder header rows are cursor-targetable; sidecar child rows are not (AC-3). Extends modeltap-tui::input::keymap to register Shift+F in the existing SHORTCUT_TABLE (the single source for the bottom-bar render AND the dispatch table per AC-19 / US-08 invariant) and dispatch Msg::RequestFolderDelete { folder: FolderGroup } when the cursor is on a folder header AND the active tool is hf. Adds modeltap-tui::view::folder_confirm_dialog — a typed-confirm dialog mirroring the existing confirm_dialog pattern — showing folder path, absolute on-disk path, unique/shared/sidecar counts, Reclaim bytes, Retained bytes, running-tool warning slot, and a typed input field. Byte-exact comparison reads folder_group.path (no hardcoded literal — INT-FGD-7). For phase 01 the dialog displays only the all-unique happy-path content (the mixed shared/unique itemization lands in phase 03). The walking skeleton snapshot tests cover folder header rendering (collapsed/expanded) and the all-unique dialog body.",
+          "description": "Lands the user-facing surfaces. Extends modeltap-tui::view::two_pane with the folder-header row type per requirements.md F-FGD-1: header row format `[+]/[-] <author>/<repo>  N files, X GB (M unique, K shared)` for folders with >=2 files; single-file folder collapses to a US-04 row form. Folder header rows are cursor-targetable; sidecar child rows are not (AC-3). Extends modeltap-tui::input::keymap to register Shift+F in the existing SHORTCUT_TABLE (the single source for the bottom-bar render AND the dispatch table per AC-19 / US-08 invariant) and dispatch Msg::RequestFolderDelete { folder: FolderGroup } when the cursor is on a folder header AND the active tool is hf. Adds modeltap-tui::view::folder_confirm_dialog \u2014 a typed-confirm dialog mirroring the existing confirm_dialog pattern \u2014 showing folder path, absolute on-disk path, unique/shared/sidecar counts, Reclaim bytes, Retained bytes, running-tool warning slot, and a typed input field. Byte-exact comparison reads folder_group.path (no hardcoded literal \u2014 INT-FGD-7). For phase 01 the dialog displays only the all-unique happy-path content (the mixed shared/unique itemization lands in phase 03). The walking skeleton snapshot tests cover folder header rendering (collapsed/expanded) and the all-unique dialog body.",
           "criteria": [
             "Folder header rows render with the [+]/[-] indicator, repo path, file count, total bytes, unique/shared split per AC-2 (folder-group-delete.feature M1 implicit precondition + Layer D snapshot)",
             "Folder header rows are cursor-targetable; sidecar child rows are not (AC-3)",
             "Shift+F on a folder header dispatches Msg::RequestFolderDelete; Shift+F on a non-folder row or non-HF tool is a no-op (folder-group-delete.feature M1, M2 'Shift+F is a no-op when the active tool is not Hugging Face')",
-            "Shift+F is registered in SHORTCUT_TABLE — bottom-bar render and dispatch share the single source (AC-19 / US-08 invariant)",
+            "Shift+F is registered in SHORTCUT_TABLE \u2014 bottom-bar render and dispatch share the single source (AC-19 / US-08 invariant)",
             "The folder-confirm dialog opens within 200ms of Shift+F press (AC-4; JSONL action.folder_delete.dialog_open_ms < 200)",
-            "The typed-confirmation comparator reads folder_group.path — no string literal matching ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ appears inline in the keymap or dispatch code (INT-FGD-7; integration-checkpoints.feature 'comparator reads folder_group.path')",
-            "Byte-exact typed match (case-sensitive) executes; any other input including trailing slash cancels (AC-8) — exercised by the walking skeleton happy path; the wrong-path scenarios are deferred to phase 02"
+            "The typed-confirmation comparator reads folder_group.path \u2014 no string literal matching ^[a-zA-Z0-9._-]+/[a-zA-Z0-9._-]+$ appears inline in the keymap or dispatch code (INT-FGD-7; integration-checkpoints.feature 'comparator reads folder_group.path')",
+            "Byte-exact typed match (case-sensitive) executes; any other input including trailing slash cancels (AC-8) \u2014 exercised by the walking skeleton happy path; the wrong-path scenarios are deferred to phase 02"
           ],
           "test_file": "crates/modeltap-tui/tests/folder_header_and_dialog_snapshots.rs",
           "scenario_name": [
@@ -144,9 +177,11 @@
             "Folder header renders expanded with [-] indicator and child rows indented",
             "Shift+F on a folder header opens the folder-confirm dialog (insta snapshot)",
             "Folder-confirm dialog body shows path, absolute path, counts, Reclaim, Retained",
-            "Shift+F is in SHORTCUT_TABLE — bottom-bar render and dispatch share the single source"
+            "Shift+F is in SHORTCUT_TABLE \u2014 bottom-bar render and dispatch share the single source"
           ],
-          "deps": ["01-01"],
+          "deps": [
+            "01-01"
+          ],
           "time_estimate_hours": 5,
           "implementation_scope": [
             "crates/modeltap-tui/src/view/two_pane.rs",
@@ -154,20 +189,29 @@
             "crates/modeltap-tui/src/input/keymap.rs",
             "crates/modeltap-tui/tests/folder_header_and_dialog_snapshots.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "cargo test -p modeltap-tui --test folder_header_and_dialog_snapshots passes",
             "insta snapshot frames committed for collapsed header, expanded header, dialog body",
             "Lint test in crates/modeltap-tui/tests/lint.rs (NEW or extended) asserts no <author>/<repo>-shaped string literal in keymap.rs (D6 / INT-FGD-7)",
-            "cargo clippy --workspace --all-targets -- -D warnings clean — especially on the new Msg::RequestFolderDelete arm",
+            "cargo clippy --workspace --all-targets -- -D warnings clean \u2014 especially on the new Msg::RequestFolderDelete arm",
             "modeltap-tui still has zero I/O deps and zero plugin deps (architecture-lint R3/R4 unchanged)"
           ],
-          "adr_references": ["ADR-006", "ADR-010"]
+          "adr_references": [
+            "ADR-006",
+            "ADR-010"
+          ]
         },
         {
           "id": "01-05",
           "name": "Orchestration + walking-skeleton acceptance test (execute_folder_delete, M1 green end-to-end)",
-          "description": "Lands the composition root and ships the walking-skeleton scenario. Adds modeltap-app::orchestration::execute_folder_delete: receives Msg::RequestFolderDelete from the TUI, runs the two pre-flight checks per F-FGD-8 / AC-15 / AC-20 (cache writeable via FsProbe, folder still exists on disk), builds the FolderDeletePlan by calling logic::folder_group::{classify_unique_vs_shared, build_folder_delete_plan} over the in-memory Inventory, dispatches to Tool::delete_folder via the &dyn Tool registry (the only plugin that overrides in v1 is hf), aggregates Vec<DeleteOutcome> into LastAction (action: 'folder-delete', target: <author>/<repo>, status: success | partial, bytes_reclaimed, bytes_retained, per-file failures slot). On success the summary-bar refresh fires within 500ms per US-11 (AC-17). On the all-unique walking-skeleton path the status is always 'success' (partial-failure path is exercised in phase 04). Also extends tests/src/fixtures/ with the devon-hf-allunique fixture builder per acceptance-test-plan.md §3 and adds the cucumber-rs step definitions for the M1 scenario phrases per step-definitions-skeleton.md §A. The M1 scenario in folder-group-delete.feature is un-skipped (its @skip tag is removed); every other scenario remains @skip. The walking-skeleton exit gate is the M1 scenario going green end-to-end against the real HF plugin and a real tempdir fixture.",
+          "description": "Lands the composition root and ships the walking-skeleton scenario. Adds modeltap-app::orchestration::execute_folder_delete: receives Msg::RequestFolderDelete from the TUI, runs the two pre-flight checks per F-FGD-8 / AC-15 / AC-20 (cache writeable via FsProbe, folder still exists on disk), builds the FolderDeletePlan by calling logic::folder_group::{classify_unique_vs_shared, build_folder_delete_plan} over the in-memory Inventory, dispatches to Tool::delete_folder via the &dyn Tool registry (the only plugin that overrides in v1 is hf), aggregates Vec<DeleteOutcome> into LastAction (action: 'folder-delete', target: <author>/<repo>, status: success | partial, bytes_reclaimed, bytes_retained, per-file failures slot). On success the summary-bar refresh fires within 500ms per US-11 (AC-17). On the all-unique walking-skeleton path the status is always 'success' (partial-failure path is exercised in phase 04). Also extends tests/src/fixtures/ with the devon-hf-allunique fixture builder per acceptance-test-plan.md \u00a73 and adds the cucumber-rs step definitions for the M1 scenario phrases per step-definitions-skeleton.md \u00a7A. The M1 scenario in folder-group-delete.feature is un-skipped (its @skip tag is removed); every other scenario remains @skip. The walking-skeleton exit gate is the M1 scenario going green end-to-end against the real HF plugin and a real tempdir fixture.",
           "criteria": [
             "execute_folder_delete runs the cache-writeable pre-flight check via FsProbe before opening the dialog (AC-15; integration-checkpoints.feature 'Read-only HF cache refuses before the dialog opens' enabled in phase 04, prerequisite landed here)",
             "execute_folder_delete runs the folder-exists pre-flight check before opening the dialog (AC-20; integration-checkpoints.feature 'Folder deleted out-of-band between launch and Shift+F triggers re-discovery' enabled in phase 04, prerequisite landed here)",
@@ -181,7 +225,11 @@
           "scenario_name": [
             "Devon deletes an all-unique HF repo folder and reclaims disk"
           ],
-          "deps": ["01-02", "01-03", "01-04"],
+          "deps": [
+            "01-02",
+            "01-03",
+            "01-04"
+          ],
           "time_estimate_hours": 4,
           "implementation_scope": [
             "crates/modeltap-app/src/orchestration/execute_folder_delete.rs",
@@ -189,31 +237,43 @@
             "tests/src/fixtures/hf_fixture.rs",
             "tests/src/fixtures/build.sh"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "M1 @walking-skeleton scenario passes against real HfPlugin + tempdir fixture (D1 litmus test: deleting the HF adapter breaks the test)",
             "JSONL action.folder_delete event emitted to ~/.modeltap/launch.log with outcome == success per kpi-instrumentation.md",
             "Summary-bar refresh measured at < 500ms in the headless test harness (AC-17 evidence)",
-            "WALKING-SKELETON EXIT GATE — folder_delete_walking_skeleton acceptance test green on macOS-latest and ubuntu-latest CI",
+            "WALKING-SKELETON EXIT GATE \u2014 folder_delete_walking_skeleton acceptance test green on macOS-latest and ubuntu-latest CI",
             "cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace clean (CI lint discipline before push)",
             "Parent feature's @walking-skeleton scenarios in modeltap-tui/distill/features/master-acceptance.feature still pass (INT-FGD-8 partial preview)"
           ],
-          "adr_references": ["ADR-001", "ADR-005", "ADR-009", "ADR-010"]
+          "adr_references": [
+            "ADR-001",
+            "ADR-005",
+            "ADR-009",
+            "ADR-010"
+          ]
         }
       ]
     },
     {
       "id": "02",
-      "name": "Confirmation safety — typed-confirm guardrails (mismatch, Esc, trailing slash, non-HF no-op)",
-      "description": "Builds out the four safety guardrails around the typed-confirm dialog from milestone M2 in folder-group-delete.feature. Each guardrail asserts that the destructive path is unreachable when the user has not entered byte-exact confirmation, and that the cancel paths leave the filesystem byte-identical. Wrong-path mismatch, Esc cancellation, trailing-slash mismatch (D2 decision: byte-exact, no normalization), and Shift+F no-op when the active tool is not Hugging Face (the [F] indicator dimmed in the bottom bar). No new architecture — extends the dialog state machine and the keymap with the cancel/no-op branches. The pre-action inventory snapshot mechanism (DirManifest per step-definitions-skeleton.md §H) is materialized here so 'no destructive action' assertions are byte-precise.",
-      "release_target": "Release 3 — Folder-group delete",
+      "name": "Confirmation safety \u2014 typed-confirm guardrails (mismatch, Esc, trailing slash, non-HF no-op)",
+      "description": "Builds out the four safety guardrails around the typed-confirm dialog from milestone M2 in folder-group-delete.feature. Each guardrail asserts that the destructive path is unreachable when the user has not entered byte-exact confirmation, and that the cancel paths leave the filesystem byte-identical. Wrong-path mismatch, Esc cancellation, trailing-slash mismatch (D2 decision: byte-exact, no normalization), and Shift+F no-op when the active tool is not Hugging Face (the [F] indicator dimmed in the bottom bar). No new architecture \u2014 extends the dialog state machine and the keymap with the cancel/no-op branches. The pre-action inventory snapshot mechanism (DirManifest per step-definitions-skeleton.md \u00a7H) is materialized here so 'no destructive action' assertions are byte-precise.",
+      "release_target": "Release 3 \u2014 Folder-group delete",
       "exit_gate": "All four M2 scenarios in folder-group-delete.feature pass with @skip removed; the K-FGD-3 mis-target rate guardrail invariant (zero filesystem mutation on aborted dialog) holds across the four scenarios.",
       "estimated_total_hours": 8,
       "steps": [
         {
           "id": "02-01",
           "name": "Wrong-path mismatch + trailing-slash mismatch + Esc cancellation (byte-exact comparator, DirManifest pre/post assertion)",
-          "description": "Wires the three cancel paths into the dialog state machine. The comparator is byte-exact and case-sensitive per AC-8 / D2; any input not equal to folder_group.path (including trailing slash) cancels with no destructive action and emits JSONL action.folder_delete event with outcome == cancelled_mismatch. Esc cancels at any point with outcome == cancelled_escape. Materializes the DirManifest fixture helper (recursive (path, size, mtime) snapshot of the HF cache root) so the 'no files removed' / 'fixture directory is byte-identical' assertions are byte-precise rather than file-count-equal. Un-skips three M2 scenarios in folder-group-delete.feature. No HF-plugin-side changes — the cancel paths are entirely in modeltap-tui (dialog) + modeltap-app (orchestrator's reject-and-emit path).",
+          "description": "Wires the three cancel paths into the dialog state machine. The comparator is byte-exact and case-sensitive per AC-8 / D2; any input not equal to folder_group.path (including trailing slash) cancels with no destructive action and emits JSONL action.folder_delete event with outcome == cancelled_mismatch. Esc cancels at any point with outcome == cancelled_escape. Materializes the DirManifest fixture helper (recursive (path, size, mtime) snapshot of the HF cache root) so the 'no files removed' / 'fixture directory is byte-identical' assertions are byte-precise rather than file-count-equal. Un-skips three M2 scenarios in folder-group-delete.feature. No HF-plugin-side changes \u2014 the cancel paths are entirely in modeltap-tui (dialog) + modeltap-app (orchestrator's reject-and-emit path).",
           "criteria": [
             "Wrong typed path cancels the dialog with no destructive action and the folder header still appears in the right pane (folder-group-delete.feature M2 'Wrong typed path cancels the folder delete with no destructive action', AC-8)",
             "Trailing-slash input is treated as mismatch and cancels with no destructive action (folder-group-delete.feature M2 'Typed path with trailing slash is treated as mismatch', AC-8 / D2)",
@@ -227,7 +287,9 @@
             "Typed path with trailing slash is treated as mismatch",
             "Esc cancels the folder delete with no destructive action"
           ],
-          "deps": ["01-05"],
+          "deps": [
+            "01-05"
+          ],
           "time_estimate_hours": 4,
           "implementation_scope": [
             "crates/modeltap-tui/src/view/folder_confirm_dialog.rs",
@@ -235,59 +297,81 @@
             "tests/src/fixtures/dir_manifest.rs",
             "crates/modeltap-app/tests/acceptance/folder_delete_confirmation_safety.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "Three M2 scenarios pass with @skip removed",
             "DirManifest fixture helper has its own unit test (round-trip equality after no-op operations)",
             "Property test: any input != folder_group.path produces outcome == cancelled_mismatch and zero DeleteOutcomes (preview of M6 @property scenario)",
             "cargo fmt + clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-010"]
+          "adr_references": [
+            "ADR-010"
+          ]
         },
         {
           "id": "02-02",
-          "name": "Shift+F no-op when active tool is not Hugging Face — bottom-bar [F] dimmed",
-          "description": "Wires the keymap-level guard: Shift+F is dispatched only when (a) the cursor is on a folder header row AND (b) the active tool is hf. Otherwise it is a no-op — no dialog opens, no JSONL event is emitted. The bottom-bar render dims the [F] cell when not applicable to current focus (AC-18). The dim style is paired with the symbol per WCAG (no color-only signaling). Extends the multi-tool fixture (devon-multi-tool, already exists from parent) so the scenario can switch to Ollama and verify the dim state. Un-skips the M2 fourth scenario in folder-group-delete.feature.",
+          "name": "Shift+F no-op when active tool is not Hugging Face \u2014 bottom-bar [F] dimmed",
+          "description": "Wires the keymap-level guard: Shift+F is dispatched only when (a) the cursor is on a folder header row AND (b) the active tool is hf. Otherwise it is a no-op \u2014 no dialog opens, no JSONL event is emitted. The bottom-bar render dims the [F] cell when not applicable to current focus (AC-18). The dim style is paired with the symbol per WCAG (no color-only signaling). Extends the multi-tool fixture (devon-multi-tool, already exists from parent) so the scenario can switch to Ollama and verify the dim state. Un-skips the M2 fourth scenario in folder-group-delete.feature.",
           "criteria": [
             "Shift+F on a model row in the Ollama right pane opens no dialog and produces no JSONL action.folder_delete event (folder-group-delete.feature M2 'Shift+F is a no-op when the active tool is not Hugging Face', AC-5)",
             "Bottom-bar [F] indicator is dimmed when active tool is not Hugging Face and undimmed when active tool is Hugging Face (AC-18)",
-            "Dim styling is paired with the symbol (the symbol remains visible — no color-only signaling; supports NO_COLOR users)",
+            "Dim styling is paired with the symbol (the symbol remains visible \u2014 no color-only signaling; supports NO_COLOR users)",
             "Ollama fixture directory is byte-identical before and after the Shift+F press (DirManifest assertion)"
           ],
           "test_file": "crates/modeltap-app/tests/acceptance/folder_delete_non_hf_noop.rs",
           "scenario_name": [
             "Shift+F is a no-op when the active tool is not Hugging Face"
           ],
-          "deps": ["01-04", "02-01"],
+          "deps": [
+            "01-04",
+            "02-01"
+          ],
           "time_estimate_hours": 4,
           "implementation_scope": [
             "crates/modeltap-tui/src/input/keymap.rs",
             "crates/modeltap-tui/src/view/bottom_bar.rs",
             "crates/modeltap-app/tests/acceptance/folder_delete_non_hf_noop.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "M2 'Shift+F is a no-op...' scenario passes with @skip removed",
             "insta snapshot frame captures bottom-bar [F] in dimmed state",
             "Property test: for any non-hf active tool, no Msg::RequestFolderDelete is produced regardless of keystroke (defense in depth)",
             "cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-006", "ADR-010"]
+          "adr_references": [
+            "ADR-006",
+            "ADR-010"
+          ]
         }
       ]
     },
     {
       "id": "03",
-      "name": "Mixed shared/unique within folder — per-file classification, cross-tool hardlink survival, mixed dialog itemization",
-      "description": "Promotes the all-unique walking-skeleton path to the full mixed case: a folder containing both unique-to-HF model files and files hardlinked into Ollama (and possibly other tools). Reuses the ADR-009 reclaim-math + delete_one_at ref-counting for per-file unique-vs-shared accounting; the dialog itemizes 'N unique + M shared + K sidecars' and reports 'Reclaim X GB' (unique + sidecars) and 'Retained Y GB (M file(s) also linked in <tool>)'. The cross-tool hardlink survival (INT-FGD-4) is asserted via stat-equality of inodes before and after delete. The @property scenario (M3 / AC-13) is implemented as a proptest per D6 — for any generated FolderGroup, classify_unique_vs_shared's output matches compute_indicator on every child. Un-skips all four M3 scenarios in folder-group-delete.feature plus the cross-cutting INT-FGD-4 scenario in integration-checkpoints.feature.",
-      "release_target": "Release 3 — Folder-group delete",
+      "name": "Mixed shared/unique within folder \u2014 per-file classification, cross-tool hardlink survival, mixed dialog itemization",
+      "description": "Promotes the all-unique walking-skeleton path to the full mixed case: a folder containing both unique-to-HF model files and files hardlinked into Ollama (and possibly other tools). Reuses the ADR-009 reclaim-math + delete_one_at ref-counting for per-file unique-vs-shared accounting; the dialog itemizes 'N unique + M shared + K sidecars' and reports 'Reclaim X GB' (unique + sidecars) and 'Retained Y GB (M file(s) also linked in <tool>)'. The cross-tool hardlink survival (INT-FGD-4) is asserted via stat-equality of inodes before and after delete. The @property scenario (M3 / AC-13) is implemented as a proptest per D6 \u2014 for any generated FolderGroup, classify_unique_vs_shared's output matches compute_indicator on every child. Un-skips all four M3 scenarios in folder-group-delete.feature plus the cross-cutting INT-FGD-4 scenario in integration-checkpoints.feature.",
+      "release_target": "Release 3 \u2014 Folder-group delete",
       "exit_gate": "All four M3 scenarios in folder-group-delete.feature pass with @skip removed; INT-FGD-4 (cross-tool hardlink survival) scenario in integration-checkpoints.feature passes; classify_unique_vs_shared @property proptest is green.",
       "estimated_total_hours": 10,
       "steps": [
         {
           "id": "03-01",
           "name": "Mixed-folder dialog itemization (N unique + M shared + K sidecars; Reclaim/Retained accounting; running-tool warning slot)",
-          "description": "Extends modeltap-tui::view::folder_confirm_dialog to itemize the mixed case per AC-6. Renders 'N unique + M shared + K sidecars' in the count summary line; for the shared bucket, identifies each shared file by name and the other tools it is linked to ('also linked in Ollama'). Renders Reclaim bytes (unique + sidecars sum) and Retained bytes (shared sum) on separate lines. Renders the running-tool warning slot (the soft warning from US-17 FsProbe::processes_holding ; empty when no tool holds any file open). Reuses the FolderClassification from 01-02 — no parallel computation. Un-skips the M3 scenarios 'Dialog itemises unique, shared, and sidecar counts for a mixed folder' and 'Post-action summary reports bytes reclaimed and retained separately for a mixed folder'.",
+          "description": "Extends modeltap-tui::view::folder_confirm_dialog to itemize the mixed case per AC-6. Renders 'N unique + M shared + K sidecars' in the count summary line; for the shared bucket, identifies each shared file by name and the other tools it is linked to ('also linked in Ollama'). Renders Reclaim bytes (unique + sidecars sum) and Retained bytes (shared sum) on separate lines. Renders the running-tool warning slot (the soft warning from US-17 FsProbe::processes_holding ; empty when no tool holds any file open). Reuses the FolderClassification from 01-02 \u2014 no parallel computation. Un-skips the M3 scenarios 'Dialog itemises unique, shared, and sidecar counts for a mixed folder' and 'Post-action summary reports bytes reclaimed and retained separately for a mixed folder'.",
           "criteria": [
             "Dialog itemizes '19 unique + 1 shared + 3 sidecars' for the devon-hf-mixed fixture (folder-group-delete.feature M3 'Dialog itemises unique, shared, and sidecar counts', AC-6)",
             "Dialog identifies the shared file by name and 'also linked in Ollama' (folder-group-delete.feature M3 'Dialog itemises...', AC-6)",
@@ -300,7 +384,9 @@
             "Dialog itemises unique, shared, and sidecar counts for a mixed folder",
             "Post-action summary reports bytes reclaimed and retained separately for a mixed folder"
           ],
-          "deps": ["01-05"],
+          "deps": [
+            "01-05"
+          ],
           "time_estimate_hours": 4,
           "implementation_scope": [
             "crates/modeltap-tui/src/view/folder_confirm_dialog.rs",
@@ -308,26 +394,36 @@
             "tests/src/fixtures/hf_fixture.rs",
             "crates/modeltap-app/tests/acceptance/folder_delete_mixed_dialog.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "M3 dialog + post-action scenarios pass with @skip removed",
             "insta snapshots for mixed-folder dialog body and mixed-folder post-action summary committed",
             "AC-7 / INT-FGD-3 invariant asserted in the dialog: Reclaim + Retained == folder.total_bytes within 1 byte (cross-checked against the dialog header total)",
             "cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-009", "ADR-010"]
+          "adr_references": [
+            "ADR-009",
+            "ADR-010"
+          ]
         },
         {
           "id": "03-02",
           "name": "Cross-tool hardlink survival end-to-end (INT-FGD-4) + plugin-contract S.2 / S.6 (HF supported)",
-          "description": "Wires the HF plugin's delete_folder override for the mixed case: shared files have only their HF-side path unlinked (paths_to_unlink_hf_only); unique files are fully unlinked (paths_to_unlink_fully). Crucially, the existing delete_one_at ref-counting from ADR-009 is the load-bearing mechanism — when a shared file's HF-side path is unlinked, the blob remains because another tool (Ollama) still references the same inode. Verified end-to-end by the M3 'Folder-delete preserves the Ollama-side hardlink for a shared model file' scenario (@destructive @real-io against devon-hf-mixed fixture with stat-equality of inodes pre and post). Also stands up the plugin-contract test 3.11.S.2 (mixed shared and unique) and 3.11.S.6 (preserves cross-tool hardlinks) per plugin-contract-spec.md — the HF plugin's own contract test transitions from happy-path-only to the full Supported capability path. Un-skips the M3 'Folder-delete preserves the Ollama-side hardlink' scenario and the integration-checkpoints 'For every shared file, the other tool's hardlink survives the folder-delete' scenario.",
+          "description": "Wires the HF plugin's delete_folder override for the mixed case: shared files have only their HF-side path unlinked (paths_to_unlink_hf_only); unique files are fully unlinked (paths_to_unlink_fully). Crucially, the existing delete_one_at ref-counting from ADR-009 is the load-bearing mechanism \u2014 when a shared file's HF-side path is unlinked, the blob remains because another tool (Ollama) still references the same inode. Verified end-to-end by the M3 'Folder-delete preserves the Ollama-side hardlink for a shared model file' scenario (@destructive @real-io against devon-hf-mixed fixture with stat-equality of inodes pre and post). Also stands up the plugin-contract test 3.11.S.2 (mixed shared and unique) and 3.11.S.6 (preserves cross-tool hardlinks) per plugin-contract-spec.md \u2014 the HF plugin's own contract test transitions from happy-path-only to the full Supported capability path. Un-skips the M3 'Folder-delete preserves the Ollama-side hardlink' scenario and the integration-checkpoints 'For every shared file, the other tool's hardlink survives the folder-delete' scenario.",
           "criteria": [
             "After folder-delete of devon-hf-mixed, the Hugging Face path 'models--bartowski--Llama-3.2-1B-Instruct-GGUF/blobs/<sha>' no longer exists (folder-group-delete.feature M3 'Folder-delete preserves the Ollama-side hardlink', AC-10)",
             "After folder-delete, the Ollama path still exists and stats to a live inode with the original SHA256 content (folder-group-delete.feature M3 'Folder-delete preserves the Ollama-side hardlink', INT-FGD-4)",
             "For every previously-shared file, the other tool's path still stats to a live inode with the same inode number as pre-delete (integration-checkpoints.feature 'For every shared file, the other tool's hardlink survives the folder-delete', INT-FGD-4)",
-            "Plugin-contract test 3.11.S.2 passes: HfPlugin.delete_folder against a mixed fixture returns one outcome per file with the documented registration_removed/file_deleted shape (plugin-contract-spec.md §3.11.S.2)",
-            "Plugin-contract test 3.11.S.6 passes: pre/post inode-equality + SHA256-equality of the Ollama-side path (plugin-contract-spec.md §3.11.S.6)",
-            "Sidecar-only contract test 3.11.S.8 passes: sidecar-only folder is fully unlinked and tree removed (plugin-contract-spec.md §3.11.S.8)"
+            "Plugin-contract test 3.11.S.2 passes: HfPlugin.delete_folder against a mixed fixture returns one outcome per file with the documented registration_removed/file_deleted shape (plugin-contract-spec.md \u00a73.11.S.2)",
+            "Plugin-contract test 3.11.S.6 passes: pre/post inode-equality + SHA256-equality of the Ollama-side path (plugin-contract-spec.md \u00a73.11.S.6)",
+            "Sidecar-only contract test 3.11.S.8 passes: sidecar-only folder is fully unlinked and tree removed (plugin-contract-spec.md \u00a73.11.S.8)"
           ],
           "test_file": "plugins/hf/tests/folder_delete_contract.rs",
           "scenario_name": [
@@ -335,22 +431,35 @@
             "For every shared file, the other tool's hardlink survives the folder-delete",
             "Plugin contract: HF delete_folder honors the Supported capability (mixed, hardlinks preserved, sidecar-only)"
           ],
-          "deps": ["01-03", "03-01"],
+          "deps": [
+            "01-03",
+            "03-01"
+          ],
           "time_estimate_hours": 4,
           "implementation_scope": [
             "plugins/hf/src/folder_delete.rs",
             "plugins/hf/tests/folder_delete_contract.rs",
             "tests/src/fixtures/hf_fixture.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "M3 hardlink-survival scenario passes (@real-io @destructive against devon-hf-mixed)",
             "INT-FGD-4 scenario in integration-checkpoints.feature passes",
-            "plugin-contract-spec.md §3.11.S.2, S.6, S.8 implemented and green",
+            "plugin-contract-spec.md \u00a73.11.S.2, S.6, S.8 implemented and green",
             "Pre/post inode stat assertion is recorded in test output for debugging",
             "cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-009", "ADR-010"]
+          "adr_references": [
+            "ADR-009",
+            "ADR-010"
+          ]
         },
         {
           "id": "03-03",
@@ -360,7 +469,7 @@
             "Proptest 'classify_unique_vs_shared matches compute_indicator on every child' shrinks to a minimal counterexample on failure and passes for at least 256 generated inputs (folder-group-delete.feature M3 @property, AC-13)",
             "Proptest 'folder.file_count() == models.len() + sidecars.len()' passes for at least 256 generated inputs (integration-checkpoints.feature 'For any folder, file_count equals models plus sidecars', INT-FGD-2)",
             "Proptest 'bytes_to_reclaim + bytes_to_retain == folder.total_bytes within 1 byte' passes for at least 256 generated inputs (integration-checkpoints.feature 'For any folder, total_bytes equals reclaim plus retain', INT-FGD-3)",
-            "Tentative dedup keys never yield Shared classification in the generated space (R1 mitigation from architecture-design.md §10)"
+            "Tentative dedup keys never yield Shared classification in the generated space (R1 mitigation from architecture-design.md \u00a710)"
           ],
           "test_file": "crates/modeltap-core/tests/folder_group_proptest.rs",
           "scenario_name": [
@@ -368,43 +477,53 @@
             "For any folder, file_count equals models plus sidecars",
             "For any folder, total_bytes equals reclaim plus retain"
           ],
-          "deps": ["01-02"],
+          "deps": [
+            "01-02"
+          ],
           "time_estimate_hours": 2,
           "implementation_scope": [
             "crates/modeltap-core/tests/folder_group_proptest.rs",
             "crates/modeltap-core/Cargo.toml"
           ],
-          "tdd_phases": ["PREPARE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "proptest crate added to modeltap-core dev-dependencies (Apache-2.0 / MIT dual-license; OSS-priority validated)",
             "Three proptest invariants pass at 256 cases each",
             "Shrinking enabled; failure output is human-readable",
             "cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-010"]
+          "adr_references": [
+            "ADR-010"
+          ]
         }
       ]
     },
     {
       "id": "04",
-      "name": "Partial failure — per-file detect-and-retry, EBUSY simulation seam, post-action partial summary",
-      "description": "Implements the partial-failure path per ADR-010 § Concurrency and D-FGD-6 / AC-12. The HF plugin's delete_folder iterates the plan's paths sequentially; per-file failures (EBUSY, permission denied, NotFound) are captured as DeleteOutcome { registration_removed: false, file_deleted: false, bytes_freed: 0 } and the loop continues without early return. Adds the MODELTAP_TEST_EBUSY_PATHS env-var seam per D4 — gated behind cfg(any(test, feature = \"test-harness\")) in the HF plugin's delete_one_at wrapper so production builds are unaffected. The post-action LastAction summary itemizes successes and per-file failures with reasons. The 'Press [F] again after closing ollama to finish' hint is rendered when the partial-failure outcome contains EBUSY entries. Idempotent retry (re-running Shift+F on the now-shorter folder header after closing the offending tool) succeeds against the remaining files. Also adds the integration-checkpoint pre-flight refusal scenarios (AC-15 read-only cache; AC-20 folder vanished out-of-band) since they share the orchestrator's pre-flight machinery.",
-      "release_target": "Release 3 — Folder-group delete",
+      "name": "Partial failure \u2014 per-file detect-and-retry, EBUSY simulation seam, post-action partial summary",
+      "description": "Implements the partial-failure path per ADR-010 \u00a7 Concurrency and D-FGD-6 / AC-12. The HF plugin's delete_folder iterates the plan's paths sequentially; per-file failures (EBUSY, permission denied, NotFound) are captured as DeleteOutcome { registration_removed: false, file_deleted: false, bytes_freed: 0 } and the loop continues without early return. Adds the MODELTAP_TEST_EBUSY_PATHS env-var seam per D4 \u2014 gated behind cfg(any(test, feature = \"test-harness\")) in the HF plugin's delete_one_at wrapper so production builds are unaffected. The post-action LastAction summary itemizes successes and per-file failures with reasons. The 'Press [F] again after closing ollama to finish' hint is rendered when the partial-failure outcome contains EBUSY entries. Idempotent retry (re-running Shift+F on the now-shorter folder header after closing the offending tool) succeeds against the remaining files. Also adds the integration-checkpoint pre-flight refusal scenarios (AC-15 read-only cache; AC-20 folder vanished out-of-band) since they share the orchestrator's pre-flight machinery.",
+      "release_target": "Release 3 \u2014 Folder-group delete",
       "exit_gate": "All three M4 scenarios in folder-group-delete.feature pass with @skip removed; integration-checkpoints AC-15 (read-only) and AC-20 (folder-vanished) scenarios pass; plugin-contract test 3.11.S.4 (partial failure) and 3.11.S.5 (idempotent retry) green.",
       "estimated_total_hours": 10,
       "steps": [
         {
           "id": "04-01",
           "name": "MODELTAP_TEST_EBUSY_PATHS seam + per-file failure capture + post-action partial summary",
-          "description": "Lands the per-file detect-and-retry behavior. The HF plugin's delete_folder_at loop catches per-file io::Error variants (EBUSY, EACCES, NotFound) and converts each into a failed DeleteOutcome entry without aborting the loop. Adds the MODELTAP_TEST_EBUSY_PATHS env-var seam: when MODELTAP_HEADLESS=1 AND the env var contains the file's absolute path, the test wrapper around delete_one_at returns io::Error::from_raw_os_error(libc::EBUSY) without touching the filesystem. The seam is gated behind cfg(any(test, feature = \"test-harness\")) so production builds do not include it (D4). The modeltap-app orchestrator aggregates Vec<DeleteOutcome> into LastAction with status = partial when any entry has registration_removed: false, and renders per-file reasons in the post-action summary. The 'Press [F] again after closing ollama to finish' hint is rendered when at least one failure reason is 'file open by <tool>'. Un-skips the M4 'Ollama holds 2 model files open and folder-delete continues for the rest' scenario. Builds the devon-hf-busy and devon-hf-perm fixtures + the fake-lsof script per acceptance-test-plan.md §3.",
+          "description": "Lands the per-file detect-and-retry behavior. The HF plugin's delete_folder_at loop catches per-file io::Error variants (EBUSY, EACCES, NotFound) and converts each into a failed DeleteOutcome entry without aborting the loop. Adds the MODELTAP_TEST_EBUSY_PATHS env-var seam: when MODELTAP_HEADLESS=1 AND the env var contains the file's absolute path, the test wrapper around delete_one_at returns io::Error::from_raw_os_error(libc::EBUSY) without touching the filesystem. The seam is gated behind cfg(any(test, feature = \"test-harness\")) so production builds do not include it (D4). The modeltap-app orchestrator aggregates Vec<DeleteOutcome> into LastAction with status = partial when any entry has registration_removed: false, and renders per-file reasons in the post-action summary. The 'Press [F] again after closing ollama to finish' hint is rendered when at least one failure reason is 'file open by <tool>'. Un-skips the M4 'Ollama holds 2 model files open and folder-delete continues for the rest' scenario. Builds the devon-hf-busy and devon-hf-perm fixtures + the fake-lsof script per acceptance-test-plan.md \u00a73.",
           "criteria": [
-            "HfPlugin.delete_folder against devon-hf-busy returns Vec<DeleteOutcome> of length 21 with 19 successful + 2 failed entries; no panic, no early return (folder-group-delete.feature M4 'Ollama holds 2 model files open...', AC-12; plugin-contract-spec.md §3.11.S.4)",
+            "HfPlugin.delete_folder against devon-hf-busy returns Vec<DeleteOutcome> of length 21 with 19 successful + 2 failed entries; no panic, no early return (folder-group-delete.feature M4 'Ollama holds 2 model files open...', AC-12; plugin-contract-spec.md \u00a73.11.S.4)",
             "Post-action summary shows 'Last action: folder-delete bartowski/Llama-3.2-1B-Instruct-GGUF (partial)' and '19 of 21 files removed' (folder-group-delete.feature M4 'Ollama holds...', AC-16)",
             "Post-action summary lists each failed file with reason 'file open by ollama' (folder-group-delete.feature M4 'Ollama holds...', AC-16)",
             "Post-action summary renders the 'Press [F] again after closing ollama to finish' hint when at least one failure has reason 'file open by <tool>' (folder-group-delete.feature M4 'Ollama holds...')",
             "Permission-denied scenario passes: 4 of 5 files removed; failed file remains; summary lists 'reason: permission denied'; partial Reclaimed amount reported (folder-group-delete.feature M4 'A permission-denied file does not block the rest of the folder', AC-12)",
-            "MODELTAP_TEST_EBUSY_PATHS seam is gated behind cfg(any(test, feature = \"test-harness\")) — verified by `cargo build --release` containing no reference to the env var name in stripped binary",
-            "Plugin-contract test 3.11.S.4 (partial failure via mode 0555 directory) passes (plugin-contract-spec.md §3.11.S.4)"
+            "MODELTAP_TEST_EBUSY_PATHS seam is gated behind cfg(any(test, feature = \"test-harness\")) \u2014 verified by `cargo build --release` containing no reference to the env var name in stripped binary",
+            "Plugin-contract test 3.11.S.4 (partial failure via mode 0555 directory) passes (plugin-contract-spec.md \u00a73.11.S.4)"
           ],
           "test_file": "crates/modeltap-app/tests/acceptance/folder_delete_partial_failure.rs",
           "scenario_name": [
@@ -412,7 +531,10 @@
             "A permission-denied file does not block the rest of the folder",
             "Plugin contract: HF delete_folder honors partial-failure (3.11.S.4)"
           ],
-          "deps": ["01-05", "03-01"],
+          "deps": [
+            "01-05",
+            "03-01"
+          ],
           "time_estimate_hours": 5,
           "implementation_scope": [
             "plugins/hf/src/folder_delete.rs",
@@ -423,15 +545,25 @@
             "tests/fakes/lsof-busy-ollama-files.sh",
             "crates/modeltap-app/tests/acceptance/folder_delete_partial_failure.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "Two M4 scenarios (EBUSY + permission-denied) pass with @skip removed",
-            "Plugin-contract 3.11.S.4 passes (uses mode 0555 — portable across macOS/Linux per D4)",
+            "Plugin-contract 3.11.S.4 passes (uses mode 0555 \u2014 portable across macOS/Linux per D4)",
             "MODELTAP_TEST_EBUSY_PATHS is documented in tests/README.md (or wherever the parent documents test env vars) with the gating rule",
             "Release-build absence test: a small CI step asserts `strings target/release/modeltap | grep MODELTAP_TEST_EBUSY_PATHS` is empty (D4 gating evidence)",
             "cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-009", "ADR-010"]
+          "adr_references": [
+            "ADR-009",
+            "ADR-010"
+          ]
         },
         {
           "id": "04-02",
@@ -441,28 +573,39 @@
             "After closing the holding tool and re-running Shift+F, 2 of 2 remaining files are removed (folder-group-delete.feature M4 'Re-running folder-delete after closing the holding tool removes the remaining files', AC-12)",
             "The now-empty models--bartowski--Llama-3.2-1B-Instruct-GGUF/ directory tree is removed after the retry (folder-group-delete.feature M4 'Re-running...', AC-11)",
             "Post-retry summary shows 'Last action: folder-delete bartowski/Llama-3.2-1B-Instruct-GGUF (success)' and the folder header no longer appears (folder-group-delete.feature M4 'Re-running...')",
-            "Plugin-contract test 3.11.S.5 passes: delete_folder against a partial folder completes the remaining work; calling delete_folder again on the now-empty folder returns Ok(Vec::new()) OR Err(DeleteError::NotFound) without panic or destructive side effect (plugin-contract-spec.md §3.11.S.5)"
+            "Plugin-contract test 3.11.S.5 passes: delete_folder against a partial folder completes the remaining work; calling delete_folder again on the now-empty folder returns Ok(Vec::new()) OR Err(DeleteError::NotFound) without panic or destructive side effect (plugin-contract-spec.md \u00a73.11.S.5)"
           ],
           "test_file": "crates/modeltap-app/tests/acceptance/folder_delete_idempotent_retry.rs",
           "scenario_name": [
             "Re-running folder-delete after closing the holding tool removes the remaining files",
             "Plugin contract: HF delete_folder is idempotent on retry (3.11.S.5)"
           ],
-          "deps": ["04-01"],
+          "deps": [
+            "04-01"
+          ],
           "time_estimate_hours": 3,
           "implementation_scope": [
             "plugins/hf/src/folder_delete.rs",
             "plugins/hf/tests/folder_delete_contract.rs",
             "crates/modeltap-app/tests/acceptance/folder_delete_idempotent_retry.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "M4 retry scenario passes with @skip removed",
             "Plugin-contract 3.11.S.5 passes",
-            "remove_empty_repo_tree is verified best-effort: leaves non-empty subtrees in place on partial failure; cleans fully on retry-success (R5 mitigation from architecture-design.md §10)",
+            "remove_empty_repo_tree is verified best-effort: leaves non-empty subtrees in place on partial failure; cleans fully on retry-success (R5 mitigation from architecture-design.md \u00a710)",
             "cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-010"]
+          "adr_references": [
+            "ADR-010"
+          ]
         },
         {
           "id": "04-03",
@@ -479,43 +622,54 @@
             "Read-only HF cache refuses before the dialog opens",
             "Folder deleted out-of-band between launch and Shift+F triggers re-discovery"
           ],
-          "deps": ["01-05"],
+          "deps": [
+            "01-05"
+          ],
           "time_estimate_hours": 2,
           "implementation_scope": [
             "crates/modeltap-app/src/orchestration/execute_folder_delete.rs",
             "tests/src/fixtures/hf_fixture.rs",
             "crates/modeltap-app/tests/acceptance/folder_delete_preflight_refusal.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "Both pre-flight refusal scenarios pass with @skip removed",
-            "FsProbe::is_writable port reused from parent — no new port added (component-boundaries.md §Testing surfaces summary)",
+            "FsProbe::is_writable port reused from parent \u2014 no new port added (component-boundaries.md \u00a7Testing surfaces summary)",
             "JSONL schema updated to include refused_readonly_cache and refused_folder_missing outcome variants",
             "cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-010"]
+          "adr_references": [
+            "ADR-010"
+          ]
         }
       ]
     },
     {
       "id": "05",
-      "name": "Plugin-contract boundary — Layer A + Layer B Unsupported for Ollama / llama-cli / lm-studio",
-      "description": "Asserts the trait extension's source-compatibility property end-to-end across both the unit-layer (Layer B plugin contract) and the user-observable layer (Layer A E2E). Layer B: each non-HF plugin's tests/folder_delete_contract.rs declares FolderDeleteCapability::Unsupported and asserts that delete_folder returns Err(DeleteError::Unsupported { tool: plugin.name() }) and that no filesystem mutation occurs. Layer A: the M5 Scenario Outline parameterized over plugin ∈ {ollama, llama-cli, lm-studio} asserts the orchestrator's surfacing of the Unsupported error — either as the user-observable text '<plugin> does not support folder-delete' or as a JSONL no-dispatch event, per D5 fallback. This is the safety net for the future-5th-plugin case (US-18 / K4 / ADR-010 § Consequences): an Atomic Chat plugin (or any other) added in a future PR must add its own folder_delete_contract.rs entry, defaulting to Unsupported unless folder semantics are explicitly added.",
-      "release_target": "Release 3 — Folder-group delete",
+      "name": "Plugin-contract boundary \u2014 Layer A + Layer B Unsupported for Ollama / llama-cli / lm-studio",
+      "description": "Asserts the trait extension's source-compatibility property end-to-end across both the unit-layer (Layer B plugin contract) and the user-observable layer (Layer A E2E). Layer B: each non-HF plugin's tests/folder_delete_contract.rs declares FolderDeleteCapability::Unsupported and asserts that delete_folder returns Err(DeleteError::Unsupported { tool: plugin.name() }) and that no filesystem mutation occurs. Layer A: the M5 Scenario Outline parameterized over plugin \u2208 {ollama, llama-cli, lm-studio} asserts the orchestrator's surfacing of the Unsupported error \u2014 either as the user-observable text '<plugin> does not support folder-delete' or as a JSONL no-dispatch event, per D5 fallback. This is the safety net for the future-5th-plugin case (US-18 / K4 / ADR-010 \u00a7 Consequences): an Atomic Chat plugin (or any other) added in a future PR must add its own folder_delete_contract.rs entry, defaulting to Unsupported unless folder semantics are explicitly added.",
+      "release_target": "Release 3 \u2014 Folder-group delete",
       "exit_gate": "M5 Scenario Outline (three plugins) in folder-group-delete.feature passes with @skip removed; plugin-contract test 3.11.U.1 passes for each of Ollama, llama-cli, lm-studio.",
       "estimated_total_hours": 4,
       "steps": [
         {
           "id": "05-01",
           "name": "Non-HF plugin-contract tests (Layer B 3.11.U.1) + M5 Layer A scenario outline (Layer A)",
-          "description": "Adds plugins/ollama/tests/folder_delete_contract.rs, plugins/llama-cli/tests/folder_delete_contract.rs, plugins/lm-studio/tests/folder_delete_contract.rs — each invokes run_folder_delete_contract with FolderDeleteCapability::Unsupported per plugin-contract-spec.md §3.11.U.1. Each asserts the default-body behavior: delete_folder against a minimal FolderDeletePlan returns Err(DeleteError::Unsupported { tool: <plugin_name> }) and the fixture's filesystem state is unchanged. Adds the corresponding cucumber-rs Layer A steps per step-definitions-skeleton.md §C and un-skips the M5 Scenario Outline in folder-group-delete.feature. Per D5, the M5 Layer A assertion is the user-observable text '<plugin> does not support folder-delete' in the right pane; if the dispatch path is unreachable from the live UI (because AC-5 prevents Shift+F dispatch against non-HF tools at the keymap level), the assertion is replaced with the JSONL fallback 'no folder-delete dispatch occurred for non-HF tool'. Adds the run_folder_delete_contract harness to modeltap-core::tests::plugin_contract (extends the parent's plugin_contract module).",
+          "description": "Adds plugins/ollama/tests/folder_delete_contract.rs, plugins/llama-cli/tests/folder_delete_contract.rs, plugins/lm-studio/tests/folder_delete_contract.rs \u2014 each invokes run_folder_delete_contract with FolderDeleteCapability::Unsupported per plugin-contract-spec.md \u00a73.11.U.1. Each asserts the default-body behavior: delete_folder against a minimal FolderDeletePlan returns Err(DeleteError::Unsupported { tool: <plugin_name> }) and the fixture's filesystem state is unchanged. Adds the corresponding cucumber-rs Layer A steps per step-definitions-skeleton.md \u00a7C and un-skips the M5 Scenario Outline in folder-group-delete.feature. Per D5, the M5 Layer A assertion is the user-observable text '<plugin> does not support folder-delete' in the right pane; if the dispatch path is unreachable from the live UI (because AC-5 prevents Shift+F dispatch against non-HF tools at the keymap level), the assertion is replaced with the JSONL fallback 'no folder-delete dispatch occurred for non-HF tool'. Adds the run_folder_delete_contract harness to modeltap-core::tests::plugin_contract (extends the parent's plugin_contract module).",
           "criteria": [
-            "Layer B: plugins/ollama/tests/folder_delete_contract.rs passes — OllamaPlugin.delete_folder returns Err(DeleteError::Unsupported { tool: ToolId(\"ollama\") }) with no filesystem mutation (plugin-contract-spec.md §3.11.U.1)",
-            "Layer B: plugins/llama-cli/tests/folder_delete_contract.rs passes with the same shape for llama-cli (plugin-contract-spec.md §3.11.U.1)",
-            "Layer B: plugins/lm-studio/tests/folder_delete_contract.rs passes with the same shape for lm-studio (plugin-contract-spec.md §3.11.U.1)",
+            "Layer B: plugins/ollama/tests/folder_delete_contract.rs passes \u2014 OllamaPlugin.delete_folder returns Err(DeleteError::Unsupported { tool: ToolId(\"ollama\") }) with no filesystem mutation (plugin-contract-spec.md \u00a73.11.U.1)",
+            "Layer B: plugins/llama-cli/tests/folder_delete_contract.rs passes with the same shape for llama-cli (plugin-contract-spec.md \u00a73.11.U.1)",
+            "Layer B: plugins/lm-studio/tests/folder_delete_contract.rs passes with the same shape for lm-studio (plugin-contract-spec.md \u00a73.11.U.1)",
             "Layer A: M5 Scenario Outline (folder-group-delete.feature) passes for each of ollama, llama-cli, lm-studio: the orchestrator's dispatch returns DeleteError::Unsupported and surfaces the user-observable text OR records the JSONL no-dispatch event per D5",
-            "run_folder_delete_contract harness with FolderDeleteCapability enum lands in crates/modeltap-core/tests/plugin_contract/ (or modeltap-core::tests::plugin_contract module) per plugin-contract-spec.md §2",
-            "The error message in DeleteError::Unsupported contains the offending plugin's name verbatim (plugin-contract-spec.md §3.11.U.1)"
+            "run_folder_delete_contract harness with FolderDeleteCapability enum lands in crates/modeltap-core/tests/plugin_contract/ (or modeltap-core::tests::plugin_contract module) per plugin-contract-spec.md \u00a72",
+            "The error message in DeleteError::Unsupported contains the offending plugin's name verbatim (plugin-contract-spec.md \u00a73.11.U.1)"
           ],
           "test_file": "plugins/ollama/tests/folder_delete_contract.rs",
           "scenario_name": [
@@ -524,7 +678,10 @@
             "Plugin contract: llama-cli delete_folder returns Unsupported (3.11.U.1)",
             "Plugin contract: lm-studio delete_folder returns Unsupported (3.11.U.1)"
           ],
-          "deps": ["01-01", "01-05"],
+          "deps": [
+            "01-01",
+            "01-05"
+          ],
           "time_estimate_hours": 4,
           "implementation_scope": [
             "crates/modeltap-core/tests/plugin_contract/mod.rs",
@@ -533,7 +690,14 @@
             "plugins/lm-studio/tests/folder_delete_contract.rs",
             "crates/modeltap-app/tests/acceptance/folder_delete_capability_boundary.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "Three new contract test files (one per non-HF plugin) green",
             "M5 Scenario Outline in folder-group-delete.feature green for all three plugin examples",
@@ -541,26 +705,29 @@
             "cargo clippy --workspace --all-targets -- -D warnings clean",
             "No plugin crate gained a dependency on another plugin crate (architecture-lint R2 preserved)"
           ],
-          "adr_references": ["ADR-001", "ADR-010"]
+          "adr_references": [
+            "ADR-001",
+            "ADR-010"
+          ]
         }
       ]
     },
     {
       "id": "06",
-      "name": "KPI guardrails + regression gate — keystroke count, mis-target rate, parent-feature regression",
-      "description": "Closes the KPI loop and asserts the regression gate. K-FGD-2 keystroke-count guardrail: the JSONL action.folder_delete event records keystroke_count, and the M6 first scenario asserts <= 40 keystrokes for a 20-file folder AND independence of file_count (per D3 — 33-char path + Enter + 6 keystroke headroom for corrections). K-FGD-3 mis-target rate invariant: every aborted typed-confirmation produces zero DeleteOutcomes and zero filesystem mutation (M6 second scenario, implemented as concrete E2E over a representative input space per D6). The INT-FGD-1 / INT-FGD-5 / INT-FGD-6 invariant scenarios (summary-bar consistency, list_models excludes deleted folder, total decreases by bytes_reclaimed) are un-skipped here since they require the full delete pipeline. Finally INT-FGD-8 regression gate: the parent's @walking-skeleton scenarios in modeltap-tui/distill/features/master-acceptance.feature continue to pass after the folder-group-bulk-delete feature is merged.",
-      "release_target": "Release 3 — Folder-group delete",
+      "name": "KPI guardrails + regression gate \u2014 keystroke count, mis-target rate, parent-feature regression",
+      "description": "Closes the KPI loop and asserts the regression gate. K-FGD-2 keystroke-count guardrail: the JSONL action.folder_delete event records keystroke_count, and the M6 first scenario asserts <= 40 keystrokes for a 20-file folder AND independence of file_count (per D3 \u2014 33-char path + Enter + 6 keystroke headroom for corrections). K-FGD-3 mis-target rate invariant: every aborted typed-confirmation produces zero DeleteOutcomes and zero filesystem mutation (M6 second scenario, implemented as concrete E2E over a representative input space per D6). The INT-FGD-1 / INT-FGD-5 / INT-FGD-6 invariant scenarios (summary-bar consistency, list_models excludes deleted folder, total decreases by bytes_reclaimed) are un-skipped here since they require the full delete pipeline. Finally INT-FGD-8 regression gate: the parent's @walking-skeleton scenarios in modeltap-tui/distill/features/master-acceptance.feature continue to pass after the folder-group-bulk-delete feature is merged.",
+      "release_target": "Release 3 \u2014 Folder-group delete",
       "exit_gate": "Both M6 scenarios in folder-group-delete.feature pass with @skip removed; INT-FGD-1, INT-FGD-5, INT-FGD-6, INT-FGD-7, INT-FGD-8 scenarios in integration-checkpoints.feature pass; mutation-testing kill-rate >= 80% on modeltap-core and on plugins/hf folder_delete contract per CLAUDE.md mutation strategy; `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` clean.",
       "estimated_total_hours": 6,
       "steps": [
         {
           "id": "06-01",
           "name": "JSONL action.folder_delete instrumentation + K-FGD-2 keystroke-count <= 40 + K-FGD-3 mis-target invariant",
-          "description": "Wires the kpi-instrumentation event schema for action.folder_delete: { event, target, tool, outcome, files_attempted, files_succeeded, files_failed, bytes_reclaimed, bytes_retained, keystroke_count, dialog_open_ms, outcomes_count }. The TUI's dialog state counts keystrokes from dialog-open to Enter (Shift+F itself is excluded per D3 — it transitions FROM main view TO dialog state). Backspace and Ctrl+W are counted in the total. The 20-file scenario asserts keystroke_count <= 40 AND the same assertion against a 5-file companion case (folder-file-count independence per D3 / outcome-kpis.md K-FGD-2). The mis-target invariant scenario asserts that for any input != folder_group.path, outcome == cancelled_mismatch and outcomes_count == 0 (concrete cases per D6: wrong prefix, wrong case, extra char, missing char, trailing slash already covered by phase 02). Un-skips both M6 scenarios in folder-group-delete.feature.",
+          "description": "Wires the kpi-instrumentation event schema for action.folder_delete: { event, target, tool, outcome, files_attempted, files_succeeded, files_failed, bytes_reclaimed, bytes_retained, keystroke_count, dialog_open_ms, outcomes_count }. The TUI's dialog state counts keystrokes from dialog-open to Enter (Shift+F itself is excluded per D3 \u2014 it transitions FROM main view TO dialog state). Backspace and Ctrl+W are counted in the total. The 20-file scenario asserts keystroke_count <= 40 AND the same assertion against a 5-file companion case (folder-file-count independence per D3 / outcome-kpis.md K-FGD-2). The mis-target invariant scenario asserts that for any input != folder_group.path, outcome == cancelled_mismatch and outcomes_count == 0 (concrete cases per D6: wrong prefix, wrong case, extra char, missing char, trailing slash already covered by phase 02). Un-skips both M6 scenarios in folder-group-delete.feature.",
           "criteria": [
             "JSONL action.folder_delete event emitted on every dialog open + dispatch with the documented schema",
             "20-file folder delete records keystroke_count <= 40 in the JSONL event (folder-group-delete.feature M6 'Keystroke count for a 20-file folder is bounded and independent of file count', K-FGD-2 / D3)",
-            "5-file companion case records keystroke_count <= 40 — same bound (folder-group-delete.feature M6 same scenario, file-count independence)",
+            "5-file companion case records keystroke_count <= 40 \u2014 same bound (folder-group-delete.feature M6 same scenario, file-count independence)",
             "Every aborted typed-confirmation produces outcome == cancelled_mismatch and outcomes_count == 0 (folder-group-delete.feature M6 'Every aborted typed-confirmation results in zero filesystem mutations', K-FGD-3 / AC-8)",
             "HF fixture directory is byte-identical pre/post every aborted-confirmation case (DirManifest assertion, K-FGD-3)"
           ],
@@ -569,21 +736,35 @@
             "Keystroke count for a 20-file folder is bounded and independent of file count",
             "Every aborted typed-confirmation results in zero filesystem mutations"
           ],
-          "deps": ["01-05", "02-01", "04-01"],
+          "deps": [
+            "01-05",
+            "02-01",
+            "04-01"
+          ],
           "time_estimate_hours": 3,
           "implementation_scope": [
             "crates/modeltap-app/src/telemetry.rs",
             "crates/modeltap-tui/src/view/folder_confirm_dialog.rs",
             "crates/modeltap-app/tests/acceptance/folder_delete_kpis.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "RED_UNIT", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "RED_UNIT",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "Both M6 scenarios pass with @skip removed",
             "JSONL schema documented in docs/feature/folder-group-bulk-delete/discuss/outcome-kpis.md (or wherever the parent documents KPI instrumentation)",
             "Mutation-testing kill-rate >= 80% on the new modeltap-core modules per CLAUDE.md per-feature gate (cargo-mutants invoked on modeltap-core::logic::folder_group)",
             "cargo clippy --workspace --all-targets -- -D warnings clean"
           ],
-          "adr_references": ["ADR-006", "ADR-010"]
+          "adr_references": [
+            "ADR-006",
+            "ADR-010"
+          ]
         },
         {
           "id": "06-02",
@@ -604,22 +785,35 @@
             "The typed-confirmation comparator reads folder_group.path, not a hardcoded literal",
             "Parent feature scenarios continue to pass after folder-delete is introduced"
           ],
-          "deps": ["01-05", "03-02", "04-01", "05-01"],
+          "deps": [
+            "01-05",
+            "03-02",
+            "04-01",
+            "05-01"
+          ],
           "time_estimate_hours": 3,
           "implementation_scope": [
             "crates/modeltap-app/tests/acceptance/folder_delete_integration_checkpoints.rs",
             "crates/modeltap-tui/tests/lint.rs"
           ],
-          "tdd_phases": ["PREPARE", "RED_ACCEPTANCE", "GREEN", "REFACTOR", "COMMIT"],
+          "tdd_phases": [
+            "PREPARE",
+            "RED_ACCEPTANCE",
+            "GREEN",
+            "REFACTOR",
+            "COMMIT"
+          ],
           "dod": [
             "All five integration-checkpoint scenarios in this step pass with @skip removed",
             "INT-FGD-8 regression gate: parent's @walking-skeleton scenarios still green on macOS-latest and ubuntu-latest CI",
             "All 15 scenarios in folder-group-delete.feature and all 10 scenarios in integration-checkpoints.feature have @skip removed and are green",
-            "cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace ALL CLEAN — CI lint discipline satisfied before push",
+            "cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace ALL CLEAN \u2014 CI lint discipline satisfied before push",
             "Mutation-testing kill-rate >= 80% on plugins/hf folder_delete contract test surface (CLAUDE.md per-feature gate, per-plugin contract)",
-            "FEATURE EXIT GATE — feature is ready for peer review and merge"
+            "FEATURE EXIT GATE \u2014 feature is ready for peer review and merge"
           ],
-          "adr_references": ["ADR-010"]
+          "adr_references": [
+            "ADR-010"
+          ]
         }
       ]
     }

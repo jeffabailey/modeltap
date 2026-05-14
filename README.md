@@ -185,4 +185,4 @@ Instead:
 Apache-2.0 OR MIT (per workspace `Cargo.toml`).
 
 
-[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjeffabailey%2Fmodeltap.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjeffabailey%2Fmodeltap?ref=badge_large)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fjeffabailey%2Fmodeltap.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fjeffabailey%2Fmodeltap?ref=badge_large)	
