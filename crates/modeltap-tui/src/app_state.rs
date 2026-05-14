@@ -283,6 +283,15 @@ pub struct AppState {
     /// Step 01-10 introduces the field and the state-machine plumbing;
     /// visual surfacing in the right pane follows in a later step.
     pub status_line: Option<String>,
+
+    /// Step 01-07: Set of folder paths (`<author>/<repo>`) the user has
+    /// expanded in the HF right pane. Default empty — every folder is
+    /// COLLAPSED at startup so a 60+ file HF cache shows ~5 folder header
+    /// rows instead of 60 flat per-file rows. `Msg::ToggleFolderExpansion`
+    /// inserts the cursor's folder when absent and removes it when present.
+    /// `BTreeSet` for deterministic iteration order and stable serialization
+    /// shape under PartialEq.
+    pub expanded_folders: std::collections::BTreeSet<String>,
 }
 
 impl Default for AppState {
@@ -311,6 +320,7 @@ impl Default for AppState {
             summary_delta: None,
             unify_highlight: None,
             status_line: None,
+            expanded_folders: BTreeSet::new(),
         }
     }
 }
@@ -354,6 +364,7 @@ impl AppState {
             summary_delta: None,
             unify_highlight: None,
             status_line: None,
+            expanded_folders: BTreeSet::new(),
         }
     }
 

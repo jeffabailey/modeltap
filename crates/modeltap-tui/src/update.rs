@@ -314,6 +314,14 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // Pure-update is a state-noop. The composition root handles the
         // cursor → FolderGroup resolution + dialog open at step 01-05.
         Msg::RequestFolderDelete => (state, UpdateEffect::default()),
+        // Step 01-07 — folder collapse/expand toggle. Resolve the cursor's
+        // folder (`<author>/<repo>` prefix of the highlighted row) and flip
+        // its presence in `state.expanded_folders`. Non-HF tools and rows
+        // without a `/` prefix are silent no-ops here.
+        Msg::ToggleFolderExpansion => (
+            apply_toggle_folder_expansion(state),
+            UpdateEffect::default(),
+        ),
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
 }
@@ -1152,4 +1160,54 @@ fn apply_unify_dialog_prev(mut state: AppState) -> AppState {
         dialog.select_prev_target();
     }
     state
+}
+
+/// Step 01-07: resolve the cursor's folder path from the highlighted row's
+/// `<author>/<repo>` prefix and toggle its presence in `expanded_folders`.
+///
+/// Behavior:
+///   - When the current tool is non-HF: no-op (folder grouping is HF-only).
+///   - When the highlighted row's id does not contain a `/`: no-op
+///     (ungrouped row).
+///   - Otherwise extract `"<author>/<repo>"` (the first two `/`-separated
+///     segments) and toggle it. Insert when absent, remove when present.
+///
+/// This pure-state mutation is symmetric with `RequestFolderDelete`'s
+/// cursor-aware resolver pattern: the keymap dispatches a bare request and
+/// the update function resolves it from `AppState`.
+fn apply_toggle_folder_expansion(mut state: AppState) -> AppState {
+    let Some(tool_view) = state.current_tool() else {
+        return state;
+    };
+    if tool_view.tool != ToolId("hf") {
+        return state;
+    }
+    let Some(id) = tool_view.model_ids.get(state.selected_row) else {
+        return state;
+    };
+    let Some(folder_path) = folder_path_of(id) else {
+        return state;
+    };
+    if state.expanded_folders.contains(&folder_path) {
+        state.expanded_folders.remove(&folder_path);
+    } else {
+        state.expanded_folders.insert(folder_path);
+    }
+    state
+}
+
+/// Extract the `<author>/<repo>` prefix from an HF model id (which has the
+/// shape `<author>/<repo>/<filename>`). Returns `None` for ids with fewer
+/// than two `/`-separated segments — matches `group_by_hf_repo`'s skip rule.
+pub fn folder_path_of(id: &str) -> Option<String> {
+    let mut parts = id.splitn(3, '/');
+    let author = parts.next()?;
+    let repo = parts.next()?;
+    if author.is_empty() || repo.is_empty() {
+        return None;
+    }
+    // Must have at least one more segment (the filename) — otherwise this
+    // isn't an HF-shaped id at all.
+    parts.next()?;
+    Some(format!("{author}/{repo}"))
 }

@@ -148,6 +148,19 @@ pub const SHORTCUT_TABLE: &[Shortcut] = &[
         msg: Msg::RequestFolderDelete,
         sections: &[BarSection::Main],
     },
+    // Step 01-07 — Enter on main view toggles the cursor folder's expansion.
+    // The bar label is dispatch-only (no `BarSection::Main`) so the bottom
+    // bar stays within the 100-col headless terminal budget — users discover
+    // the affordance via the [?] help overlay. The `update` handler resolves
+    // the cursor's folder from state; this entry has no payload. Inside a
+    // dialog, Enter is intercepted by `dispatch_in_dialog` to mean
+    // DialogConfirm — so this entry never fires during dialog overlays.
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        label: "[Enter] expand/collapse",
+        msg: Msg::ToggleFolderExpansion,
+        sections: &[],
+    },
     // ----- Global ---------------------------------------------------------
     Shortcut {
         key: KeyEvent::new(KeyCode::Char('?'), KeyModifiers::NONE),

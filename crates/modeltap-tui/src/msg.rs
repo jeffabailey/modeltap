@@ -346,6 +346,22 @@ pub enum Msg {
     /// cursor (right-pane row context) at step 01-05 wiring time.
     RequestFolderDelete,
 
+    // -----------------------------------------------------------------------
+    // Step 01-07 — folder collapse/expand (US-05c UX).
+    //
+    // Default state is COLLAPSED for every folder. Pressing Enter while a
+    // folder header is the cursor target toggles its presence in
+    // `AppState.expanded_folders`. The `update` handler resolves the cursor's
+    // current folder from `(active tool, selected_row)` so the keymap does
+    // not need to know the right-pane layout — same pattern as
+    // `RequestFolderDelete`.
+    // -----------------------------------------------------------------------
+    /// User pressed `Enter` on the main screen. Toggle the cursor-targeted
+    /// folder's expansion. `update` resolves the folder from the highlighted
+    /// row's `<author>/<repo>` prefix; non-HF tools and rows without a `/`
+    /// prefix are no-ops at the resolver level.
+    ToggleFolderExpansion,
+
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,
 }

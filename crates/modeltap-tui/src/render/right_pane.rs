@@ -135,6 +135,7 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
             &in_progress,
             &failed_keys,
             no_color,
+            &state.expanded_folders,
         )
     } else {
         build_flat_lines(
@@ -348,11 +349,18 @@ fn build_flat_lines(
 /// the HF tool. Each `<author>/<repo>` group renders as:
 ///
 /// ```text
-/// [-] <author>/<repo>  N files, X GB (M unique, K shared)
-/// <child row 1>
-/// <child row 2>
+/// [+] <author>/<repo>  N files, X GB (M unique, K shared)        (collapsed; default)
+/// [-] <author>/<repo>  N files, X GB (M unique, K shared)        (expanded)
+///   <child row 1>
+///   <child row 2>
 /// ...
 /// ```
+///
+/// `expanded_folders` carries the set of `<author>/<repo>` paths the user has
+/// explicitly expanded. Folders NOT in the set are collapsed: the header is
+/// emitted with `[+]` and the per-file child rows are SKIPPED entirely so
+/// the right pane stays compact on caches with 60+ files (step 01-07).
+/// Folders in the set are emitted with `[-]` and every child row follows.
 ///
 /// The header `Line` is non-selectable (`None`) — v1 keystroke navigation
 /// still indexes `tool.model_ids`, so the user's cursor lands only on child
@@ -367,6 +375,7 @@ fn build_flat_lines(
 /// load-bearing AC (`5 files` is what the acceptance test asserts); the
 /// `unique`/`shared` split is informational and lands precisely at delete
 /// time via `classify_unique_vs_shared`.
+#[allow(clippy::too_many_arguments)]
 fn build_hf_folder_grouped_lines(
     tool: &crate::app_state::ToolView,
     inventory: &[ToolPresence],
@@ -375,6 +384,7 @@ fn build_hf_folder_grouped_lines(
     in_progress: &BTreeSet<ModelKey>,
     failed_keys: &BTreeSet<ModelKey>,
     no_color: bool,
+    expanded_folders: &BTreeSet<String>,
 ) -> Vec<(Line<'static>, Option<usize>)> {
     // Project ToolView -> Vec<ModelMeta>. Only the fields `group_by_hf_repo`
     // and `FolderGroup::new` actually read are populated; the rest get
@@ -413,11 +423,59 @@ fn build_hf_folder_grouped_lines(
     for folder in &folders {
         let unique_count = folder.models.len();
         let shared_count = 0usize;
-        let header = render_folder_header_line(folder, true, unique_count, shared_count);
-        out.push((line_into_static(header), None));
-        // Append each child row in the folder. We look up the child's
-        // selectable index by finding it back in `tool.model_ids` so the
-        // cursor (which indexes model_ids) still highlights the right row.
+        // F-FGD-1: single-file folders render as a flat row (no header / no
+        // collapse). The folder concept only applies for >=2 files. This
+        // preserves the parent-feature dedup-glyph tests which assume each
+        // model is visible as its own row.
+        if folder.models.len() == 1 {
+            let child = &folder.models[0];
+            let i_opt = tool.model_ids.iter().position(|id| id == &child.id_in_tool);
+            let size = child.size_bytes;
+            let indicator = classify_by_presence(&child.id_in_tool, inventory);
+            let also_in = other_tools_by_presence(&child.id_in_tool, tool.tool, inventory);
+            let dedup = dedup_glyph_for_row(
+                tool.tool,
+                &child.id_in_tool,
+                size,
+                dedup_inventory,
+                dedup_inodes,
+                in_progress,
+                failed_keys,
+            );
+            let line = render_row_basic(
+                &child.id_in_tool,
+                size,
+                indicator,
+                &also_in,
+                dedup,
+                no_color,
+            );
+            out.push((line_into_static(line), i_opt));
+            continue;
+        }
+        let is_expanded = expanded_folders.contains(&folder.path);
+        let header = render_folder_header_line(folder, is_expanded, unique_count, shared_count);
+        // The header is selectable when COLLAPSED so the cursor has a target
+        // row to land on (and Enter/Shift+F can resolve the folder from the
+        // selection). We map a collapsed header to the SELECTABLE INDEX of
+        // its first child so `state.selected_row` (which indexes
+        // `tool.model_ids`) keeps working — pressing Enter on the header
+        // expands the folder, and the cursor stays on the same logical row
+        // (now visible as the first child).
+        let first_child_idx = folder
+            .models
+            .first()
+            .and_then(|m| tool.model_ids.iter().position(|id| id == &m.id_in_tool));
+        let header_selectable_idx = if is_expanded { None } else { first_child_idx };
+        out.push((line_into_static(header), header_selectable_idx));
+        if !is_expanded {
+            // Collapsed: skip the per-file child rows entirely. The folder
+            // header alone represents the group in the right pane.
+            continue;
+        }
+        // Expanded: append each child row in the folder. We look up the
+        // child's selectable index by finding it back in `tool.model_ids` so
+        // the cursor (which indexes model_ids) still highlights the right row.
         for child in &folder.models {
             let i_opt = tool.model_ids.iter().position(|id| id == &child.id_in_tool);
             let size = child.size_bytes;

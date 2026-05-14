@@ -78,5 +78,6 @@ mod acceptance {
     // wired to `group_by_hf_repo` so users see folder-header rows in the
     // installed binary.
     // ---------------------------------------------------------------------
+    pub mod folder_grouping_collapse_expand;
     pub mod folder_grouping_visible;
 }

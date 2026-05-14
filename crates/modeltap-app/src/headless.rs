@@ -1117,15 +1117,23 @@ fn lift_delete_one_in_detail(state: &AppState, msg: Msg) -> Msg {
     Msg::OpenDeleteOneDialog(dialog)
 }
 
-/// On the main screen, lift Enter (which `update` would otherwise treat as
-/// `Msg::DialogConfirm` no-op) into `Msg::OpenDetail(...)` so the headless
-/// harness can navigate from the row list into the detail screen. The
-/// detail screen's registrations are synthesized from the headless test
+/// On the main screen, lift Enter into `Msg::OpenDetail(...)` so the
+/// headless harness can navigate from the row list into the detail screen.
+/// The detail screen's registrations are synthesized from the headless test
 /// fixture environment via `MODELTAP_HEADLESS_DETAIL_REGS` — a JSON array
 /// of `{tool, path}` entries. Falls through unchanged when the env-var is
 /// not set OR when we're not on the main screen.
+///
+/// Step 01-07 broadened the input set: production now dispatches
+/// `Msg::ToggleFolderExpansion` for Enter (not `DialogConfirm`). The
+/// detail-screen path is OPT-IN via the env-var. When the env-var is set
+/// (US-10 / US-13 / US-19 acceptance tests), we lift either the legacy
+/// `DialogConfirm` shape OR the new `ToggleFolderExpansion` shape into
+/// `Msg::OpenDetail`. When the env-var is absent (this step's scenarios),
+/// the `ToggleFolderExpansion` Msg passes through to the production
+/// `update` handler.
 fn lift_enter_in_main(state: &AppState, msg: Msg) -> Msg {
-    if !matches!(msg, Msg::DialogConfirm) {
+    if !matches!(msg, Msg::DialogConfirm | Msg::ToggleFolderExpansion) {
         return msg;
     }
     if !matches!(state.current_screen, Screen::Main) {
@@ -1528,7 +1536,14 @@ fn token_to_msg(
             // it pops Detail back to Main via `Msg::CloseDetail`. The dialog
             // branch above intercepts Esc-during-dialog to `Msg::DialogCancel`.
             "esc" => Msg::CloseDetail,
-            "enter" => Msg::DialogConfirm,
+            // Step 01-07: outside any dialog, Enter toggles folder expansion
+            // on the main view. The legacy "open detail" path is still
+            // available — when `MODELTAP_HEADLESS_DETAIL_REGS` is set,
+            // `lift_enter_in_main` rewrites this Msg into `Msg::OpenDetail`
+            // so US-10 / US-13 / US-19 acceptance tests keep working
+            // unchanged. Mirrors the production keymap's SHORTCUT_TABLE
+            // entry for `[Enter] expand/collapse`.
+            "enter" => Msg::ToggleFolderExpansion,
             "backspace" => Msg::DialogBackspace,
             _ => Msg::UnboundKey,
         },
