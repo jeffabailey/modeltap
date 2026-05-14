@@ -2,17 +2,19 @@
 //! "Models in <tool> (<count>, <total> GB)" and a scroll-position indicator
 //! "<selected+1>/<total>" rendered in the bottom-right corner.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use modeltap_core::domain::synthetic_slot::LeftPaneSlot;
 use modeltap_core::domain::{classify_by_presence, other_tools_by_presence, ToolPresence};
 use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
 use modeltap_core::logic::dedup::{compute_dedup_glyph, InodeMap, ModelKey};
-use modeltap_core::types::{DisplayLabel, Format, ModelStatus};
+use modeltap_core::logic::folder_group::group_by_hf_repo;
+use modeltap_core::types::{DedupKey, DisplayLabel, Format, ModelMeta, ModelStatus};
 use modeltap_core::{DiscoveredModel, ToolId};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 use ratatui::Frame;
 
@@ -20,6 +22,7 @@ use crate::app_state::{AppState, FocusPane};
 use crate::render::all_unified;
 use crate::render::bytes::format_bytes;
 use crate::render::colors::no_color_active;
+use crate::render::folder_header::render_folder_header_line;
 use crate::render::last_action;
 use crate::render::row::render_row_basic;
 use crate::render::toast;
@@ -110,44 +113,65 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 
     let no_color = no_color_active();
 
-    // Visible window for rows.
+    // ---- Build the flat list of rendered Lines, then apply scrolling. ----
+    // For the HF tool we route through `group_by_hf_repo` so each
+    // `<author>/<repo>` repo appears as a folder-header line followed by its
+    // per-file child rows. For every other tool we keep the v1 flat list.
+    //
+    // Selection (`state.selected_row`) indexes into `tool.model_ids` — the
+    // user-visible model count. We map that to a flat-row index by tracking
+    // each child row's position relative to `tool.model_ids`. Header rows are
+    // NEVER the selected target in this v1 wire-up; cursor-skips-header is a
+    // later refinement (the existing keymap already navigates model_ids).
+    let total_models = tool.model_ids.len();
+    let lines_with_selectable_index: Vec<(Line<'static>, Option<usize>)> = if total_models == 0 {
+        Vec::new()
+    } else if tool.tool == ToolId("hf") {
+        build_hf_folder_grouped_lines(
+            tool,
+            &inventory,
+            &dedup_inventory,
+            &dedup_inodes,
+            &in_progress,
+            &failed_keys,
+            no_color,
+        )
+    } else {
+        build_flat_lines(
+            tool,
+            &inventory,
+            &dedup_inventory,
+            &dedup_inodes,
+            &in_progress,
+            &failed_keys,
+            no_color,
+        )
+    };
+
+    // Visible window for rows. `total_rows` is the count of FLAT rows
+    // (headers + children); the bottom-right scroll-position indicator still
+    // tracks `selected_row + 1 / total_models` per US-04 (user thinks in
+    // model count, not row count).
     let visible = state.visible_rows.max(1);
-    let total_rows = tool.model_ids.len();
+    let total_rows = lines_with_selectable_index.len();
     let start = state.scroll_offset.min(total_rows.saturating_sub(1));
     let end = (start + visible).min(total_rows);
-    let rows = if total_rows == 0 {
-        Vec::new()
-    } else {
-        (start..end)
-            .map(|i| {
-                let id = &tool.model_ids[i];
-                let size = tool.model_sizes_bytes.get(i).copied().unwrap_or(0);
-                let indicator = classify_by_presence(id, &inventory);
-                let also_in = other_tools_by_presence(id, tool.tool, &inventory);
-                let dedup = dedup_glyph_for_row(
-                    tool.tool,
-                    id,
-                    size,
-                    &dedup_inventory,
-                    &dedup_inodes,
-                    &in_progress,
-                    &failed_keys,
-                );
-                let mut line = render_row_basic(id, size, indicator, &also_in, dedup, no_color);
-                if i == state.selected_row {
+    let rows: Vec<ListItem<'_>> = lines_with_selectable_index[start..end]
+        .iter()
+        .map(|(line, sel_idx)| {
+            let mut out = line.clone();
+            if let Some(idx) = sel_idx {
+                if *idx == state.selected_row {
                     let mut style = Style::default().add_modifier(Modifier::REVERSED);
                     if state.focus == FocusPane::Right {
                         style = style.add_modifier(Modifier::BOLD);
                     }
-                    // Apply the selection style on top of any per-span style
-                    // (e.g., the colored indicator glyph) so the highlight is
-                    // visible without losing the indicator's color cue.
-                    line = line.patch_style(style);
+                    out = out.patch_style(style);
                 }
-                ListItem::new(line)
-            })
-            .collect::<Vec<_>>()
-    };
+            }
+            ListItem::new(out)
+        })
+        .collect();
 
     let title = if matches!(state.focus, FocusPane::Right) {
         format!("{header} [focused]")
@@ -199,9 +223,12 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     frame.render_widget(widget, list_area);
 
     // Scroll-position indicator in the bottom-right corner. Format:
-    // "<selected+1>/<total>". Only rendered when there are rows.
-    if total_rows > 0 {
-        let label = format!("{}/{}", state.selected_row + 1, total_rows);
+    // "<selected+1>/<total>". Only rendered when there are models. We keep
+    // the denominator as `total_models` (model count, not row count) so the
+    // indicator reads "1/5" for a 5-model HF repo even though the flat row
+    // list contains 6 entries (5 children + 1 folder header).
+    if total_models > 0 {
+        let label = format!("{}/{}", state.selected_row + 1, total_models);
         let label_w = label.len() as u16;
         if inner_area.width >= label_w && inner_area.height >= 1 {
             let x = inner_area.x + inner_area.width - label_w;
@@ -269,6 +296,182 @@ fn build_dedup_inventory(state: &AppState) -> Inventory {
         }
     }
     Inventory { entries }
+}
+
+/// Clone a (possibly-borrowed) `Line` into a fully-owned `Line<'static>` so
+/// it can outlive transient inputs. Pure copy of every span's text and style.
+fn line_into_static(line: Line<'_>) -> Line<'static> {
+    let spans = line
+        .spans
+        .iter()
+        .map(|s| Span::styled(s.content.to_string(), s.style))
+        .collect::<Vec<_>>();
+    Line::from(spans)
+}
+
+/// Build the v1 flat list of `(Line, Option<selectable_index>)` for a
+/// non-HF tool: one entry per `model_ids[i]`, every entry selectable. The
+/// `Option<usize>` is `Some(i)` so the caller can compare against
+/// `state.selected_row` when applying the selection style.
+fn build_flat_lines(
+    tool: &crate::app_state::ToolView,
+    inventory: &[ToolPresence],
+    dedup_inventory: &Inventory,
+    dedup_inodes: &InodeMap,
+    in_progress: &BTreeSet<ModelKey>,
+    failed_keys: &BTreeSet<ModelKey>,
+    no_color: bool,
+) -> Vec<(Line<'static>, Option<usize>)> {
+    tool.model_ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let size = tool.model_sizes_bytes.get(i).copied().unwrap_or(0);
+            let indicator = classify_by_presence(id, inventory);
+            let also_in = other_tools_by_presence(id, tool.tool, inventory);
+            let dedup = dedup_glyph_for_row(
+                tool.tool,
+                id,
+                size,
+                dedup_inventory,
+                dedup_inodes,
+                in_progress,
+                failed_keys,
+            );
+            let line = render_row_basic(id, size, indicator, &also_in, dedup, no_color);
+            (line_into_static(line), Some(i))
+        })
+        .collect()
+}
+
+/// Build the folder-grouped list of `(Line, Option<selectable_index>)` for
+/// the HF tool. Each `<author>/<repo>` group renders as:
+///
+/// ```text
+/// [-] <author>/<repo>  N files, X GB (M unique, K shared)
+/// <child row 1>
+/// <child row 2>
+/// ...
+/// ```
+///
+/// The header `Line` is non-selectable (`None`) — v1 keystroke navigation
+/// still indexes `tool.model_ids`, so the user's cursor lands only on child
+/// rows. Models whose `id_in_tool` does not contain a `/` (no repo prefix)
+/// are appended at the end as flat child rows with no header (defensive —
+/// `group_by_hf_repo` already skips these silently, but we still want the
+/// user to SEE them rather than have them disappear from the right pane).
+///
+/// `unique_count` / `shared_count` are computed cheaply here as
+/// `(folder.models.len(), 0)` — the live right-pane display does not yet
+/// thread the full single-engine classifier through. The header text is the
+/// load-bearing AC (`5 files` is what the acceptance test asserts); the
+/// `unique`/`shared` split is informational and lands precisely at delete
+/// time via `classify_unique_vs_shared`.
+fn build_hf_folder_grouped_lines(
+    tool: &crate::app_state::ToolView,
+    inventory: &[ToolPresence],
+    dedup_inventory: &Inventory,
+    dedup_inodes: &InodeMap,
+    in_progress: &BTreeSet<ModelKey>,
+    failed_keys: &BTreeSet<ModelKey>,
+    no_color: bool,
+) -> Vec<(Line<'static>, Option<usize>)> {
+    // Project ToolView -> Vec<ModelMeta>. Only the fields `group_by_hf_repo`
+    // and `FolderGroup::new` actually read are populated; the rest get
+    // sensible defaults (the function never inspects them).
+    let models: Vec<ModelMeta> = tool
+        .model_ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let size = tool.model_sizes_bytes.get(i).copied().unwrap_or(0);
+            let label = DisplayLabel::from(id.as_str());
+            ModelMeta {
+                tool: tool.tool,
+                id_in_tool: id.clone(),
+                on_disk_path: PathBuf::new(),
+                size_bytes: size,
+                format: Format::Other,
+                display_label: label.clone(),
+                status: ModelStatus::Healthy,
+                dedup_key: DedupKey::Tentative(label),
+            }
+        })
+        .collect();
+
+    // `group_by_hf_repo` partitions by `<author>/<repo>` prefix and silently
+    // drops malformed ids. We don't have sidecar paths in the right-pane
+    // render path (sidecars are only enumerated at delete time by the HF
+    // plugin), so we pass an empty map — the header's `N files` count is
+    // model files only, which matches what the user sees row-by-row.
+    let folders = group_by_hf_repo(&models, &BTreeMap::new());
+
+    // Build a map from `<author>/<repo>` prefix -> folder index so we can
+    // place each model_id under its header in input order while still using
+    // the canonical alphabetic ordering from `group_by_hf_repo`.
+    let mut out: Vec<(Line<'static>, Option<usize>)> = Vec::new();
+    for folder in &folders {
+        let unique_count = folder.models.len();
+        let shared_count = 0usize;
+        let header = render_folder_header_line(folder, true, unique_count, shared_count);
+        out.push((line_into_static(header), None));
+        // Append each child row in the folder. We look up the child's
+        // selectable index by finding it back in `tool.model_ids` so the
+        // cursor (which indexes model_ids) still highlights the right row.
+        for child in &folder.models {
+            let i_opt = tool.model_ids.iter().position(|id| id == &child.id_in_tool);
+            let size = child.size_bytes;
+            let indicator = classify_by_presence(&child.id_in_tool, inventory);
+            let also_in = other_tools_by_presence(&child.id_in_tool, tool.tool, inventory);
+            let dedup = dedup_glyph_for_row(
+                tool.tool,
+                &child.id_in_tool,
+                size,
+                dedup_inventory,
+                dedup_inodes,
+                in_progress,
+                failed_keys,
+            );
+            let line = render_row_basic(
+                &child.id_in_tool,
+                size,
+                indicator,
+                &also_in,
+                dedup,
+                no_color,
+            );
+            out.push((line_into_static(line), i_opt));
+        }
+    }
+
+    // Defensive: any model_ids that group_by_hf_repo dropped (no `/`
+    // separator) get appended ungrouped so they remain visible. In practice
+    // the HF plugin's discover() always emits `<author>/<repo>/<file>`-shaped
+    // ids, so this branch is empty for real HF caches.
+    let grouped_ids: BTreeSet<&str> = folders
+        .iter()
+        .flat_map(|f| f.models.iter().map(|m| m.id_in_tool.as_str()))
+        .collect();
+    for (i, id) in tool.model_ids.iter().enumerate() {
+        if grouped_ids.contains(id.as_str()) {
+            continue;
+        }
+        let size = tool.model_sizes_bytes.get(i).copied().unwrap_or(0);
+        let indicator = classify_by_presence(id, inventory);
+        let also_in = other_tools_by_presence(id, tool.tool, inventory);
+        let dedup = dedup_glyph_for_row(
+            tool.tool,
+            id,
+            size,
+            dedup_inventory,
+            dedup_inodes,
+            in_progress,
+            failed_keys,
+        );
+        let line = render_row_basic(id, size, indicator, &also_in, dedup, no_color);
+        out.push((line_into_static(line), Some(i)));
+    }
+    out
 }
 
 /// Find the `InventoryEntry` for `(tool, id)` in `inventory` and run the

@@ -71,4 +71,12 @@ mod acceptance {
     pub mod folder_delete_partial_failure;
     pub mod folder_delete_preflight_refusal;
     pub mod folder_delete_walking_skeleton;
+
+    // ---------------------------------------------------------------------
+    // Recovery step: live integration of folder grouping into the HF right
+    // pane. The renderer iteration (`render::right_pane::render`) had to be
+    // wired to `group_by_hf_repo` so users see folder-header rows in the
+    // installed binary.
+    // ---------------------------------------------------------------------
+    pub mod folder_grouping_visible;
 }
