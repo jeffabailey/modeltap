@@ -43,11 +43,15 @@ pub fn template_path() -> PathBuf {
 ///   to over an hour. Invoking the prebuilt binary directly takes no cargo
 ///   lock and runs in <100 ms instead.
 ///
-///   `cargo test --workspace` builds every workspace binary (including
-///   xtask) before running tests, so the binary is guaranteed to exist.
-///   For the rare case where it doesn't (e.g., `cargo test -p tests`
-///   without prior workspace build), `xtask_path()` panics with a clear
-///   message telling the caller to run `cargo build -p xtask` first.
+///   `cargo test --workspace` does NOT produce `target/debug/xtask` — it
+///   only builds the per-bin unittest harness at
+///   `target/debug/deps/xtask-<hash>`. The bin itself is produced by
+///   `cargo build`, so the workflows that run `cargo test` for acceptance
+///   tests must invoke `cargo build -p xtask --locked` first. `ci.yml`
+///   already runs `cargo build --workspace --all-targets --locked` before
+///   `cargo test`; `release.yml` has a dedicated `cargo build -p xtask`
+///   step immediately before `cargo test`. `xtask_path()` panics with a
+///   clear message if the binary is missing.
 ///
 /// The PATH workaround is mandatory on developer machines where
 /// `~/.pyenv/shims/cc` shadows `/usr/bin/cc` — without it, child processes

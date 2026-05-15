@@ -60,12 +60,11 @@ jobs:
       # at the publish job (US-08), not at build time.
       fail-fast: false
       matrix:
-        # `strip-cmd` per target: macOS uses `strip -x` (rustc Mach-O quirk),
-        # native linux uses `strip`, the aarch64-linux cross cell uses
-        # `aarch64-linux-gnu-strip` (host strip can't read foreign-arch ELF).
-        # x86_64-apple-darwin (macos-13) is intentionally absent — runner
-        # queue delays. xtask::formula still supports MacIntel; re-add the
-        # row to publish Intel-Mac builds again.
+        # strip-cmd per target: macOS uses `strip -x` (rustc Mach-O quirk), native
+        # linux uses `strip`, aarch64-linux cross uses `aarch64-linux-gnu-strip`
+        # (host strip can't read foreign-arch ELF). x86_64-apple-darwin is absent
+        # (macos-13 runner queue); xtask::formula still supports MacIntel — re-add
+        # the row to publish Intel-Mac builds again.
         include:
           - target: aarch64-apple-darwin
             runs-on: macos-14
@@ -107,6 +106,8 @@ jobs:
         run: cargo fmt --all -- --check
       - name: cargo clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo build -p xtask  # bump_tap_formula tests need target/debug/xtask; cargo test alone won't produce it
+        run: cargo build -p xtask --locked
       - name: cargo test
         run: cargo test --workspace --locked
       # -----------------------------------------------------------------------
