@@ -1,0 +1,564 @@
+# Journey schema — tool-model-info-sqlite-cache
+# Companion to journey-info-and-cache-visual.md; consumed by acceptance-designer (DISTILL).
+# Brownfield extension to journey-cleanup-and-unify.yaml (parent feature).
+
+journey:
+  name: "Tool & Model Inspection With SQLite-Backed Cache"
+  goal: "Open modeltap, see a useful inventory instantly from cached state, drill into one tool or one model to confirm metadata before acting, and always know how fresh the displayed data is."
+  persona: "Devon Park (parent persona)"
+
+  emotional_arc:
+    arc_a_verify_model:
+      start: "Uncertain — name + size + indicator is not enough to act"
+      middle: "Curious — opens detail screen"
+      end: "Confident — has every fact, acts decisively"
+    arc_b_open_modeltap:
+      start: "Routine — opening modeltap to check disk"
+      middle: "Surprised then trusting — instant paint, provenance line is honest"
+      end: "In-flow — knows freshness without thinking"
+
+  brownfield_anchor: "docs/feature/modeltap-tui/discuss/journey-cleanup-and-unify.yaml"
+
+  constraint_reversal:
+    supersedes: "ADR-003 (state model — stateless rediscovery, no persistent index) per intake brief explicit user direction"
+    new_rule: "SQLite-backed cache for warm-start latency and persisted tool/model metadata. Cache is paint-only; filesystem is authoritative on mutate. Cache is an optimisation, never a dependency."
+    must_produce: "A new ADR superseding ADR-003 with the cache contract, refresh policy, schema migration strategy, and concurrency model."
+
+steps:
+  - id: 1
+    name: "Launch — warm start (cache hit) or cold start (no cache / recovery)"
+    command: "modeltap"
+
+    tui_mockup: |
+      +- modeltap ---------------------------------------------------------------+
+      | Tools                | Models in Ollama (12, 47.3 GB)                    |
+      | > Ollama        12   | * llama3:8b-instruct-q4_K_M       4.9 GB          |
+      |   llama-cli     6    |   (also in: Hugging Face)                         |
+      |   Hugging Face  31   | * mistral:7b-instruct-q4_K_M      4.4 GB          |
+      |   LM Studio     9    |   (also in: llama-cli, Hugging Face)              |
+      |                      | o qwen2.5:14b-q4_K_M              8.2 GB          |
+      +--------------------------------------------------------------------------+
+      | Total: 138.4 GB | 58 models | as of 14 min ago, refreshing...            |
+      +--------------------------------------------------------------------------+
+      | [<-/->] tools  [up/down] models  [Enter] detail  [r] refresh tool        |
+      | [Shift+R] refresh all  [u] unify  [z] zap tool  [?] help [q] quit        |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "cache.as_of_timestamp"
+        source: "cache.last_full_reconcile_at column in SQLite"
+        displayed_as: "${cache.as_of_timestamp}"
+        consumers: ["summary-bar provenance line", "tool detail screen 'last scan'", "model detail screen 'introspected X ago'"]
+      - name: "cache.state"
+        source: "app boot logic"
+        displayed_as: "${cache.state}"
+        consumers: ["banner display (if recovering)", "internal pathway selection (warm vs cold)"]
+      - name: "cache.recovery_reason"
+        source: "app boot logic"
+        displayed_as: "(banner text)"
+        consumers: ["post-recovery banner", "diagnostics.log entry"]
+
+    emotional_state:
+      entry: "Routine"
+      exit: "Surprised (warm) / Oriented (cold) / Informed (recovering)"
+
+    integration_checkpoint: |
+      Warm-start paint completes within 100 ms of process start.
+      Cold-start skeleton paint completes within 150 ms (unchanged from ADR-003).
+      Recovery state surfaces a banner with the file rename and log location.
+      Cache state never blocks the launch — even on full corruption, the app reaches the inventory view via cold-start fallback.
+
+    gherkin: |
+      Scenario: Warm start paints cached inventory within 100 ms
+        Given the cache file ~/.modeltap/cache.sqlite exists and is valid
+        And the cache contains inventory data from the previous launch
+        When Devon runs `modeltap`
+        Then the TUI paints the cached inventory within 100 ms of process start
+        And the summary bar shows "as of <N> ago, refreshing..."
+
+      Scenario: Cold start falls back to skeleton paint when no cache
+        Given the cache file does not exist
+        When Devon runs `modeltap`
+        Then the TUI paints the skeleton placeholder within 150 ms
+        And full inventory paints within 1.15 s
+        And the summary bar reads "as of just now"
+
+      Scenario: Cache corruption recovers with banner
+        Given the cache file exists but is corrupted (SQLITE_CORRUPT)
+        When Devon runs `modeltap`
+        Then the cache file is renamed to ~/.modeltap/cache.sqlite.corrupt-<ts>
+        And a recovery banner appears with the rename target and log location
+        And cold-start discovery proceeds
+        And modeltap reaches the inventory view normally
+
+  - id: 2
+    name: "Background reconcile"
+    command: "(automatic post-paint)"
+
+    tui_mockup: |
+      +- modeltap ---------------------------------------------------------------+
+      | Tools                | Models in Ollama (12, 47.3 GB)                    |
+      | > Ollama        12 . | (rows shown but spinner active per-tool)          |
+      |   llama-cli     6 .. |                                                   |
+      |   Hugging Face  31 . |                                                   |
+      |   LM Studio     9 .. |                                                   |
+      +--------------------------------------------------------------------------+
+      | Total: 138.4 GB | 58 models | reconciling 3 tools (1 done)               |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "cache.reconcile_status"
+        source: "app reconcile orchestrator"
+        displayed_as: "${cache.reconcile_status}"
+        consumers: ["summary-bar text", "per-tool spinner indicators"]
+      - name: "tool.last_reconciled_at"
+        source: "cache.tools.last_scan_at column"
+        displayed_as: "${tool.last_reconciled_at}"
+        consumers: ["tool detail screen", "per-tool TTL eligibility check"]
+
+    emotional_state:
+      entry: "Surprised or Oriented"
+      exit: "Trusting — provenance line tells the truth"
+
+    integration_checkpoint: |
+      For each tool with a successful reconcile, cache.tools row updates atomically.
+      For each tool with a failed reconcile, the cache entry stays (stale-but-displayed); the row shows "(error)".
+      Per-tool TTL: rows whose last_scan_at is older than cache.tool_ttl_seconds (default 86400) are NOT eligible for warm-start paint on the next launch — they cold-start.
+
+    gherkin: |
+      Scenario: Background reconcile updates the cache after warm start
+        Given the warm-start paint has completed from cached data
+        When the background reconcile finishes for Ollama
+        Then the cache.tools row for Ollama updates with the new last_scan_at
+        And the right-pane re-renders if the inventory changed
+        And the summary bar provenance line updates to "as of just now"
+
+      Scenario: Per-tool TTL forces cold paint for stale entries
+        Given the cache contains Ollama inventory with last_scan_at older than 24 hours
+        When Devon runs `modeltap`
+        Then Ollama is NOT painted from cache on warm-start
+        And Ollama's left-pane row shows the skeleton spinner
+        And cold-start discovery for Ollama proceeds
+
+      Scenario: Failed reconcile keeps the stale cache visible
+        Given Ollama's directory becomes unreadable between launches
+        When Devon runs `modeltap` and the Ollama reconcile fails
+        Then the cached Ollama inventory remains painted
+        And the Ollama row shows "(error)" alongside the cached count
+        And the failure is logged to ~/.modeltap/diagnostics.log
+
+  - id: 3
+    name: "Browse with provenance always visible (manual refresh)"
+    command: "[r] for selected tool, [Shift+R] for all"
+
+    tui_mockup: |
+      (mid-refresh)
+      +--------------------------------------------------------------------------+
+      | Total: 138.4 GB | 58 models | refreshing Ollama...                       |
+      +--------------------------------------------------------------------------+
+      (post-refresh)
+      +--------------------------------------------------------------------------+
+      | Total: 138.4 GB | 58 models | as of just now (Ollama refreshed)          |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "cache.refresh_target"
+        source: "keypress handler"
+        displayed_as: "${cache.refresh_target}"
+        consumers: ["spinner display", "summary-bar text", "reconcile orchestrator"]
+      - name: "keyboard_shortcuts"
+        source: "modeltap-tui::input::keymap::SHORTCUT_TABLE (parent registry)"
+        displayed_as: "(bottom bar)"
+        consumers: ["bottom bar", "help overlay"]
+        extends_parent_registry_with: ["[r] refresh tool", "[Shift+R] refresh all"]
+
+    emotional_state:
+      entry: "Trusting"
+      exit: "In-flow"
+
+    integration_checkpoint: |
+      [r] dispatches only when no dialog is open AND a tool is selected.
+      [Shift+R] dispatches only when no dialog is open.
+      Bottom bar dims the shortcuts when their context disables them (matches US-08 dim-vs-bright rule).
+      Post-refresh cache.as_of_timestamp == "just now"; UI confirms within 500ms of refresh completion.
+
+    gherkin: |
+      Scenario: [r] refreshes the selected tool
+        Given Devon has Ollama selected in the left pane
+        And no dialog is open
+        When Devon presses `r`
+        Then a spinner appears next to the Ollama row
+        And the summary bar reads "refreshing Ollama..."
+        And within 1 second the spinner clears and the bar reads "as of just now (Ollama refreshed)"
+        And the cache.tools row for Ollama updates with the new last_scan_at
+
+      Scenario: [Shift+R] refreshes all tools
+        Given no dialog is open
+        When Devon presses Shift+R
+        Then all tools show the per-tool spinner
+        And the summary bar reads "refreshing all tools..."
+        And within 2 seconds all spinners clear
+        And the cache.tools rows for every tool are updated
+
+      Scenario: [r] is a no-op when a dialog is open
+        Given the unify dialog is open
+        When Devon presses `r`
+        Then no refresh is triggered
+        And the [r] shortcut in the bottom bar is dimmed
+
+  - id: 4
+    name: "Drill into a tool — NEW tool detail screen"
+    command: "Enter on left-pane row"
+
+    tui_mockup: |
+      +- modeltap : Ollama -----------------------------------------------------+
+      | Tool detail                                                             |
+      | Name           : Ollama                                                 |
+      | Version        : 0.6.4         (detected via http://localhost:11434)    |
+      | Discovery root : ~/.ollama/models/                                      |
+      | Search paths   : ~/.ollama/models/manifests/registry.ollama.ai/         |
+      |                  ~/.ollama/models/blobs/                                |
+      | Model count    : 12                                                     |
+      | Disk usage     : 47.3 GB (unique blobs)                                 |
+      | Largest model  : llama3:70b-instruct-q4_K_M  (39.8 GB)                  |
+      | Last scan      : 2026-05-16 09:14:22 (4 min ago)                        |
+      | Scan duration  : 0.42 s                                                 |
+      | Last error     : (none)                                                 |
+      | Plugin version : modeltap-plugin-ollama 0.2.6                           |
+      +-------------------------------------------------------------------------+
+      | [Esc] back  [r] refresh this tool  [?] help                             |
+      +-------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "tool.install_path"
+        source: "plugin's discover() default + user config in ~/.modeltap/config.toml"
+        displayed_as: "${tool.install_path}"
+        consumers: ["tool detail screen"]
+      - name: "tool.detected_version"
+        source: "per-plugin Tool::inspect_tool() implementation; None if undetectable"
+        displayed_as: "${tool.detected_version}"
+        consumers: ["tool detail screen"]
+      - name: "tool.last_scan_at"
+        source: "cache.tools.last_scan_at column"
+        displayed_as: "${tool.last_scan_at}"
+        consumers: ["tool detail screen", "summary bar provenance"]
+      - name: "tool.last_scan_duration_ms"
+        source: "cache.tools.last_scan_duration_ms column"
+        displayed_as: "${tool.last_scan_duration_ms}"
+        consumers: ["tool detail screen"]
+      - name: "tool.last_error"
+        source: "cache.tools.last_error column"
+        displayed_as: "${tool.last_error}"
+        consumers: ["tool detail screen", "left-pane '(error)' annotation"]
+      - name: "tool.plugin_version"
+        source: "plugin static metadata (Cargo.toml version)"
+        displayed_as: "${tool.plugin_version}"
+        consumers: ["tool detail screen"]
+      - name: "tool.search_paths"
+        source: "plugin defaults + user config"
+        displayed_as: "${tool.search_paths[]}"
+        consumers: ["tool detail screen"]
+      - name: "tool.largest_model"
+        source: "core::find_largest_model(tool, inventory)"
+        displayed_as: "${tool.largest_model}"
+        consumers: ["tool detail screen"]
+
+    emotional_state:
+      entry: "Curious or suspecting trouble"
+      exit: "Oriented — Devon knows what modeltap knows about this tool"
+
+    integration_checkpoint: |
+      tool.model_count on detail screen MUST equal the left-pane count.
+      tool.disk_usage on detail screen MUST equal the per-tool aggregate that rolls into total.disk_usage.
+      If version is undetectable, the field shows "(not detectable)" — never a false value.
+
+    gherkin: |
+      Scenario: Pressing Enter on a left-pane row opens the tool detail screen
+        Given Devon has Ollama selected in the left pane
+        When Devon presses Enter
+        Then the tool detail screen opens
+        And it shows Ollama's discovery root, model count, disk usage, last scan time, and plugin version
+
+      Scenario: Tool detail screen shows undetectable version gracefully
+        Given a plugin cannot detect its tool's version (e.g., llama-cli static binary)
+        When Devon opens that tool's detail screen
+        Then the Version field reads "(not detectable)"
+        And no false version is shown
+
+      Scenario: Last error surfaces in detail screen when discovery failed
+        Given Ollama's discovery failed at last scan with permission denied
+        When Devon opens Ollama's detail screen
+        Then the Last error field shows "permission denied reading <path> (errno 13)"
+        And the timestamp of the error is included
+
+  - id: 5
+    name: "Drill into a model — EXPANDED model detail with tool-native metadata"
+    command: "Enter on right-pane row"
+
+    tui_mockup: |
+      +- modeltap : mistral:7b-instruct-q4_K_M --------------------------------+
+      | Id              : mistral:7b-instruct-q4_K_M                            |
+      | Format          : GGUF v3                                               |
+      | Quantisation    : Q4_K_M                                                |
+      | Architecture    : llama                                                 |
+      | Parameters      : 7.24 B                                                |
+      | Context length  : 32768                                                 |
+      | Dedup key       : sha256:8f3e9c102a4b...c102  (computed 2 min ago)      |
+      | Size on disk    : 4.4 GB (per-tool)                                     |
+      | Total bytes     : 4.4 GB (1 inode, 3 hardlinks)  [UNIFIED]              |
+      | Registered with:                                                        |
+      |   * Ollama        ~/.ollama/models/blobs/sha256-8f3e9c102a4b...         |
+      |   * llama-cli     ~/llms/mistral-7b-instruct-q4_K_M.gguf  (hardlink)    |
+      |   * Hugging Face  ~/.cache/huggingface/.../mistral-7b-q4_K_M.gguf       |
+      | Metadata (from GGUF header, introspected 2 min ago):                    |
+      |   general.architecture           : llama                                |
+      |   general.quantization_version   : 2                                    |
+      |   llama.context_length           : 32768                                |
+      |   llama.embedding_length         : 4096                                 |
+      |   llama.block_count              : 32                                   |
+      |   tokenizer.ggml.model           : llama                                |
+      | Last action     : unify mistral:7b (success, 2 hours ago)               |
+      +-------------------------------------------------------------------------+
+      | [Esc] back  [u] unify  [d] delete-one  [r] re-introspect  [?] help      |
+      +-------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "model.format_version"
+        source: "per-plugin Tool::inspect_model() implementation"
+        displayed_as: "${model.format_version}"
+        consumers: ["model detail screen"]
+      - name: "model.quantisation"
+        source: "Tool::inspect_model() (parses GGUF header or HF config)"
+        displayed_as: "${model.quantisation}"
+        consumers: ["model detail screen"]
+      - name: "model.architecture"
+        source: "Tool::inspect_model()"
+        displayed_as: "${model.architecture}"
+        consumers: ["model detail screen"]
+      - name: "model.parameters"
+        source: "Tool::inspect_model() (computed from architecture KVs)"
+        displayed_as: "${model.parameters}"
+        consumers: ["model detail screen"]
+      - name: "model.context_length"
+        source: "Tool::inspect_model()"
+        displayed_as: "${model.context_length}"
+        consumers: ["model detail screen"]
+      - name: "model.metadata_kv"
+        source: "Tool::inspect_model() — returns BTreeMap<String, String>"
+        displayed_as: "${model.metadata_kv}"
+        consumers: ["model detail screen 'Metadata' section"]
+      - name: "model.metadata_introspected_at"
+        source: "cache.models.metadata_introspected_at column"
+        displayed_as: "${model.metadata_introspected_at}"
+        consumers: ["model detail screen provenance line"]
+      - name: "model.dedup_key_computed_at"
+        source: "cache.sha256.computed_at column (when SHA256 persistence ships in US-27)"
+        displayed_as: "${model.dedup_key_computed_at}"
+        consumers: ["model detail screen dedup key line"]
+
+    emotional_state:
+      entry: "Uncertain — name + size is not enough"
+      exit: "Confident — has every fact"
+
+    integration_checkpoint: |
+      model.size on the right-pane row that opened this detail MUST equal model.size_on_disk shown here.
+      model.dedup_key MUST be validated against filesystem (re-stat) before any mutation downstream.
+      If [r] (re-introspect) is pressed, the cache.models row updates with new metadata_introspected_at.
+
+    gherkin: |
+      Scenario: Model detail surfaces GGUF header metadata
+        Given Mistral-7B-v0.3 q4_K_M is registered in 3 tools
+        And the file format is GGUF v3
+        When Devon presses Enter on the Mistral row
+        Then the model detail screen opens
+        And the Metadata section shows general.architecture, llama.context_length, llama.block_count from the GGUF header
+        And the Metadata section shows "introspected <N> ago"
+
+      Scenario: Re-introspect updates the metadata provenance
+        Given Devon is on the Mistral detail screen
+        And the metadata was introspected 2 hours ago
+        When Devon presses `r`
+        Then inspect_model() re-runs against the current file
+        And the Metadata section updates with new values if any
+        And the provenance reads "introspected just now"
+
+      Scenario: Model detail for a non-introspectable file shows partial info
+        Given a model file's format cannot be parsed (corrupt GGUF or unknown)
+        When Devon opens its detail screen
+        Then the Format field reads what could be detected (e.g., "GGUF v3 (header partially readable)")
+        And the Metadata section shows "(introspection failed — see diagnostics.log)"
+        And the screen does not crash
+
+  - id: 6
+    name: "Act with confidence — pre-mutate revalidation (cache safety rule)"
+    command: "[u] unify, [d] delete-one, [z] zap, [F] folder-delete (parent flows)"
+
+    tui_mockup: |
+      (example: unify pre-flight)
+      +- Unify mistral:7b-instruct-q4_K_M --------------------------------------+
+      | Validating files... (re-stat against cache)                             |
+      | [...] 3 of 3 files validated                                            |
+      | All files match cached state. Proceeding.                               |
+      +-------------------------------------------------------------------------+
+
+      (failure case)
+      +- Unify mistral:7b-instruct-q4_K_M --------------------------------------+
+      | Validating files... (re-stat against cache)                             |
+      | WARNING: file changed since last seen:                                  |
+      |   ~/llms/mistral-7b-instruct-q4_K_M.gguf                                |
+      |   cached: mtime=2026-05-15T14:00 size=4.4 GB                            |
+      |   actual: mtime=2026-05-16T08:11 size=4.4 GB (mtime changed)            |
+      | Re-introspecting before proceeding...                                   |
+      +-------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "model.fs_stat"
+        source: "live std::fs::metadata() call at action time"
+        displayed_as: "(internal)"
+        consumers: ["pre-mutate validator", "cache writeback logic"]
+      - name: "cache.write_queue"
+        source: "post-action cache update logic"
+        displayed_as: "(internal)"
+        consumers: ["SQLite write transaction"]
+
+    emotional_state:
+      entry: "Confident (from Step 5)"
+      exit: "Satisfied (parent journey end state)"
+
+    integration_checkpoint: |
+      CRITICAL: cache is paint-only; filesystem is authoritative on mutate.
+      Pre-mutate, every targeted file's (mtime, size, inode_dev) MUST be re-checked against cache.
+      Drift -> re-introspect before action -> if file gone, abort with the parent's "file no longer exists; refreshing" pattern (matches US-05c F-FGD-8 pre-flight refusal).
+      Post-action, cache is updated atomically (write transaction).
+      If concurrent peer process has the WAL, busy_timeout (5000 ms) handles it transparently.
+
+    gherkin: |
+      Scenario: Pre-unify validation passes when cache matches filesystem
+        Given Mistral-7B is registered in 3 tools per the cache
+        And all 3 files match the cached (mtime, size, inode_dev) tuple
+        When Devon presses `u` and confirms
+        Then the unify proceeds normally
+        And post-action the cache is updated with the new hardlink state
+
+      Scenario: Pre-unify validation re-introspects on stat drift
+        Given Mistral-7B is registered in 3 tools per the cache
+        And one file's mtime has changed since the last cache write
+        When Devon presses `u` and confirms
+        Then the validator triggers a re-introspection of the drifted file
+        And the unify dialog refreshes the dedup-key / size for that file
+        And Devon must re-confirm if the reclaim amount changed
+
+      Scenario: Pre-mutate validation aborts when a file no longer exists
+        Given a model is registered in 2 tools per the cache
+        And one file has been deleted between launch and the user's action
+        When Devon attempts to unify
+        Then the pre-flight check refuses with "file no longer exists; refreshing inventory"
+        And no destructive action occurs
+        And a refresh is triggered automatically
+
+  - id: 7
+    name: "Cache corruption / schema migration — failure path"
+    command: "(automatic on launch)"
+
+    tui_mockup: |
+      +- modeltap ---------------------------------------------------------------+
+      | Previous cache reset (corrupted or schema mismatch).                     |
+      | Renamed to ~/.modeltap/cache.sqlite.corrupt-2026-05-16T091422.           |
+      | Cold-start discovery in progress. See ~/.modeltap/diagnostics.log.       |
+      |                                                              [Esc] dismiss|
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "cache.schema_version"
+        source: "PRAGMA user_version"
+        displayed_as: "(internal)"
+        consumers: ["migrator", "boot validation"]
+      - name: "cache.expected_schema_version"
+        source: "crates/modeltap-store/src/schema.rs compile-time constant"
+        displayed_as: "(internal)"
+        consumers: ["migrator"]
+      - name: "cache.recovery_reason"
+        source: "app boot logic"
+        displayed_as: "(banner)"
+        consumers: ["recovery banner", "diagnostics.log"]
+
+    emotional_state:
+      entry: "Confused — something happened"
+      exit: "Informed — banner explains what and where to read more"
+
+    integration_checkpoint: |
+      Recovery MUST always succeed (empty cache + cold-start is the ADR-003 baseline; guaranteed-good fallback).
+      Forward migrations run in order; failure of any migration triggers corruption-recovery path.
+      Cache version > binary version (user downgrade) -> rename to `.future-version-<n>` and start cold.
+      Banner is dismissable; one log line per recovery event.
+
+    gherkin: |
+      Scenario: Schema migration runs forward on version mismatch
+        Given the cache PRAGMA user_version is 1
+        And the binary's expected_schema_version is 3
+        When Devon runs `modeltap`
+        Then the migrator runs migrations 1->2 and 2->3 in order
+        And the cache PRAGMA user_version becomes 3
+        And each migration step is logged
+
+      Scenario: Failed migration triggers corruption recovery
+        Given migration 2->3 fails partway through
+        When the migrator catches the failure
+        Then the cache file is renamed to ~/.modeltap/cache.sqlite.corrupt-<ts>
+        And the recovery banner appears on the inventory view
+        And cold-start discovery proceeds
+
+      Scenario: Downgrade detected — cache from a newer binary
+        Given the cache PRAGMA user_version is 5
+        And the binary's expected_schema_version is 3
+        When Devon runs `modeltap`
+        Then the cache is renamed to ~/.modeltap/cache.sqlite.future-version-5
+        And a banner explains the downgrade and where the file went
+        And cold-start discovery proceeds
+
+      Scenario: --no-cache flag bypasses the cache for one launch
+        Given a valid cache file exists
+        When Devon runs `modeltap --no-cache`
+        Then the cache file is not opened or written
+        And the launch follows the ADR-003 stateless rediscovery path
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "tool.model_count"
+      must_match_across: [1, 2, 4]
+      failure_message: "Left-pane count, detail-screen count, and cache.tools row all disagree — cache and reconciled state are out of sync."
+    - artifact: "model.size"
+      must_match_across: [3, 5]
+      failure_message: "Right-pane row size and detail-screen size-on-disk disagree — cache write missed or rendering bug."
+    - artifact: "cache.as_of_timestamp"
+      must_match_across: [1, 2, 3]
+      failure_message: "Summary-bar provenance lying about freshness — drift between displayed value and actual cache.last_full_reconcile_at."
+    - artifact: "model.dedup_key"
+      must_match_across: [5, 6]
+      failure_message: "SHA256 displayed in detail screen != SHA256 used in pre-unify validation — cache write/read race."
+
+  cross_step_invariants:
+    - "Pre-mutate re-stat ALWAYS reads from filesystem, never from cache (J3+J5 design rule)."
+    - "Cache failure NEVER blocks launch — corruption-recovery is mandatory v1 (J6 design rule)."
+    - "Cache writes are atomic per action — partial writes never visible to peer processes (J7 design rule)."
+    - "Schema migrations are forward-only and idempotent — re-running a failed migration produces the same end state or fails identically (J6 design rule)."
+
+open_questions_for_design:
+  - id: Q-INFO-1
+    artifact: "Tool trait shape"
+    question: "Does Tool::inspect_tool() and Tool::inspect_model() become required methods, or default-impl returning NotSupported?"
+  - id: Q-INFO-2
+    artifact: "cache.location"
+    question: "$XDG_DATA_HOME/modeltap/cache.sqlite (preferred) — confirm and document the macOS/Linux paths via the `dirs` crate."
+  - id: Q-INFO-3
+    artifact: "migration tooling"
+    question: "rusqlite_migration, hand-rolled, or sqlx::migrate!? Recommendation: rusqlite_migration."
+  - id: Q-INFO-4
+    artifact: "cache.tool_ttl_seconds"
+    question: "Default 24h? Per-tool override in config?"
+  - id: Q-INFO-5
+    artifact: "cache.enabled default"
+    question: "On by default? Recommendation: ON, opt-out via --no-cache."
+  - id: Q-INFO-6
+    artifact: "concurrent write contention"
+    question: "busy_timeout sufficient, or detect-and-prompt-then-retry like intake Q5? Recommendation: busy_timeout for v1."

@@ -1,8 +1,12 @@
 # ADR-003: State Model — Stateless Rediscovery, No Persistent Index
 
+**Superseded by:** [ADR-015 — State Model: SQLite-Backed Cache With Pre-Mutate Revalidation](ADR-015-state-model-sqlite-cache.md) on 2026-05-17.
+
+This ADR is preserved as the historical record of the v0.2.x state model. The `tool-model-info-sqlite-cache` feature reverses the stateless-rediscovery rule per explicit user direction; see ADR-015 for the new state model, including the cache-paint-only / filesystem-authoritative-on-mutate safety rule that addresses the cache-invalidation concerns that originally motivated this ADR.
+
 ## Status
 
-Accepted (2026-04-28). Closes intake Q7 (and Q1 by implication).
+Accepted (2026-04-28). Closes intake Q7 (and Q1 by implication). **Superseded by ADR-015 (2026-05-17).**
 
 ## Context
 

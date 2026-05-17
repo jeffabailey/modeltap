@@ -1,0 +1,720 @@
+{
+  "roadmap": {
+    "project_id": "tool-model-info-sqlite-cache",
+    "parent_feature": "modeltap-tui",
+    "user_stories": ["US-21", "US-22", "US-23", "US-24", "US-25", "US-26"],
+    "created_at": "2026-05-17T00:00:00Z",
+    "total_steps": 22,
+    "phases": 6
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking Skeleton — Devon's second launch shows yesterday's inventory instantly from cache",
+      "description": "Thinnest end-to-end vertical slice that proves the SQLite cache wiring works: a new `modeltap-store` crate (Cache::open + migrate v0->v1 + minimal ToolsRepo/ModelsRepo write+read paths), the two new `Tool::inspect_tool` / `Tool::inspect_model` default-body methods in `modeltap-core`, an in-process `TestTool` plugin registered via `MODELTAP_TEST_PLUGINS=test-tool`, and the `modeltap-app::orchestration::warm_start` composition glue that reads the cache on launch and paints from it. Exit gate is the M1 @walking-skeleton scenario in `walking-skeleton.feature` passing end-to-end: process A cold-starts, writes one row to a real on-disk `cache.sqlite`, exits cleanly; process B launches against the same file, paints the row from cache, and reports `launch.warm_paint_ms <= 150` in JSONL. Closes the four riskiest assumptions at once: (a) the trait extension is source-compatible across all 6 plugins, (b) rusqlite_migration runs v0->v1 cleanly, (c) the WAL/busy_timeout PRAGMAs persist across process boundaries, (d) the `modeltap-store` adapter is wired correctly into `modeltap-app`'s composition root. Litmus test (acceptance-test-plan.md §4): deleting the real `modeltap-store` adapter and substituting an `InMemoryCache` would break the walking skeleton because process B has no in-memory state. Confirmed Strategy B (real I/O against fixture-populated tempdirs).",
+      "release_target": "Release 2 — Cache (warm-start + provenance + revalidation safety)",
+      "exit_gate": "The M1 walking-skeleton scenario 'Devon's second launch shows yesterday's inventory instantly from cache' in docs/feature/tool-model-info-sqlite-cache/distill/features/walking-skeleton.feature passes on macOS and Linux CI, AND the workspace continues to satisfy `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace`. Parent feature's @walking-skeleton scenario in modeltap-tui/distill/features/master-acceptance.feature still passes (no regression). The sibling folder-group-bulk-delete tests remain green (additive trait extension cannot break delete_folder).",
+      "estimated_total_hours": 24,
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Tool trait extension and inspect domain types (inspect_tool/inspect_model default bodies, ToolDetail, ModelDetail, InspectError)",
+          "description": "Lands the algebraic types and the trait surface that the rest of the feature composes against, in `modeltap-core`. Adds `domain::inspect::{ToolDetail, ModelDetail, SearchPathEntry, SearchPathSource}` per data-models.md §\"In-memory mirror types\" and architecture-design.md §5.2. Adds `domain::errors::InspectError` enum with the four variants `Unsupported { tool: ToolId }`, `PluginPanic { tool, message }`, `FileReadable { path, source }`, `FormatUnreadable { path, detail }`. Extends the `Tool` trait with two new `#[async_trait]` methods `inspect_tool() -> Result<ToolDetail, InspectError>` and `inspect_model(&ModelId) -> Result<ModelDetail, InspectError>`, BOTH with default bodies returning `Err(InspectError::Unsupported { tool: self.name() })`. Object-safety preserved (verified by `let _: Box<dyn Tool> = ...` smoke compile). No I/O. No async edges touched yet. All 6 production plugins (Ollama, llama-cli, HF, lm-studio, atomic-chat, gpt4all) MUST compile without override. Per CLAUDE.md: run `cargo fmt -p modeltap-core && cargo clippy -p modeltap-core --all-targets -- -D warnings && cargo test -p modeltap-core` inline before commit.",
+          "criteria": [
+            "ToolDetail, ModelDetail, SearchPathEntry, SearchPathSource types compile in modeltap-core::domain::inspect (data-models.md in-memory mirror types section)",
+            "InspectError enum compiles with 4 variants: Unsupported, PluginPanic, FileReadable, FormatUnreadable (architecture-design.md §5.2)",
+            "Tool trait gains inspect_tool() and inspect_model(&ModelId) methods, both with default bodies returning Err(InspectError::Unsupported { tool: self.name() }) (ADR-016 Decision)",
+            "Object-safety preserved: `let _: Box<dyn Tool> = Box::new(some_plugin)` compiles for every existing plugin",
+            "Calling .inspect_tool().await and .inspect_model(&id).await on every existing plugin (Ollama, llama-cli, HF, lm-studio, atomic-chat, gpt4all) compiles without override and returns Err(InspectError::Unsupported) — preserves the M5-equivalent invariant for inspect: atomic-chat / gpt4all permanently inherit Unsupported"
+          ],
+          "test_file": "crates/modeltap-core/tests/inspect_types.rs",
+          "scenario_name": [
+            "ToolDetail / ModelDetail construct with all documented fields including Option<String> detected_version",
+            "InspectError::Unsupported carries the offending plugin's ToolId",
+            "Tool::inspect_tool default body returns Unsupported for any concrete plugin",
+            "Tool::inspect_model default body returns Unsupported for any concrete plugin",
+            "Tool trait remains object-safe after adding two new methods"
+          ],
+          "deps": [],
+          "time_estimate_hours": 4,
+          "files_to_modify": [
+            "crates/modeltap-core/src/domain/inspect.rs",
+            "crates/modeltap-core/src/tool.rs",
+            "crates/modeltap-core/tests/inspect_types.rs"
+          ]
+        },
+        {
+          "id": "01-02",
+          "name": "modeltap-store crate skeleton: workspace registration, Cache::open, migration v0->v1, ToolsRepo/ModelsRepo CRUD",
+          "description": "Lands the new `crates/modeltap-store` crate with the minimum surface needed for the walking skeleton. Workspace `Cargo.toml` gains the new member. The crate's own `Cargo.toml` declares ONLY the allowed deps (rusqlite with `bundled`, rusqlite_migration, modeltap-core, thiserror, serde, serde_json, time) — R8 architecture-lint enforces (added in step 06-02). Implements `Cache::open(path: &Path) -> Result<CacheOpenResult, CacheError>` which: (a) opens a rusqlite connection, (b) sets PRAGMA journal_mode=WAL and PRAGMA busy_timeout=5000, (c) checks PRAGMA user_version, (d) routes to migrator (forward) on version-low, (e) returns OpenedFresh / OpenedExisting / OpenedAfterMigration. Implements `Cache::open_in_memory()` for tests. Implements `Migrator` wrapping `rusqlite_migration` with the embedded `migrations/0001_initial.sql` per data-models.md §DDL (cache_meta, cache_tools, cache_models, cache_model_files tables with the documented indexes; PRAGMA user_version bumped to 1 by the migrator). Implements the minimum slice of `ToolsRepo` (write_tool, tools()) and `ModelsRepo` (write_models, models_for_tool) needed for the walking skeleton; full surface lands in phase 04. Implements `CachedTool`, `CachedModel`, `CachedFile`, `FileStat`, `ValidationResult` types per data-models.md. Owns its own unit test set under `crates/modeltap-store/tests/migration.rs` (fresh-DB migration + already-migrated no-op). EXPECTED_SCHEMA_VERSION constant = 1. No tokio dep. No ratatui dep. CI gate: `cargo fmt -p modeltap-store && cargo clippy -p modeltap-store --all-targets -- -D warnings && cargo test -p modeltap-store`.",
+          "criteria": [
+            "Workspace `Cargo.toml` lists `crates/modeltap-store` as a member; `cargo metadata` reports the new crate",
+            "`crates/modeltap-store/Cargo.toml` declares rusqlite (bundled), rusqlite_migration, modeltap-core, thiserror, serde, serde_json, time — and ONLY those (R8 prerequisite)",
+            "`Cache::open(path)` opens with PRAGMA journal_mode=WAL and PRAGMA busy_timeout=5000 (AC-23-2)",
+            "`Cache::open(path)` returns OpenedFresh on a non-existent file path and creates the parent directory if missing",
+            "migrations/0001_initial.sql creates cache_meta, cache_tools, cache_models, cache_model_files tables with documented columns and indexes (data-models.md DDL)",
+            "After Cache::open on a fresh path, PRAGMA user_version returns 1 (AC-23-3)",
+            "After Cache::open on an already-migrated cache (user_version=1), the migrator is a no-op (idempotency check; migration test 2)",
+            "ToolsRepo::write_tool(&CachedTool) and ToolsRepo::tools() round-trip a single row (proves the warm-start read path)",
+            "ModelsRepo::write_models(tool_id, &[CachedModel]) and ModelsRepo::models_for_tool(tool_id) round-trip a single row (proves the warm-start read path)",
+            "EXPECTED_SCHEMA_VERSION public constant equals 1 (data-models.md §Constants)",
+            "Cache::open_in_memory() returns a working in-memory cache for unit tests"
+          ],
+          "test_file": "crates/modeltap-store/tests/migration.rs",
+          "scenario_name": [
+            "Fresh DB: user_version=0 migration runs and lands user_version=1",
+            "Already-migrated DB: re-open is a no-op",
+            "PRAGMA journal_mode=WAL and busy_timeout=5000 set at open",
+            "ToolsRepo round-trips a CachedTool through write_tool + tools()",
+            "ModelsRepo round-trips a CachedModel through write_models + models_for_tool"
+          ],
+          "deps": ["01-01"],
+          "time_estimate_hours": 6,
+          "files_to_modify": [
+            "Cargo.toml",
+            "crates/modeltap-store/Cargo.toml",
+            "crates/modeltap-store/src/lib.rs",
+            "crates/modeltap-store/src/open.rs",
+            "crates/modeltap-store/src/migrate.rs",
+            "crates/modeltap-store/src/types.rs",
+            "crates/modeltap-store/migrations/0001_initial.sql"
+          ]
+        },
+        {
+          "id": "01-03",
+          "name": "In-process TestTool plugin and plugin-registry seam (MODELTAP_TEST_PLUGINS env var, cfg-gated)",
+          "description": "Lands the in-process `TestTool` plugin that the walking skeleton uses. Per acceptance-test-plan.md §3 \"The walking-skeleton in-process TestTool\", the plugin: (a) lives in `tests/src/test_tool.rs` (the acceptance crate), (b) implements `Tool` from `modeltap-core` with all 9 methods (existing 7 + the 2 just added), (c) `discover()` returns one model at a path the harness writes ahead of time, (d) `inspect_tool()` returns `Ok(ToolDetail { detected_version: Some(\"test-1.0.0\".into()), ... })`, (e) `inspect_model()` returns `Ok(ModelDetail { metadata_kv: { \"test.kind\" -> \"synthetic\" }, ... })`. Lands the plugin-registry seam in `modeltap-app::plugin_registry`: when the environment variable `MODELTAP_TEST_PLUGINS=test-tool` is set AND the binary is built with `cfg(any(test, feature = \"test-harness\"))`, the registry appends the TestTool to the `Vec<Box<dyn Tool>>`. Release builds (no `test-harness` feature, no `cfg(test)`) MUST NOT include the TestTool — verified by a `strings target/release/modeltap | grep MODELTAP_TEST_PLUGINS` absence check that lands in step 06-02. Risk mitigation per OQ-3 in acceptance-test-plan.md.",
+          "criteria": [
+            "TestTool struct lives under `tests/src/test_tool.rs` and implements every method on Tool including the two new inspect_* methods",
+            "TestTool::discover() returns exactly one model at a path provided by the harness via env var or constructor",
+            "TestTool::inspect_tool() returns Ok(ToolDetail { detected_version: Some(\"test-1.0.0\"), ... })",
+            "TestTool::inspect_model(&id) returns Ok(ModelDetail { metadata_kv: { \"test.kind\" -> \"synthetic\" }, ... })",
+            "modeltap-app::plugin_registry honors MODELTAP_TEST_PLUGINS=test-tool only when built with cfg(test) or feature=\"test-harness\" — cfg-gated per R3 risk mitigation (acceptance-test-plan.md OQ-3)",
+            "Release-build binary does not contain the string \"MODELTAP_TEST_PLUGINS\" (deferred assertion in step 06-02; pre-condition: cfg-gating in place here)"
+          ],
+          "test_file": "tests/src/test_tool.rs",
+          "scenario_name": [
+            "TestTool implements Tool with all 9 methods",
+            "TestTool::discover returns the harness-provided model",
+            "MODELTAP_TEST_PLUGINS=test-tool registers TestTool only in cfg(test) or test-harness feature builds"
+          ],
+          "deps": ["01-01", "01-02"],
+          "time_estimate_hours": 3,
+          "files_to_modify": [
+            "tests/src/test_tool.rs",
+            "tests/src/lib.rs",
+            "crates/modeltap-app/src/plugin_registry.rs"
+          ]
+        },
+        {
+          "id": "01-04",
+          "name": "Warm-start orchestration and cache-path resolver (modeltap-app::orchestration::warm_start, adapters::cache_path)",
+          "description": "Lands the composition-root glue that wires `modeltap-store` to the launch path. `modeltap-app::adapters::cache_path::resolve(cli_override, env_override)` resolves the cache path: prefers `MODELTAP_CACHE_PATH` env var (used in every test scenario), then falls back to `dirs::data_dir().join(\"modeltap/cache.sqlite\")` (production path). `modeltap-app::orchestration::warm_start::run(config, cache)` is the top-of-launch routine that: (a) if `!config.cache_enabled` returns `Inventory::empty()` (jumps straight to cold-start), (b) calls `Cache::open(path)` wrapped in `tokio::task::spawn_blocking` per architecture-design.md §7.1, (c) on OpenedFresh returns Inventory::empty() (cold-start will populate), (d) on OpenedExisting / OpenedAfterMigration reads `cache.tools()` + `cache.models_for_tool(_)` for each tool (also via spawn_blocking) and builds an `Inventory`, (e) returns the Inventory plus the per-tool TTL eligibility flags (this step uses a stubbed-always-true TTL until phase 04). Emits a JSONL `launch.warm_paint_ms` event measured from process start to inventory-ready (instrumentation per kpi-instrumentation.md). Modifies `modeltap-app::main` to call `warm_start::run()` before the existing cold-start orchestrator, then dispatches a background reconcile (stub for this phase — just runs the existing parallel-per-plugin discover and updates the cache via `cache.write_tool` + `cache.write_models`). NEW DEPENDENCY: `modeltap-app` gains `modeltap-store` and `dirs` (R7 architecture-lint will assert app is the only consumer in step 06-02).",
+          "criteria": [
+            "modeltap-app::adapters::cache_path::resolve prefers MODELTAP_CACHE_PATH env var; falls back to dirs::data_dir().join(\"modeltap/cache.sqlite\") (AC-23-1)",
+            "modeltap-app::orchestration::warm_start::run wraps every Cache::open / cache.tools() / cache.models_for_tool(_) call in tokio::task::spawn_blocking (architecture-design.md §7.1)",
+            "On OpenedFresh, warm_start::run returns Inventory::empty() and emits NO launch.warm_paint_ms event (cold-start path emits launch.first_paint_ms instead)",
+            "On OpenedExisting, warm_start::run returns an Inventory built from cache_tools + cache_models and emits launch.warm_paint_ms in the JSONL log",
+            "After warm_start::run returns Inventory::empty(), the existing cold-start orchestrator runs and writes the discovered inventory back to the cache via ToolsRepo / ModelsRepo",
+            "modeltap-app's Cargo.toml gains modeltap-store and dirs as path/version deps; NO other crate gains modeltap-store (precondition for R7 lint in step 06-02)"
+          ],
+          "test_file": "crates/modeltap-app/tests/warm_start_integration.rs",
+          "scenario_name": [
+            "Cache path resolver prefers MODELTAP_CACHE_PATH env var over dirs::data_dir()",
+            "Cache path resolver falls back to dirs::data_dir() when env var unset",
+            "warm_start::run returns Inventory::empty() on OpenedFresh and emits no warm_paint event",
+            "warm_start::run returns populated Inventory on OpenedExisting and emits launch.warm_paint_ms in JSONL"
+          ],
+          "deps": ["01-02"],
+          "time_estimate_hours": 5,
+          "files_to_modify": [
+            "crates/modeltap-app/src/adapters/cache_path.rs",
+            "crates/modeltap-app/src/orchestration/warm_start.rs",
+            "crates/modeltap-app/src/main.rs",
+            "crates/modeltap-app/tests/warm_start_integration.rs"
+          ]
+        },
+        {
+          "id": "01-05",
+          "name": "Walking-skeleton acceptance scenario end-to-end (M1 green: process A writes cache, process B reads + paints)",
+          "description": "Lands the walking-skeleton acceptance test and the fixture builders that the rest of DELIVER reuses. Adds the step-definition module `tests/acceptance/steps/cache_lifecycle.rs` covering the Given/When/Then phrases used by the walking-skeleton scenario (per step-definitions-skeleton.md §A + §B): `Given the cache file does not exist`, `Given the in-process TestTool plugin is registered`, `Given the TestTool will discover one model \"<name>\" at \"<path>\"`, `When Devon runs \"modeltap\" in headless mode and quits after first paint`, `When a second modeltap process launches against the same cache file`, `Then the cache file ... exists with PRAGMA user_version = 1`, `Then cache_models contains exactly N row(s) for tool_id \"<id>\"`, `Then cache_tools contains a row ... with model_count = N`, `Then the second process's TUI shows \"<name>\" in the right pane`, `Then the second process's warm-paint time is at most N ms`, `Then the second process's summary bar shows \"as of just now\" or \"as of <N> seconds ago\"`. Implements the `@cache-introspection` CACHE seam helper: a test-utility that opens the cache file via a read-only `rusqlite::Connection` (the acceptance crate's dev-dep) to verify `PRAGMA user_version` and row counts — per acceptance-test-plan.md §1 CM-A. Adds the `devon-cache-empty` fixture (parent's `devon-multi-tool` content plus an empty xdg-data tree, no cache.sqlite). Un-skips the M1 walking-skeleton scenario in `walking-skeleton.feature`. Exit gate = M1 scenario green end-to-end against the real `modeltap-store` adapter and a real tempdir fixture, with process A and process B as separate `assert_cmd::Command::cargo_bin(\"modeltap\")` invocations sharing `MODELTAP_CACHE_PATH`.",
+          "criteria": [
+            "tests/acceptance/steps/cache_lifecycle.rs provides Given/When/Then for the WS scenario per step-definitions-skeleton.md §A + §B (10+ step phrases)",
+            "CACHE seam helper opens cache.sqlite via read-only rusqlite::Connection and exposes pragma_user_version(), count_rows(table, where_clause) (acceptance-test-plan.md §1)",
+            "devon-cache-empty fixture builds via tests/fixtures/build.sh and includes an empty xdg-data tree with no cache.sqlite",
+            "The M1 @walking-skeleton scenario 'Devon's second launch shows yesterday's inventory instantly from cache' in walking-skeleton.feature passes end-to-end on macOS and Linux CI — WALKING-SKELETON EXIT GATE",
+            "After M1 process A exits, cache.sqlite exists at MODELTAP_CACHE_PATH with PRAGMA user_version=1 and cache_models has exactly 1 row for tool_id=\"test-tool\" and cache_tools has model_count=1",
+            "Process B emits launch.warm_paint_ms event with value <= 150 to ${MODELTAP_LOG_DIR}/launch.log (acceptance-test-plan.md §4)",
+            "Process B's first captured frame contains the TestTool's model name in the right-pane region",
+            "Parent feature's master-acceptance @walking-skeleton scenarios still pass (no regression — INT-INFO-2 / INT-INFO-8 partial preview)"
+          ],
+          "test_file": "tests/acceptance/cache_walking_skeleton.rs",
+          "scenario_name": [
+            "Devon's second launch shows yesterday's inventory instantly from cache"
+          ],
+          "deps": ["01-03", "01-04"],
+          "time_estimate_hours": 6,
+          "files_to_modify": [
+            "tests/acceptance/steps/cache_lifecycle.rs",
+            "tests/acceptance/cache_walking_skeleton.rs",
+            "tests/src/fixtures/cache_fixtures.rs",
+            "tests/fixtures/build.sh"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Tool detail view (US-21) — Enter opens tool detail, inspect_tool overrides for HF and Ollama, error/undetectable rendering",
+      "description": "Builds out US-21 in two slices: (a) the TUI surface (tool detail screen, [Enter] keymap, [r]/[Esc] shortcuts, bottom-bar wiring) plus the orchestration glue that calls `Tool::inspect_tool()` and stitches in the cached `last_scan_at` / `last_error` already on the `CachedTool` row; (b) the per-plugin `inspect_tool` overrides for the two plugins that have introspectable tool-level state (Ollama via `http://localhost:11434/api/version`, HF via cache-dir inspection). llama-cli, lm-studio, atomic-chat, gpt4all inherit the default `Unsupported` body for `inspect_tool` — their detail screens render with what `discover()` provided plus \"Version: (not detectable)\". This phase ships all 5 tool-detail scenarios green and the INT-INFO-8 plugin-panic-isolation scenario for `inspect_tool`. Release-1-deliverable (per prioritization.md): the cache is NOT yet required for US-21 to be useful — the detail screen renders from in-process state — but the cached `last_scan_at` / `last_error` provides the timestamps. JSONL `tool_detail.open_ms` event measured (AC-21-1 / K-INFO-1).",
+      "release_target": "Release 1 — Inspection",
+      "exit_gate": "All 5 scenarios in tool-detail.feature green; INT-INFO-8 scenario for inspect_tool panic isolation green; CI lint clean (`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`); plugin-contract test 3.12 (run_inspect_tool_contract) green for Ollama + HF (Supported) and for llama-cli + lm-studio + atomic-chat + gpt4all (Unsupported).",
+      "estimated_total_hours": 18,
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Tool detail TUI view + keymap + orchestration (modeltap-tui::view::tool_detail, [Enter] on left pane, [r]/[Esc])",
+          "description": "Lands the user-facing surface for US-21. `modeltap-tui::view::tool_detail` renders the `ToolDetail` data per AC-21-2: discovery root, version (None -> \"(not detectable)\"), search paths section (with Default vs UserConfig labels), model count, disk usage, largest model, last scan, scan duration, last error (None -> \"(none)\"), plugin version. Bottom bar on the detail screen shows `[Esc] back`, `[r] refresh this tool`, `[?] help` per AC-21-8. `modeltap-tui::input::keymap` gains `(KeyEvent::Enter, ContextFilter::LeftPaneFocus, Msg::OpenToolDetail { tool_id })` per AC-21-1. The [Esc] and [r] dispatch follow the existing parent pattern (single SHORTCUT_TABLE, dim when modal context active). `modeltap-app::orchestration::open_tool_detail` orchestrates: (a) read the cached `CachedTool` for that tool (in-process state populated by the warm-start or cold-start path), (b) call `tool.inspect_tool()` via spawn_blocking, (c) merge the two into a `ToolDetail` (cache rows provide last_scan_at, last_scan_duration_ms, last_error/last_error_at; inspect_tool provides detected_version, search_paths), (d) emit JSONL `tool_detail.open_ms` event, (e) post `Msg::ToolDetailReady { detail }` to the TUI. The view opens within 100 ms (AC-21-1; @perf @k-info-1-warm-100ms). The default `Err(InspectError::Unsupported)` path produces a detail screen with `Version: (not detectable)`, all other fields from the cache row. The error-path (`last_error: Some(\"permission denied...\")` from a previous failed scan) renders the Last error field with the timestamp. NO plugin code changes in this step — step 02-02 lands the Ollama / HF overrides. CI: `cargo fmt -p modeltap-tui -p modeltap-app && cargo clippy -p modeltap-tui -p modeltap-app --all-targets -- -D warnings`.",
+          "criteria": [
+            "modeltap-tui::view::tool_detail renders all fields per AC-21-2: discovery root, version, search paths, model count, disk usage, largest model, last scan, scan duration, last error, plugin version",
+            "None detected_version renders as \"(not detectable)\" — not as empty or false value (AC-21-3)",
+            "Last error field shows error text + timestamp when present; reads \"(none)\" when absent (AC-21-4)",
+            "Search paths section distinguishes default paths from user-config paths (AC-21-5)",
+            "[Enter] on a left-pane tool row opens the tool detail screen within 100 ms (AC-21-1; tool_detail.open_ms <= 100 in JSONL log)",
+            "[Esc] returns to main view with left-pane cursor preserved (AC-21-7)",
+            "Bottom bar on detail screen shows \"[Esc] back\", \"[r] refresh this tool\", \"[?] help\" (AC-21-8)",
+            "Default-body inspect_tool path (any plugin) produces a detail screen with all available cache-sourced fields rendered and Version = \"(not detectable)\""
+          ],
+          "test_file": "tests/acceptance/tool_detail.rs",
+          "scenario_name": [
+            "Pressing Enter on a left-pane row opens the tool detail screen within 100 ms",
+            "Undetectable version is shown as \"(not detectable)\"",
+            "Last error surfaces in tool detail when discovery failed",
+            "Esc from the tool detail screen returns to main view preserving left-pane cursor"
+          ],
+          "deps": ["01-05"],
+          "time_estimate_hours": 6,
+          "files_to_modify": [
+            "crates/modeltap-tui/src/view/tool_detail.rs",
+            "crates/modeltap-tui/src/input/keymap.rs",
+            "crates/modeltap-app/src/orchestration/open_tool_detail.rs",
+            "tests/acceptance/tool_detail.rs"
+          ]
+        },
+        {
+          "id": "02-02",
+          "name": "Ollama and HF inspect_tool overrides + user-config search paths plumbing (plugins/ollama/src/inspect.rs, plugins/hf/src/inspect.rs, AppConfig search-paths)",
+          "description": "Lands the two `Tool::inspect_tool` overrides that produce real version + real search paths. Ollama: `plugins/ollama/src/inspect.rs` implements `inspect_tool()` to (a) honor `MODELTAP_OLLAMA_VERSION` env var as a short-circuit (D12 in wave-decisions.md; ADR-016 implementation guidance), (b) otherwise hit `http://localhost:11434/api/version` with a 500 ms timeout (`MODELTAP_OLLAMA_API_URL` override for tests), (c) on timeout/failure return `ToolDetail { detected_version: None, ... }` (renders as \"(not detectable)\"), (d) populate search_paths from `~/.ollama/models/` (Default) plus any user-config entries from `~/.modeltap/config.toml [plugins.ollama] search_paths`. HF: `plugins/hf/src/inspect.rs` is a sibling module to the existing `folder_delete.rs` (per component-boundaries.md §HF plugin coexistence note) implementing `inspect_tool()` to (a) detect HF cache dir presence (`~/.cache/huggingface/hub/` or `$HF_HOME/hub/`), (b) populate search_paths from the discovered cache dir plus user-config additions. llama-cli's `inspect_tool` override (if added) is `(not detectable)` by design — static binary cannot self-introspect per US-21 Domain Example 2. lm-studio inherits default Unsupported. Plumbs `[plugins.<id>] search_paths` from `~/.modeltap/config.toml` into the plugin construction site in `modeltap-app::plugin_registry` per US-21 Scenario 4. Adds the `devon-tool-error-ollama` and `devon-llamacli-userconfig` fixtures.",
+          "criteria": [
+            "OllamaPlugin::inspect_tool honors MODELTAP_OLLAMA_VERSION env var as a short-circuit (D12 / acceptance-test-plan.md R5 mitigation)",
+            "OllamaPlugin::inspect_tool falls back to http://localhost:11434/api/version with a 500 ms timeout when no env override (ADR-016 implementation guidance)",
+            "On HTTP timeout / connection refused, OllamaPlugin::inspect_tool returns Ok(ToolDetail { detected_version: None, ... }) (no panic, no error — maps to AC-21-3 \"(not detectable)\")",
+            "OllamaPlugin::inspect_tool populates search_paths from ~/.ollama/models/ (Default) plus user-config additions from ~/.modeltap/config.toml (AC-21-5)",
+            "HfPlugin::inspect_tool populates search_paths from $HF_HOME/hub/ or ~/.cache/huggingface/hub/ (Default) plus user-config additions",
+            "plugins/hf/src/inspect.rs and plugins/hf/src/folder_delete.rs coexist in the same crate without merge conflict (component-boundaries.md §HF plugin coexistence note)",
+            "modeltap-app::plugin_registry reads [plugins.<id>] search_paths from ~/.modeltap/config.toml and passes them into each plugin's constructor",
+            "All 5 tool-detail.feature scenarios pass: Enter-opens-detail, undetectable-version, last-error-surfaces, user-config-search-paths, Esc-preserves-cursor"
+          ],
+          "test_file": "plugins/ollama/tests/inspect_tool_contract.rs",
+          "scenario_name": [
+            "Pressing Enter on a left-pane row opens the tool detail screen within 100 ms",
+            "User-configured search paths are labelled",
+            "Last error surfaces in tool detail when discovery failed",
+            "Ollama inspect_tool short-circuits to MODELTAP_OLLAMA_VERSION env var when set",
+            "Ollama inspect_tool returns detected_version=None on HTTP timeout"
+          ],
+          "deps": ["02-01"],
+          "time_estimate_hours": 6,
+          "files_to_modify": [
+            "plugins/ollama/src/inspect.rs",
+            "plugins/hf/src/inspect.rs",
+            "crates/modeltap-app/src/plugin_registry.rs",
+            "tests/src/fixtures/inspect_fixtures.rs"
+          ]
+        },
+        {
+          "id": "02-03",
+          "name": "Plugin contract test 3.12 (run_inspect_tool_contract) for all 6 plugins + INT-INFO-8 panic isolation for inspect_tool",
+          "description": "Lands the layer-B plugin-contract test for `inspect_tool` per plugin-contract-spec.md §3.12 (extension of the parent's plugin_contract harness). Adds `crates/modeltap-core/tests/plugin_contract/inspect.rs` containing `pub async fn run_inspect_tool_contract<T: Tool>(plugin, fixture_root, capability)`, dispatching on `InspectCapability::{Unsupported, Supported}`. Adds 6 plugin-side test files invoking the contract: `plugins/ollama/tests/inspect_tool_contract.rs` (Supported with MODELTAP_OLLAMA_VERSION stub), `plugins/hf/tests/inspect_tool_contract.rs` (Supported), `plugins/llama-cli/tests/inspect_tool_contract.rs` (Unsupported — llama-cli's inspect_tool is left as default), `plugins/lm-studio/tests/inspect_tool_contract.rs` (Unsupported in this release), `plugins/atomic-chat/tests/inspect_tool_contract.rs` (Unsupported), `plugins/gpt4all/tests/inspect_tool_contract.rs` (Unsupported). The Supported tests assert: happy-path returns Ok, determinism (two consecutive calls return equal ToolDetail or differ only in introspected_at-style timestamps), panic isolation (a deliberate-panic implementation surfaces InspectError::PluginPanic, not a process crash). The panic-isolation harness uses `tokio::task::spawn_blocking` + `std::panic::catch_unwind` per the parent's panic-isolation pattern (US-18). Adds the INT-INFO-8 integration-checkpoints scenario test for inspect_tool: a deliberately-panicking Ollama mock causes the detail screen to show \"(inspection failed -- see diagnostics.log)\" and emits `inspect_panic tool=ollama` to diagnostics.log; the TUI does not crash; the process is still alive after the panic.",
+          "criteria": [
+            "modeltap-core::tests::plugin_contract::run_inspect_tool_contract dispatches on InspectCapability::{Unsupported, Supported} per plugin-contract-spec.md §3.12",
+            "Ollama plugin's inspect_tool_contract test passes with InspectCapability::Supported and MODELTAP_OLLAMA_VERSION=0.6.4",
+            "HF plugin's inspect_tool_contract test passes with InspectCapability::Supported",
+            "llama-cli / lm-studio / atomic-chat / gpt4all plugin inspect_tool_contract tests pass with InspectCapability::Unsupported (proves the default-body inheritance)",
+            "Panic-isolation harness: a panicking inspect_tool() in the test plugin returns Err(InspectError::PluginPanic { tool, message }) — NOT a process crash (US-18 invariant extended)",
+            "INT-INFO-8 scenario in integration-checkpoints.feature 'Plugin panic during inspect_tool or inspect_model is caught at the orchestrator boundary' passes for the inspect_tool path — diagnostics.log gains \"inspect_panic tool=ollama\" line; TUI does not crash; detail screen shows \"(inspection failed -- see diagnostics.log)\"",
+            "AC-21-9 (plugin panic during inspect_tool() is caught at the boundary) verified by INT-INFO-8 scenario"
+          ],
+          "test_file": "crates/modeltap-core/tests/plugin_contract/inspect.rs",
+          "scenario_name": [
+            "Ollama plugin satisfies inspect_tool contract (Supported)",
+            "HF plugin satisfies inspect_tool contract (Supported)",
+            "llama-cli plugin satisfies inspect_tool contract (Unsupported — default body)",
+            "atomic-chat plugin satisfies inspect_tool contract (Unsupported — default body)",
+            "Plugin panic during inspect_tool or inspect_model is caught at the orchestrator boundary"
+          ],
+          "deps": ["02-02"],
+          "time_estimate_hours": 6,
+          "files_to_modify": [
+            "crates/modeltap-core/tests/plugin_contract/inspect.rs",
+            "plugins/ollama/tests/inspect_tool_contract.rs",
+            "plugins/hf/tests/inspect_tool_contract.rs",
+            "tests/acceptance/integration_checkpoints.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Model detail view (US-22) — GGUF / Ollama / HF metadata KV rendering, re-introspect, graceful degradation",
+      "description": "Builds out US-22 in two slices: (a) the TUI surface (Metadata section on the existing US-13 model detail screen, [r] re-introspect, bottom-bar wiring), and (b) the per-plugin `inspect_model` overrides for GGUF parsing (llama-cli + lm-studio when the file is .gguf), Ollama manifest JSON, HF config.json. atomic-chat / gpt4all inherit the default Unsupported. Includes the un-introspectable degradation path (corrupt GGUF -> \"(introspection failed -- see diagnostics.log)\" plus normal panels still render — the parent screen's panels survive). Release-1-deliverable (per prioritization.md): the metadata cache row column (`cache_models.metadata_kv_json`) is written on every successful inspect_model so subsequent opens are instant. Ships all 5 model-detail scenarios green and the layer-B plugin-contract 3.13.",
+      "release_target": "Release 1 — Inspection",
+      "exit_gate": "All 5 scenarios in model-detail.feature green; AC-22-6 (BTreeMap<String,String> contract) verified by plugin-contract test 3.13; INT-INFO-8 inspect_model panic isolation scenario green; CI lint clean.",
+      "estimated_total_hours": 18,
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Model detail TUI view with Metadata section + [r] re-introspect + cache writeback (modeltap-tui::view::model_detail, modeltap-app::orchestration::open_model_detail)",
+          "description": "Extends the existing US-13 model detail screen with the Metadata section per US-22. `modeltap-tui::view::model_detail` gains a new \"Metadata\" section that renders `BTreeMap<String, String>` from `ModelDetail.metadata_kv` as aligned key-value pairs (per AC-22-4) with the dim section header \"Metadata (from <source>, introspected <N> ago)\". The existing panels (Registered with, Size on disk, Dedup key, Status, Reclaim estimate) remain unchanged per AC-22-3. Bottom bar on detail screen gains `[r] re-introspect` per AC-22-10. `modeltap-app::orchestration::open_model_detail` orchestrates: (a) read the cached `CachedModel` for that model_id (warm path), (b) if `metadata_kv` is empty OR `metadata_introspected_at` is None call `tool.inspect_model(&id)` via spawn_blocking; otherwise use the cached `metadata_kv` (warm path -> AC-22-1 100 ms target), (c) on Ok update `cache.write_models(...)` with new `metadata_kv` + `metadata_introspected_at` (this is the cache writeback per AC-22-2), (d) on Err(InspectError::FormatUnreadable | InspectError::PluginPanic) populate Metadata section with \"(introspection failed -- see diagnostics.log)\" and log the diagnostics line (AC-22-7), (e) on Err(InspectError::Unsupported) populate Metadata section with \"(metadata unsupported for this tool)\". `[r]` keymap dispatch on detail screen invokes the inspect_model path unconditionally (forces re-introspect; updates provenance to \"introspected just now\" — AC-22-8). No per-plugin overrides in this step — step 03-02 lands them. Until then, the inspect_model default body returns Unsupported and the Metadata section reads \"(metadata unsupported for this tool)\".",
+          "criteria": [
+            "modeltap-tui::view::model_detail retains all existing US-13 fields and adds a Metadata section (AC-22-3)",
+            "Metadata section renders BTreeMap key-value pairs in aligned format with a dim section header reading \"Metadata (from <source>, introspected <N> ago)\" (AC-22-4)",
+            "[Enter] on a right-pane model row opens the model detail screen within 100 ms when metadata_kv is cached in the CachedModel row (AC-22-1; @perf @k-info-1-warm-100ms)",
+            "[r] on detail screen re-runs inspect_model() and updates provenance to \"introspected just now\" within 1000 ms (AC-22-2, AC-22-8)",
+            "After successful inspect_model, cache.models.metadata_kv_json and metadata_introspected_at columns are updated atomically per model_id (re-introspect scenario in model-detail.feature)",
+            "Un-introspectable file path: Err(InspectError::FormatUnreadable) -> Metadata section shows \"(introspection failed -- see diagnostics.log)\"; other panels still render; screen does not crash (AC-22-7)",
+            "Default-Unsupported path: Metadata section shows \"(metadata unsupported for this tool)\" — atomic-chat / gpt4all behavior",
+            "[Esc] returns to main view with right-pane cursor preserved (AC-22-9)",
+            "Bottom bar on detail screen shows \"[Esc] back\", \"[u] unify\", \"[d] delete-one\", \"[r] re-introspect\", \"[?] help\" (AC-22-10)"
+          ],
+          "test_file": "tests/acceptance/model_detail.rs",
+          "scenario_name": [
+            "Model detail surfaces GGUF header metadata for a Mistral GGUF file",
+            "Re-introspect updates the metadata provenance and refreshes the cache",
+            "Model detail for an un-introspectable file shows partial info gracefully"
+          ],
+          "deps": ["01-05"],
+          "time_estimate_hours": 6,
+          "files_to_modify": [
+            "crates/modeltap-tui/src/view/model_detail.rs",
+            "crates/modeltap-app/src/orchestration/open_model_detail.rs",
+            "tests/acceptance/model_detail.rs"
+          ]
+        },
+        {
+          "id": "03-02",
+          "name": "inspect_model overrides for llama-cli (GGUF), lm-studio (GGUF / model.json), Ollama (manifest JSON), HF (config.json)",
+          "description": "Lands the four `Tool::inspect_model` overrides. llama-cli: parses GGUF header via the `gguf` crate (or a hand-rolled minimal parser per ADR-016 implementation guidance — software-crafter chooses); extracts `general.architecture`, `general.quantization_version`, `<arch>.context_length`, `<arch>.embedding_length`, `<arch>.block_count`, `tokenizer.ggml.model`. lm-studio: GGUF header parse if file is .gguf; otherwise reads the model's `model.json` config if present. Ollama: reads `~/.ollama/models/manifests/<repo>/<tag>` JSON; extracts `config.architecture`, `parameters`, `template`, `system`. HF: if the model dir contains `config.json`, reads it; extracts `model_type`, `architectures`, `hidden_size`, `num_attention_heads`, `num_hidden_layers`, `max_position_embeddings`. All overrides return `Ok(ModelDetail { metadata_kv: <selected KVs>, format: Some(\"GGUF v3\" | \"Ollama manifest v2\" | \"safetensors v2\" | ...), quantisation, architecture, parameters_billions, context_length, introspected_at: now })`. Corrupt-file path: each plugin returns `Err(InspectError::FormatUnreadable { path, detail })` on header parse failure — never panics. The selected-KV list per plugin lives in the plugin's `inspect.rs` (plugin autonomy per parent C1; AC-22-5). Adds fixtures: `devon-mistral-gguf` (full GGUF header), `devon-mistral-corrupt-gguf` (truncated), `devon-hf-with-config-json`, `devon-ollama-manifest`.",
+          "criteria": [
+            "llama-cli plugin's inspect_model returns Ok(ModelDetail) with general.architecture, general.quantization_version, <arch>.context_length, <arch>.embedding_length in metadata_kv for a valid GGUF v3 fixture (AC-22-5; devon-mistral-gguf)",
+            "lm-studio plugin's inspect_model returns Ok(ModelDetail) for .gguf files (GGUF parse) and for model.json when present (AC-22-5)",
+            "Ollama plugin's inspect_model returns Ok(ModelDetail) with config.architecture, parameters, template excerpts in metadata_kv (AC-22-5; devon-ollama-manifest)",
+            "HF plugin's inspect_model returns Ok(ModelDetail) with model_type, architectures, hidden_size, num_attention_heads, num_hidden_layers in metadata_kv (AC-22-5; devon-hf-with-config-json)",
+            "Each override returns Err(InspectError::FormatUnreadable { path, detail }) on a corrupt fixture — never panics (AC-22-7; devon-mistral-corrupt-gguf)",
+            "Each override's metadata_kv is a tool-relevant subset (not the entire GGUF KV table; not the entire HF config.json) — verified by per-plugin assertions on key list size <= 10 (AC-22-6)",
+            "All 5 model-detail.feature scenarios pass against the real plugin overrides and real fixtures"
+          ],
+          "test_file": "plugins/llama-cli/tests/inspect_model_contract.rs",
+          "scenario_name": [
+            "Model detail surfaces GGUF header metadata for a Mistral GGUF file",
+            "Model detail surfaces Ollama manifest fields for an Ollama-only model",
+            "Model detail surfaces HF config.json fields for an HF-only model",
+            "Model detail for an un-introspectable file shows partial info gracefully"
+          ],
+          "deps": ["03-01"],
+          "time_estimate_hours": 8,
+          "files_to_modify": [
+            "plugins/llama-cli/src/inspect.rs",
+            "plugins/lm-studio/src/inspect.rs",
+            "plugins/ollama/src/inspect.rs",
+            "plugins/hf/src/inspect.rs",
+            "tests/src/fixtures/inspect_fixtures.rs"
+          ]
+        },
+        {
+          "id": "03-03",
+          "name": "Plugin contract test 3.13 (run_inspect_model_contract) for all 6 plugins + INT-INFO-8 inspect_model panic isolation",
+          "description": "Lands the layer-B plugin-contract test for `inspect_model` per plugin-contract-spec.md §3.13. Adds `crates/modeltap-core/tests/plugin_contract/inspect.rs::run_inspect_model_contract` with the six test cases per the spec: happy-path, unknown-id-returns-not-found, corrupt-returns-format-unreadable, deterministic, field-schema (BTreeMap<String,String>, no nulls), panic-isolation. Adds 6 plugin-side test files invoking the contract: Ollama (Supported, with manifest fixture), HF (Supported, with config.json fixture), llama-cli (Supported, with GGUF fixture), lm-studio (Supported, with GGUF fixture), atomic-chat (Unsupported), gpt4all (Unsupported). Extends the INT-INFO-8 integration-checkpoints scenario to also cover the inspect_model panic path — the same scenario asserts both `inspect_tool` and `inspect_model` panic isolation per integration-checkpoints.feature.",
+          "criteria": [
+            "modeltap-core::tests::plugin_contract::run_inspect_model_contract runs 6 test cases for InspectCapability::Supported and 1 case for InspectCapability::Unsupported per plugin-contract-spec.md §3.13",
+            "Ollama / HF / llama-cli / lm-studio inspect_model_contract tests all pass with InspectCapability::Supported",
+            "atomic-chat / gpt4all inspect_model_contract tests pass with InspectCapability::Unsupported",
+            "AC-22-6 verified: metadata_kv is BTreeMap<String,String> with no nullable values — field-schema contract test",
+            "INT-INFO-8 scenario in integration-checkpoints.feature covers the inspect_model panic isolation path — plugin panic returns Err(InspectError::PluginPanic), diagnostics.log gains \"inspect_panic\" line, TUI does not crash",
+            "Determinism contract: two consecutive inspect_model() calls return equal ModelDetail (modulo introspected_at timestamp) for the same input"
+          ],
+          "test_file": "crates/modeltap-core/tests/plugin_contract/inspect.rs",
+          "scenario_name": [
+            "Ollama plugin satisfies inspect_model contract (Supported)",
+            "HF plugin satisfies inspect_model contract (Supported)",
+            "llama-cli plugin satisfies inspect_model contract (Supported)",
+            "atomic-chat plugin satisfies inspect_model contract (Unsupported)",
+            "Plugin panic during inspect_tool or inspect_model is caught at the orchestrator boundary"
+          ],
+          "deps": ["03-02"],
+          "time_estimate_hours": 4,
+          "files_to_modify": [
+            "crates/modeltap-core/tests/plugin_contract/inspect.rs",
+            "plugins/ollama/tests/inspect_model_contract.rs",
+            "plugins/hf/tests/inspect_model_contract.rs",
+            "plugins/llama-cli/tests/inspect_model_contract.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Cache state model + corruption recovery + downgrade + opt-out (US-23) and warm-start TTL (US-25)",
+      "description": "Hardens the cache layer with the full US-23 + US-25 functional surface. Lands corruption recovery (rename to .corrupt-<ts>, log, cold-start), downgrade recovery (rename to .future-version-<n>), --no-cache CLI flag + cache.enabled=false config opt-out (both must be true bypass; zero bytes written), per-tool TTL eligibility for the warm-start path (stale tools cold-start while fresh tools paint from cache), the production XDG_DATA_HOME / Library/Application Support path resolution, and the recovery banner TUI surface. This is the second-largest phase by hours — it lands 8 scenarios in cache-state-model.feature and closes the Release-2 safety guardrails (K-INFO-4 100% recovery rate; AC-23-11 cache never blocks launch). The two concurrent-process scenarios (WAL reads + busy_timeout writes) land in this phase too because they exercise the Cache::open path that the recovery flow extends. CI: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` clean before any commit that touches the orchestrator (per CLAUDE.md §Running Tests Fast on macOS / cross-crate fmt drift).",
+      "release_target": "Release 2 — Cache",
+      "exit_gate": "8 cache-state-model.feature scenarios green: cold-start fallback, XDG_DATA_HOME / Application Support path resolution, schema migration v0->v1 (already passing from phase 01 — re-verified), corruption recovery, downgrade recovery, --no-cache bypass, cache.enabled=false config bypass, per-tool TTL forced cold paint, mixed warm/cold per-tool, WAL concurrent reads, busy_timeout concurrent writes. INT-INFO-5 scenario green. INT-INFO-6 scenario green (modeltap --version succeeds when cache is corrupt). modeltap-store/tests/{corruption,migration,concurrent}.rs all green.",
+      "estimated_total_hours": 26,
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Cache recovery path (Cache::open routes to Recovery on SQLITE_CORRUPT / downgrade / migration failure; rename + diagnostics.log + recovery banner)",
+          "description": "Extends `Cache::open` to handle the three recoverable failure modes per architecture-design.md §7.4. New module `crates/modeltap-store/src/recovery.rs`: on SQLITE_CORRUPT or PRAGMA user_version > EXPECTED_SCHEMA_VERSION (downgrade) or rusqlite_migration failure, the recovery routine (a) computes the new path (`cache.sqlite.corrupt-<YYYY-MM-DDTHHMMSS>` for corruption, `cache.sqlite.future-version-<n>` for downgrade, `cache.sqlite.corrupt-<ts>` for migration failure), (b) calls `std::fs::rename(path, new_path)` (best-effort; absorbs errors and logs them), (c) appends to `${MODELTAP_HOME}/diagnostics.log` a plain-text line `cache_recovery reason=<corrupted|downgrade|migration_failed> renamed_to=<new_path>` per ADR-015 §5, (d) re-opens a fresh empty database at the original path, (e) returns `CacheOpenResult::OpenedAfterRecovery { reason, renamed_to, cache }`. New module `modeltap-tui::view::recovery_banner`: dismissable banner at the top of the main view; appears when `AppState.recovery_reason: Option<RecoveryReason>` is `Some(_)`; reads \"Previous cache reset (corrupted or schema mismatch). Renamed to <path>. Cold-start discovery in progress. See ~/.modeltap/diagnostics.log.\" per ADR-015 §5; dismissable with [Esc]; never blocks the launch. AC-23-11 invariant proved: cache failure NEVER prevents the inventory view from rendering — cold-start is the guaranteed fallback. Adds the `devon-cache-corrupt` (16 KB random bytes) and `devon-cache-future-v` (PRAGMA user_version=99) fixtures. Owns `crates/modeltap-store/tests/corruption.rs` covering the four failure modes (corruption, downgrade, migration_failed, partial-migration-detected-via-missing-table).",
+          "criteria": [
+            "Cache::open on a file returning SQLITE_CORRUPT renames the file to `<path>.corrupt-<YYYY-MM-DDTHHMMSS>` and returns OpenedAfterRecovery { reason: Corrupted, ... } (AC-23-6)",
+            "Cache::open on a file with PRAGMA user_version > EXPECTED_SCHEMA_VERSION renames the file to `<path>.future-version-<n>` and returns OpenedAfterRecovery { reason: Downgrade { found, expected }, ... } (AC-23-5)",
+            "Cache::open on a partial-migration / migration-failed cache renames the file to `<path>.corrupt-<ts>` and returns OpenedAfterRecovery { reason: MigrationFailed { from, to }, ... }",
+            "${MODELTAP_HOME}/diagnostics.log gains a line `cache_recovery reason=<reason> renamed_to=<new_path>` after each recovery (ADR-015 §5)",
+            "modeltap-tui::view::recovery_banner renders the dismissable banner at top of main view when AppState.recovery_reason is Some; [Esc] dismisses it; banner never blocks the launch (AC-23-7)",
+            "After recovery, the launch proceeds via cold-start: the new empty cache.sqlite file exists at the original path with PRAGMA user_version=1 after cold-start completes (AC-23-11)",
+            "All 3 corruption/downgrade scenarios in cache-state-model.feature pass: 'Cache corruption is detected on open and recovered automatically', 'Downgrade detected — cache was written by a newer binary', plus the implicit migration-failure path covered by corruption.rs unit tests"
+          ],
+          "test_file": "crates/modeltap-store/tests/corruption.rs",
+          "scenario_name": [
+            "Cache corruption is detected on open and recovered automatically",
+            "Downgrade detected — cache was written by a newer binary",
+            "SQLITE_CORRUPT on open renames file to .corrupt-<ts> and re-opens fresh",
+            "PRAGMA user_version=99 (downgrade) renames file to .future-version-99 and re-opens fresh",
+            "Partial-migration detected via missing cache_tools table re-routes to recovery"
+          ],
+          "deps": ["01-02"],
+          "time_estimate_hours": 6,
+          "files_to_modify": [
+            "crates/modeltap-store/src/recovery.rs",
+            "crates/modeltap-store/tests/corruption.rs",
+            "crates/modeltap-tui/src/view/recovery_banner.rs",
+            "tests/src/fixtures/cache_fixtures.rs"
+          ]
+        },
+        {
+          "id": "04-02",
+          "name": "Opt-out paths (--no-cache CLI flag + cache.enabled=false config) with true-bypass invariant (DirManifest pre/post equality)",
+          "description": "Lands the two opt-out paths. `modeltap-cli` gains a `--no-cache` clap flag plumbed through `AppConfig.cache_enabled` per US-23 Scenario 6; CLI flag wins when both CLI and config disagree (AC-23-9). `modeltap-app::config::AppConfig` gains the field `cache.enabled: bool` (default true) loaded from `~/.modeltap/config.toml`. The orchestrator's launch path checks `config.cache_enabled` BEFORE calling Cache::open; if false, the launch short-circuits to the cold-start path with zero cache touches — not even creating the parent directory. Adds the DirManifest test helper per step-definitions-skeleton.md §F (recursive (path, size, mtime) snapshot of the xdg-data/modeltap/ directory) so the AC-23-8 \"zero bytes written\" invariant is byte-precise per OQ-2 (cache.sqlite, cache.sqlite-wal, cache.sqlite-shm all asserted absent or unmodified). Also lands the INT-INFO-6 scenario: `modeltap --version` exits 0 even when cache.sqlite is corrupted (the --version path must never open the cache).",
+          "criteria": [
+            "modeltap-cli parses --no-cache and sets AppConfig.cache_enabled = false (AC-23-8)",
+            "When --no-cache is passed AND cache.enabled=true in config, the CLI flag wins (AC-23-9)",
+            "When cache_enabled=false at launch, Cache::open is never called — verified by absence of any rusqlite call in trace logs",
+            "DirManifest of xdg-data/modeltap/ pre-launch equals DirManifest post-launch when --no-cache is passed: cache.sqlite, cache.sqlite-wal, cache.sqlite-shm are all unchanged (AC-23-8 / OQ-2)",
+            "cache.enabled=false in ~/.modeltap/config.toml has the same effect as --no-cache (AC-23-9)",
+            "modeltap --version exits with code 0 even when MODELTAP_CACHE_PATH points to a corrupt SQLite file — the --version path does not open the cache (INT-INFO-6)",
+            "Cache-state-model.feature scenarios green: '--no-cache bypasses the cache for one launch', 'cache.enabled = false config has the same effect as --no-cache'",
+            "Integration-checkpoints.feature green: '--no-cache produces zero cache writes for the entire launch' (INT-INFO-5), 'modeltap --version succeeds when the cache is unreadable' (INT-INFO-6)"
+          ],
+          "test_file": "tests/acceptance/cache_opt_out.rs",
+          "scenario_name": [
+            "--no-cache bypasses the cache for one launch",
+            "cache.enabled = false config has the same effect as --no-cache",
+            "--no-cache produces zero cache writes for the entire launch",
+            "modeltap --version succeeds when the cache is unreadable"
+          ],
+          "deps": ["04-01"],
+          "time_estimate_hours": 5,
+          "files_to_modify": [
+            "crates/modeltap-cli/src/main.rs",
+            "crates/modeltap-app/src/config.rs",
+            "tests/src/fixtures/dir_manifest.rs",
+            "tests/acceptance/cache_opt_out.rs"
+          ]
+        },
+        {
+          "id": "04-03",
+          "name": "Per-tool TTL eligibility (warm-start path uses TTL; stale tools cold-start while fresh tools paint from cache; XDG_DATA_HOME production path)",
+          "description": "Lands the per-tool TTL eligibility logic per US-25 AC-25-2 / AC-25-4 (mixed warm/cold per-tool). `modeltap-store::Cache::ttl_eligible(tool_id, ttl_seconds, now) -> Result<bool, CacheError>` returns true if `cache_tools.last_scan_at` is within `now - ttl_seconds`. `modeltap-app::orchestration::warm_start::run` is extended: for each tool in the cache, checks TTL eligibility; if eligible, paints from cache; if stale, returns a partial Inventory plus a per-tool list of stale-tool-ids that the downstream cold-start orchestrator picks up (each stale tool cold-starts individually in parallel; fresh tools' models are already in the Inventory). `AppConfig.cache.tool_ttl_seconds: u64` (default 86400 = 24h) loaded from config.toml. The summary-bar provenance line is set at warm-paint time based on MAX(cache_tools.last_scan_at) for the painted tools (AC-25-5; full implementation lands in phase 05 with US-24 — this step just stubs the field). The TUI's left-pane row for stale tools shows the cold-start spinner (existing parent surface). Adds the `devon-cache-stale-tool` fixture (one tool with last_scan_at=25h ago, others 2h ago). Also lands the production XDG_DATA_HOME / Library/Application Support path resolution scenario per AC-23-1 / OQ-1 — ONE scenario sets XDG_DATA_HOME, unsets MODELTAP_CACHE_PATH, and asserts the cache lands at the platform-correct path. The transient-I/O fallback (AC-25-6) is also covered: if cache.tools() or cache.models_for_tool() returns Err(CacheError::IoError(_)) mid-read, the affected tool falls back to cold-start; the launch never crashes.",
+          "criteria": [
+            "Cache::ttl_eligible(tool_id, ttl_seconds, now) returns false when cache_tools.last_scan_at < now - ttl_seconds; true otherwise",
+            "AppConfig.cache.tool_ttl_seconds loads from ~/.modeltap/config.toml [cache] tool_ttl_seconds; default 86400",
+            "warm_start::run with the devon-cache-stale-tool fixture paints llama-cli's models from cache instantly AND emits stale-tool-id for Ollama (last_scan_at 25h ago) for the cold-start orchestrator to pick up (AC-25-2, AC-25-4)",
+            "The stale-tool's left-pane row shows the cold-start spinner while fresh tools' models paint from cache (AC-25-4)",
+            "Mixed warm/cold paint: summary bar reads \"as of varies per-tool, reconciling...\" (cache-state-model.feature 'Per-tool TTL forces cold paint for stale tool entries')",
+            "Production path resolution: with XDG_DATA_HOME=<tmpdir>/xdg-data and MODELTAP_CACHE_PATH unset, the cache lands at <tmpdir>/xdg-data/modeltap/cache.sqlite on Linux OR at $HOME/Library/Application Support/modeltap/cache.sqlite on macOS (AC-23-1 / OQ-1)",
+            "Transient I/O fallback (AC-25-6): when cache.tools() returns Err(CacheError::IoError) mid-read, warm_start::run returns Inventory::empty() for the affected tool and the launch proceeds via cold-start — no crash"
+          ],
+          "test_file": "tests/acceptance/cache_ttl.rs",
+          "scenario_name": [
+            "Per-tool TTL forces cold paint for stale tool entries while other tools paint from cache",
+            "Production cache path resolves via XDG_DATA_HOME on Linux or Library/Application Support on macOS",
+            "Cache read failure falls back to cold-start for the affected tool without crashing the launch"
+          ],
+          "deps": ["04-01"],
+          "time_estimate_hours": 5,
+          "files_to_modify": [
+            "crates/modeltap-store/src/repo/tools.rs",
+            "crates/modeltap-app/src/orchestration/warm_start.rs",
+            "tests/acceptance/cache_ttl.rs"
+          ]
+        },
+        {
+          "id": "04-04",
+          "name": "Concurrent-process scenarios (WAL reads + busy_timeout writes + MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS test seam)",
+          "description": "Lands the two concurrent-process scenarios that prove the WAL + busy_timeout PRAGMAs work end-to-end per US-23 Scenarios 4-5. Adds the `MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS=N` test-only env var honored by the per-tool reconcile write transaction — when set, the transaction sleeps N milliseconds before COMMIT (cfg-gated behind `cfg(any(test, feature = \"test-harness\"))` per R3 / OQ-3 in acceptance-test-plan.md). The acceptance test launches two `modeltap` processes sharing one MODELTAP_CACHE_PATH: process A holds the write lock for 2 seconds; process B's BEGIN IMMEDIATE waits up to 5 seconds per busy_timeout; both succeed; neither crashes. The WAL-reads scenario launches both processes mid-discovery and asserts neither sees SQLITE_BUSY on reads. Adds `crates/modeltap-store/tests/concurrent.rs` covering both flows at the store-internals layer. CI note per CLAUDE.md §Running Tests Fast on macOS: the concurrent scenarios are tagged `@concurrent`; CI may run them in a serial test job to avoid file-descriptor exhaustion. Process B's launch.log emits `cache.write_wait_ms` event with the wait time (per step-definitions-skeleton.md §A).",
+          "criteria": [
+            "MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS env var causes the per-tool reconcile write transaction to sleep N ms before COMMIT — cfg-gated behind cfg(any(test, feature = \"test-harness\")) (acceptance-test-plan.md R3)",
+            "Two concurrent modeltap processes sharing one MODELTAP_CACHE_PATH can both read from cache.sqlite without SQLITE_BUSY errors (AC-23-10; WAL concurrent reads)",
+            "Process A holding the write lock for 2 seconds (via MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS=2000) causes process B's BEGIN IMMEDIATE to wait up to 5 seconds per busy_timeout=5000; process B's write succeeds after process A commits (AC-23-10; concurrent writes)",
+            "Neither process crashes nor returns SQLITE_BUSY to the user; both exit 0",
+            "Process B's launch.log emits `cache.write_wait_ms` event with value >= 0 and <= 5000 (step-definitions-skeleton.md §A)",
+            "Final cache_tools.last_scan_at for the contested tool reflects process B's later write (the more-recent timestamp)",
+            "Both concurrent scenarios in cache-state-model.feature green: 'Two modeltap processes can read the cache concurrently via SQLite WAL', 'Concurrent cache writes serialise via busy_timeout'"
+          ],
+          "test_file": "crates/modeltap-store/tests/concurrent.rs",
+          "scenario_name": [
+            "Two modeltap processes can read the cache concurrently via SQLite WAL",
+            "Concurrent cache writes serialise via busy_timeout",
+            "MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS holds the write transaction for N ms before commit"
+          ],
+          "deps": ["04-01"],
+          "time_estimate_hours": 5,
+          "files_to_modify": [
+            "crates/modeltap-store/tests/concurrent.rs",
+            "tests/acceptance/cache_concurrent.rs",
+            "tests/acceptance/steps/cache_lifecycle.rs"
+          ]
+        },
+        {
+          "id": "04-05",
+          "name": "Warm-start latency budget verification (K-INFO-1 <=150 ms, K-INFO-7 <=100 ms cache-open overhead)",
+          "description": "Closes the K-INFO-1 / K-INFO-7 latency budget per US-25 AC-25-1 / AC-25-3. Adds the `@perf` scenario in cache-state-model.feature 'Warm start paints cached inventory within 150 ms' green: the test launches modeltap against `devon-cache-warm` (pre-populated with 58 models across 4 tools) and asserts `launch.warm_paint_ms <= 150` in JSONL log. Adds the K-INFO-7 cache-open-overhead assertion: `launch.cache_open_ms <= 100` (the Cache::open + tools() + models_for_tool(_) round-trip must complete in under 100 ms). Adds the K-INFO-3 cold-start preservation check: when warm-start is unavailable (cache empty), the existing parent K3 must still hold: skeleton paint <= 150 ms and full inventory paint <= 1.15 s (AC-25-3). The instrumentation lives in `modeltap-app::instrumentation::launch_metrics`: emits the three JSONL events at the right boundaries. The `@perf`-tagged scenarios run in `--release` build only (per acceptance-test-plan.md §5: debug-build latencies routinely exceed 150 ms). Adds the INT-INFO-1 scenario: every launch satisfies K3a OR K3b.",
+          "criteria": [
+            "Warm-start launch with devon-cache-warm fixture emits launch.warm_paint_ms <= 150 in JSONL log (AC-25-1; K-INFO-1; K3a-warm-paint)",
+            "Cache-open round-trip emits launch.cache_open_ms <= 100 in JSONL log (K-INFO-7)",
+            "Cold-start launch with devon-cache-empty fixture emits launch.first_paint_ms <= 150 AND launch.full_inventory_paint_ms <= 1150 (AC-25-3; K3b-cold-start)",
+            "@perf scenarios run only under cargo test --release per acceptance-test-plan.md §5 (the debug-build version is allowed to skip these assertions via cfg(debug_assertions))",
+            "INT-INFO-1 scenario in integration-checkpoints.feature green: every launch satisfies K3a OR K3b",
+            "Cache-state-model.feature scenario 'Warm start paints cached inventory within 150 ms' and 'Cold start falls back to the ADR-003 skeleton paint when no cache exists' both green"
+          ],
+          "test_file": "tests/acceptance/cache_kpi.rs",
+          "scenario_name": [
+            "Warm start paints cached inventory within 150 ms",
+            "Cold start falls back to the ADR-003 skeleton paint when no cache exists",
+            "Parent's K3 (first paint < 1 s) is satisfied via K3a OR K3b on every launch"
+          ],
+          "deps": ["04-03"],
+          "time_estimate_hours": 5,
+          "files_to_modify": [
+            "crates/modeltap-app/src/instrumentation/launch_metrics.rs",
+            "tests/acceptance/cache_kpi.rs",
+            "tests/src/fixtures/cache_fixtures.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Background reconcile + pre-mutate revalidation (US-26) and manual refresh (US-24)",
+      "description": "Lands the two halves of the cache safety contract per architecture-design.md §5.3 / §7.3: (1) background reconcile after warm-paint that updates the cache atomically per tool, with last-known-good preservation on failure and silent-ack on inventory change; (2) pre-mutate revalidation as the SINGLE choke point before any destructive action (the R9 architecture-lint invariant). Also lands US-24 (manual refresh hotkeys and provenance line) because the reconcile orchestrator is the same code path — manual [r] / [Shift+R] reuse the reconcile dispatcher. The pre-mutate revalidator (`modeltap-store::Cache::verify_against_fs` + `modeltap-app::orchestration::revalidate::pre_mutate`) is integrated at every existing mutation site (unify, zap, delete_one) per AC-26-5. Folder-delete (US-05c) integration with the revalidator lands here too per INT-INFO-7. This phase closes the K5 extended invariant: cache must never enable stale-data destructive action.",
+      "release_target": "Release 2 — Cache",
+      "exit_gate": "5 cache-state-model.feature scenarios green: pre-unify validation drift, pre-mutate file-gone abort, failed-reconcile preserves last-known-good, silent-ack indicator on inventory change, plus 4 manual-refresh.feature scenarios. INT-INFO-3 (total.disk_usage invariant), INT-INFO-4 (revalidator-invoked-before-every-destructive-action scenario outline x 4 actions including folder_delete), and INT-INFO-7 (folder-group [F] runs revalidator) all green. modeltap-store/tests/revalidate.rs green.",
+      "estimated_total_hours": 22,
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Background reconcile orchestrator (modeltap-app::orchestration::reconcile, ReconcileScope, atomic per-tool write, last-known-good preservation, silent-ack indicator)",
+          "description": "Lands `modeltap-app::orchestration::reconcile::run(scope: ReconcileScope, plugins, cache) -> Stream<ReconcileEvent>` per architecture-design.md §5.3. ReconcileScope is `All` (default after warm-paint OR on [Shift+R]) or `Tool(ToolId)` (on [r]). Reuses the parent's parallel-per-plugin `discover()` orchestrator with the new scope parameter. For each tool's reconcile result: (a) on Ok, writes `cache.tools` and `cache.models` rows atomically in a single transaction per tool (`BEGIN IMMEDIATE; UPDATE cache_tools SET ...; DELETE FROM cache_models WHERE tool_id = ? AND model_id NOT IN (...); INSERT OR REPLACE INTO cache_models VALUES ...; COMMIT;` — AC-26-2), (b) on Err, leaves the cache rows UNCHANGED (last-known-good preserved — AC-26-3), appends `reconcile_failed tool=<id> reason=<text>` to diagnostics.log, and emits `Msg::ReconcileFailed { tool_id, reason }` (the existing left-pane row shows \"(error)\" via the parent surface). Pure-function helper `modeltap-core::logic::compute_inventory_diff(cached: &Inventory, fresh: &Inventory) -> InventoryDiff` (per acceptance-test-plan.md §9 CM-D) detects when reconciled inventory differs from cached; the orchestrator emits a 3-second blue `*` silent-ack indicator next to the affected tool's row when diff is non-empty (AC-26-4). After warm-paint, the orchestrator runs automatically; the existing parent `Cmd::StartDiscovery` is extended to honor ReconcileScope. INT-INFO-3 invariant: `total.disk_usage == sum(tool.disk_usage)` holds during and after reconcile (within rounding tolerance of 1 byte).",
+          "criteria": [
+            "modeltap-app::orchestration::reconcile::run dispatches over Vec<Box<dyn Tool>> in parallel scoped by ReconcileScope::{All, Tool(ToolId)}",
+            "Successful per-tool reconcile atomically writes cache.tools + cache.models rows in a single transaction (AC-26-2; @cache-introspection scenario verifies)",
+            "Failed per-tool reconcile leaves cache rows unchanged (last-known-good preserved); diagnostics.log gains `reconcile_failed tool=<id> reason=<text>` line (AC-26-3)",
+            "After warm-paint, background reconcile runs automatically without user action (AC-26-1)",
+            "Reconcile completes within 1.15 s for typical 4-plugin inventory (AC-26-9; matches parent K3 budget)",
+            "compute_inventory_diff is a pure function over (cached, fresh) inventories and returns the per-tool diff (PURE; modeltap-core::logic::compute_inventory_diff per acceptance-test-plan.md §9 CM-D)",
+            "On non-empty inventory diff, a blue `*` indicator appears next to the changed tool's row for 3 seconds (AC-26-4)",
+            "INT-INFO-3 invariant: total.disk_usage == sum(tool.disk_usage) within 1 byte rounding tolerance during and after reconcile (cache-state-model.feature 'Failed reconcile keeps the stale cache visible' and 'Inventory change since last reconcile shows the silent ack indicator' both green)"
+          ],
+          "test_file": "tests/acceptance/cache_reconcile.rs",
+          "scenario_name": [
+            "Failed reconcile keeps the stale cache visible with an (error) annotation",
+            "Inventory change since last reconcile shows the silent ack indicator",
+            "total.disk_usage equals the sum of per-tool disk_usage during and after reconcile"
+          ],
+          "deps": ["04-01"],
+          "time_estimate_hours": 6,
+          "files_to_modify": [
+            "crates/modeltap-app/src/orchestration/reconcile.rs",
+            "crates/modeltap-core/src/logic/inventory_diff.rs",
+            "crates/modeltap-store/src/repo/models.rs",
+            "tests/acceptance/cache_reconcile.rs"
+          ]
+        },
+        {
+          "id": "05-02",
+          "name": "Pre-mutate revalidator (Cache::verify_against_fs + modeltap-app::orchestration::revalidate::pre_mutate as the single choke point for all destructive actions)",
+          "description": "Lands the load-bearing cache safety mechanism per architecture-design.md §8.2 + ADR-015. `modeltap-store::Cache::verify_against_fs(model_id) -> Result<ValidationResult, CacheError>` per architecture-design.md §5.1: re-stats the path via `std::fs::metadata()`, compares against cache_model_files's `(mtime_epoch_ns, size_bytes, inode, dev)` quad, returns `Match` / `Drift { fresh: FileStat }` / `Gone`. The mtime comparison uses nanosecond integer per data-models.md (avoids ISO-8601 round-trip precision loss). `modeltap-app::orchestration::revalidate::pre_mutate(cache, targets, plugins) -> RevalidationOutcome { Proceed, Refreshed { updated }, Abort { reason } }` is the single choke point per architecture-design.md §5.3 / §7.3: for each target_id (a) calls verify_against_fs via spawn_blocking, (b) on Match continues, (c) on Drift dispatches a synchronous inspect_model + cache.write_models update + marks \"user must re-confirm if numbers changed\", (d) on Gone returns Abort. Pure helper `FileStat::matches(&Self) -> bool` lives in `modeltap-store::types`. Emits JSONL `revalidate.invoked` event per target before the action's outcome event (per INT-INFO-4 / integration-checkpoints.feature). Wires `pre_mutate` into every existing mutation site in `modeltap-app/src/orchestration/`: execute_unify, execute_zap, execute_delete_one, execute_folder_delete. The folder-delete integration covers INT-INFO-7: the [F] action runs revalidator over every file in the folder before any delete.outcome event. Each call site has the pattern: `pre_mutate(&cache, &targets, &plugins).await? -> dispatch action with new state`. Owns `crates/modeltap-store/tests/revalidate.rs` covering the quad drift / gone / match cases. Adds the `devon-cache-mtime-drift` (one file mtime mutated post-cache-write) and `devon-cache-file-gone` (one file deleted post-cache-write) fixtures.",
+          "criteria": [
+            "Cache::verify_against_fs(model_id) returns Match when (mtime, size, inode, dev) quad matches the cache row; Drift { fresh } when any element differs; Gone when std::fs::metadata returns NotFound (architecture-design.md §8.2)",
+            "FileStat::matches(&Self) is a PURE function (no I/O) over two FileStat values (acceptance-test-plan.md §9 CM-D pure-function inventory)",
+            "modeltap-app::orchestration::revalidate::pre_mutate is invoked from execute_unify, execute_zap, execute_delete_one, execute_folder_delete — every destructive code path goes through this single choke point (AC-26-5, AC-26-8)",
+            "On Drift, pre_mutate dispatches Tool::inspect_model + cache.write_models update + flags 'user must re-confirm if reclaim changed' (AC-26-6)",
+            "On Gone, pre_mutate returns Abort { reason: 'file no longer exists; refreshing inventory' } and auto-triggers a per-tool refresh (AC-26-7)",
+            "JSONL `revalidate.invoked` event is emitted per target BEFORE the action's outcome event (INT-INFO-4 / integration-checkpoints.feature scenario outline)",
+            "INT-INFO-7: Folder-group [F] runs the pre-mutate revalidator before deleting files — one revalidate.invoked event per file in the folder before any delete.outcome events (integration-checkpoints.feature scenario green)",
+            "All 4 INT-INFO-4 examples in the scenario outline pass: unify, zap, delete_one, folder_delete each emit revalidate.invoked with source matching the action"
+          ],
+          "test_file": "crates/modeltap-store/tests/revalidate.rs",
+          "scenario_name": [
+            "Pre-unify validation re-introspects when a file has drifted since the cache write",
+            "Pre-mutate validation aborts when a file no longer exists",
+            "The pre-mutate revalidator is invoked before every destructive action",
+            "Folder-group [F] runs the pre-mutate revalidator before deleting files"
+          ],
+          "deps": ["05-01"],
+          "time_estimate_hours": 8,
+          "files_to_modify": [
+            "crates/modeltap-store/src/revalidate.rs",
+            "crates/modeltap-store/tests/revalidate.rs",
+            "crates/modeltap-app/src/orchestration/revalidate.rs",
+            "crates/modeltap-app/src/orchestration/execute_unify.rs",
+            "crates/modeltap-app/src/orchestration/execute_delete_one.rs",
+            "crates/modeltap-app/src/orchestration/execute_folder_delete.rs"
+          ]
+        },
+        {
+          "id": "05-03",
+          "name": "Manual refresh ([r] + [Shift+R]) with provenance line (US-24 + US-25 summary-bar integration)",
+          "description": "Lands US-24 manual refresh hotkeys and the always-visible provenance line. `modeltap-tui::input::keymap` gains `(KeyEvent::r, ContextFilter::NoDialog, Msg::RequestRefresh(Tool(selected)))` and `(KeyEvent::Shift+R, ContextFilter::NoDialog, Msg::RequestRefresh(All))` registered in the single SHORTCUT_TABLE per AC-24-6. Both shortcuts are no-ops when any dialog is open per AC-24-5 (dimmed in the bottom bar via the existing ContextFilter::NoDialog gate). `modeltap-app::orchestration::reconcile::run` is invoked with `ReconcileScope::Tool(_)` on [r] and `ReconcileScope::All` on [Shift+R] (reuses step 05-01's dispatcher). The summary bar gains the provenance line per AC-24-1: \"Total: <X> GB | <Y> models | as of <Z> ago[, reconciling...]\" where the timestamp is computed pure-functionally from `MAX(cache_tools.last_scan_at)` for painted tools and rendered via `modeltap-tui::view::provenance::format_provenance(now, last_scan_at) -> String` (\"just now\", \"<N> sec/min/hours/days ago\" — PURE per acceptance-test-plan.md §9 CM-D). During reconcile the provenance gets the suffix \", reconciling...\" or \", refreshing Ollama...\" per AC-24-2. On refresh completion the provenance updates to \"as of just now (Ollama refreshed)\" per AC-24-7. Manual refresh latency budget is <= 1 s for a typical single tool per AC-24-9 (@k-info-2-refresh-1s @perf). cache.tools.last_scan_at is updated atomically with the reconciled inventory per AC-24-8.",
+          "criteria": [
+            "[r] keymap dispatches Msg::RequestRefresh(Tool(<selected>)) when a left-pane tool is selected and no dialog is open (AC-24-3)",
+            "[Shift+R] keymap dispatches Msg::RequestRefresh(All) when no dialog is open (AC-24-4)",
+            "[r] and [Shift+R] are dimmed in the bottom bar and are no-ops when any dialog is open (AC-24-5)",
+            "Summary bar shows the provenance line \"Total: <X> GB | <Y> models | as of <Z> ago\" at all times in the main view (AC-24-1)",
+            "format_provenance(now, last_scan_at) is a PURE function returning 'just now' / '<N> sec/min/hours/days ago' (acceptance-test-plan.md §9 CM-D pure-function inventory)",
+            "During reconcile, provenance gains suffix ', reconciling...' or ', refreshing <tool>...' (AC-24-2)",
+            "On refresh completion, provenance updates to 'as of just now (<tool> refreshed)' within 1000 ms (AC-24-7; AC-24-9; @k-info-2-refresh-1s)",
+            "cache.tools.last_scan_at column is updated after [r] for the refreshed tool (AC-24-8; @cache-introspection)",
+            "All 4 manual-refresh.feature scenarios green: [r] refreshes selected tool within 1s, [Shift+R] refreshes all in parallel within 2s, [r] is no-op when dialog open, provenance always shows freshness"
+          ],
+          "test_file": "tests/acceptance/manual_refresh.rs",
+          "scenario_name": [
+            "[r] refreshes the selected tool within 1 second",
+            "[Shift+R] refreshes all four tools in parallel within 2 seconds",
+            "[r] is a no-op when a dialog is open",
+            "Provenance line always shows freshness with a human-readable suffix"
+          ],
+          "deps": ["05-01"],
+          "time_estimate_hours": 5,
+          "files_to_modify": [
+            "crates/modeltap-tui/src/input/keymap.rs",
+            "crates/modeltap-tui/src/view/provenance.rs",
+            "crates/modeltap-tui/src/view/summary_bar.rs",
+            "tests/acceptance/manual_refresh.rs"
+          ]
+        },
+        {
+          "id": "05-04",
+          "name": "Pre-mutate drift + file-gone end-to-end acceptance (cache-state-model.feature pre-mutate scenarios green)",
+          "description": "Closes the two remaining cache-state-model.feature pre-mutate scenarios end-to-end through the binary. With pre_mutate wired into execute_unify (step 05-02), this step lands the acceptance-test-step definitions and fixtures for the two scenarios: 'Pre-unify validation re-introspects when a file has drifted since the cache write' and 'Pre-mutate validation aborts when a file no longer exists'. The drift scenario uses the `devon-cache-mtime-drift` fixture: cache is warm; one model file's mtime is mutated via `filetime::set_file_mtime` after the cache was written; Devon presses [u] on the Mistral row; the validator detects the drift via the (mtime, size, inode, dev) quad; the dialog displays 'Re-introspecting before proceeding...' with a brief progress indicator; the dedup-key / size for the drifted file is recomputed; Devon is shown the (possibly updated) reclaim estimate; Devon must re-confirm if the reclaim amount changed by more than rounding. The gone scenario uses `devon-cache-file-gone` fixture: one file deleted out-of-band; Devon attempts to unify; the pre-flight check refuses with 'file no longer exists; refreshing inventory'; no destructive action occurs; an automatic per-tool refresh triggers; the right pane updates to reflect the missing file. Adds the step-definition phrases in `tests/acceptance/steps/revalidate.rs` per step-definitions-skeleton.md §F.",
+          "criteria": [
+            "Pre-unify-validation drift scenario: with devon-cache-mtime-drift fixture and a mutated mtime on the llama-cli copy, pressing [u] triggers the validator BEFORE opening the dialog; the dialog shows 'Re-introspecting before proceeding...'; the recomputed dedup-key / size is reflected in the dialog (AC-26-5, AC-26-6)",
+            "After drift re-introspect, cache.models.metadata_introspected_at and metadata_kv_json are updated for the drifted file",
+            "Pre-unify validation re-confirm: if the reclaim amount changed by more than rounding tolerance, Devon must re-confirm (cache-state-model.feature 'Pre-unify validation re-introspects when a file has drifted')",
+            "Pre-mutate file-gone scenario: with devon-cache-file-gone fixture and one file deleted out-of-band, pressing [u] refuses with 'file no longer exists; refreshing inventory'; no destructive action occurs; per-tool refresh is auto-triggered; right pane updates (AC-26-7)",
+            "DirManifest pre/post comparison on the file-gone scenario confirms no other files were modified (safety invariant)",
+            "Step-definition file tests/acceptance/steps/revalidate.rs covers the Given/When/Then phrases per step-definitions-skeleton.md §F"
+          ],
+          "test_file": "tests/acceptance/cache_revalidate.rs",
+          "scenario_name": [
+            "Pre-unify validation re-introspects when a file has drifted since the cache write",
+            "Pre-mutate validation aborts when a file no longer exists"
+          ],
+          "deps": ["05-02"],
+          "time_estimate_hours": 3,
+          "files_to_modify": [
+            "tests/acceptance/steps/revalidate.rs",
+            "tests/acceptance/cache_revalidate.rs",
+            "tests/src/fixtures/cache_fixtures.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "name": "Architecture-lint enforcement (R7/R8/R9) + parent regression + KPI guardrails + mutation testing + release prep",
+      "description": "Closes the workspace-quality gates before merge. Lands R7 (only modeltap-app depends on modeltap-store), R8 (modeltap-store does not depend on tokio/ratatui), and R9 (every destructive Tool method call in modeltap-app/src/orchestration/ is preceded by revalidate::pre_mutate) as automated `tests/architecture.rs` assertions per architecture-design.md §5.4 + component-boundaries.md §Tooling. R9 is the load-bearing safety lint: a future contributor who adds a new `tool.link(...)` call site without an upstream `pre_mutate` call causes CI to fail. Validates mutation testing kill-rate >=80% on modeltap-store (pure types + repos) and modeltap-core's inspect + inventory_diff modules per CLAUDE.md per-feature gate. Confirms INT-INFO-2 vocabulary consistency (TUI help output includes \"refresh tool\", \"refresh all\", \"recovery banner\" terminology) and INT-INFO-9 sample-word presence. Updates lat.md/lat.md with the new modeltap-store crate description and bumps the architecture lint rule count. Adds CHANGELOG entry. Final CI gate per CLAUDE.md: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` clean before any push to main.",
+      "release_target": "Release 2 — Cache (release prep + regression gate)",
+      "exit_gate": "R7 / R8 / R9 architecture-lint tests in tests/architecture.rs pass on every PR. Mutation kill-rate >= 80% on modeltap-store types + repos and modeltap-core inspect + inventory_diff. Full feature test suite green (all 30 non-skipped scenarios across the 7 feature files; 3 sha256-persistence scenarios remain @release-3 @skip). Parent feature's master-acceptance.feature scenarios still green (no regression). lat.md updated, CHANGELOG updated. `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` clean.",
+      "estimated_total_hours": 12,
+      "steps": [
+        {
+          "id": "06-01",
+          "name": "Architecture lints R7 + R8 + R9 (tests/architecture.rs) and release-build TestTool absence check",
+          "description": "Extends `tests/architecture.rs` with three new rules per architecture-design.md §5.4 + component-boundaries.md §R7-R9. R7 (only modeltap-app depends on modeltap-store): parses every crate's `Cargo.toml` via `cargo_metadata` and asserts `modeltap-store` appears as a path-dep only in `crates/modeltap-app/Cargo.toml` (not in modeltap-tui, modeltap-core, modeltap-cli, or any plugin). R8 (modeltap-store does not depend on tokio/ratatui): parses `crates/modeltap-store/Cargo.toml` and asserts absence of tokio, ratatui, crossterm from [dependencies] AND [dev-dependencies]. R9 (every destructive Tool method call in modeltap-app/src/orchestration/ is preceded by revalidate::pre_mutate): syn AST walk over every `.rs` file under `crates/modeltap-app/src/orchestration/`; for each `tool.link(...)`, `tool.delete_one(...)`, `tool.delete_all(...)`, `tool.delete_folder(...)` method-call expression, asserts an earlier statement in the same fn (or via an explicit `pre_mutate` guard-call) invokes `revalidate::pre_mutate(...)` against the target set. Failure mode message points to the offending file:line. Also lands the release-build TestTool absence check per OQ-3: `strings target/release/modeltap | grep MODELTAP_TEST_PLUGINS` returns empty — verified by a wrapper test that builds with `--release` and greps the resulting binary (skipped in debug-build CI; runs in the release-prep job).",
+          "criteria": [
+            "tests/architecture.rs::r7_only_app_depends_on_store asserts modeltap-store is a path-dep only in crates/modeltap-app/Cargo.toml (component-boundaries.md §R7)",
+            "tests/architecture.rs::r8_store_no_tokio_ratatui asserts crates/modeltap-store/Cargo.toml lacks tokio, ratatui, crossterm in [dependencies] and [dev-dependencies] (component-boundaries.md §R8)",
+            "tests/architecture.rs::r9_pre_mutate_guard performs a syn AST walk over crates/modeltap-app/src/orchestration/ and asserts every tool.link / delete_one / delete_all / delete_folder call site is preceded by a revalidate::pre_mutate(...) call in the same fn (component-boundaries.md §R9; the load-bearing safety lint)",
+            "A deliberately-added unguarded tool.link(...) call in a test fixture causes r9_pre_mutate_guard to fail with a message pointing to the offending file:line (negative test confirms the lint works)",
+            "Release-build absence check: `strings target/release/modeltap | grep MODELTAP_TEST_PLUGINS` produces no matches (OQ-3 / acceptance-test-plan.md R3)",
+            "Release-build absence check: `strings target/release/modeltap | grep MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS` produces no matches"
+          ],
+          "test_file": "tests/architecture.rs",
+          "scenario_name": [
+            "R7: only modeltap-app may depend on modeltap-store",
+            "R8: modeltap-store does not depend on tokio or ratatui",
+            "R9: every destructive Tool method call in modeltap-app/src/orchestration/ is preceded by revalidate::pre_mutate",
+            "Negative R9: an unguarded tool.link call causes the lint to fail with a file:line message",
+            "Release-build absence check: MODELTAP_TEST_PLUGINS and MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS strings are not present in target/release/modeltap"
+          ],
+          "deps": ["05-02"],
+          "time_estimate_hours": 4,
+          "files_to_modify": [
+            "tests/architecture.rs",
+            "tests/Cargo.toml",
+            "tests/src/release_build_check.rs"
+          ]
+        },
+        {
+          "id": "06-02",
+          "name": "Mutation testing + parent regression + lat.md + CHANGELOG + final CI gate (release-prep finalize)",
+          "description": "Closes the per-feature mutation testing gate per CLAUDE.md §Mutation Testing Strategy: kill-rate >= 80% on modeltap-store::types (FileStat::matches), modeltap-store::repo::{tools,models,files} (pure SQL serialization round-trips), modeltap-core::domain::inspect (ToolDetail/ModelDetail builders), modeltap-core::logic::inventory_diff (compute_inventory_diff). Runs `cargo mutants -p modeltap-store -p modeltap-core` after walking skeleton green and after all phases land; surviving mutants are either tested (raise kill-rate) or marked with a `// MUTATION: <rationale>` annotation justified by the architect (rare). Parent regression: all 93 parent scenarios in modeltap-tui/distill/features/master-acceptance.feature still pass against this branch (no regression on US-01..US-20 + US-05b + US-05c sibling). Updates `lat.md/lat.md` with a new section describing the modeltap-store crate, the three new architecture rules (R7/R8/R9), and the cache safety invariant. Adds CHANGELOG entry under \"Unreleased\" with US-21..US-26 closure summary and the ADR-003 supersession note. INT-INFO-2 vocabulary check: TUI help output contains the new terms \"refresh tool\", \"refresh all\", \"recovery banner\", \"tool detail\", \"model detail\" (per integration-checkpoints.feature INT-INFO-9 sample assertion). Final CI gate per CLAUDE.md §CI Lint Discipline: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` clean. If `cargo fmt --all` produces a diff, commit it as a single `chore: cargo fmt --all` commit before pushing.",
+          "criteria": [
+            "cargo mutants -p modeltap-store reports kill-rate >= 80% on types + repos + revalidate (CLAUDE.md per-feature gate)",
+            "cargo mutants -p modeltap-core reports kill-rate >= 80% on domain::inspect + logic::inventory_diff (CLAUDE.md per-feature gate)",
+            "Surviving mutants are either covered by new tests OR annotated with `// MUTATION: <rationale>` and reviewed by architect",
+            "Parent master-acceptance.feature: all 93 scenarios still green against this branch (no regression on US-01..US-20 + US-05b)",
+            "Sibling folder-group-delete.feature: all M1-M6 scenarios still green (no regression on US-05c — trait extension is additive)",
+            "lat.md/lat.md updated with modeltap-store section, R7/R8/R9 rule descriptions, cache safety invariant explanation",
+            "CHANGELOG entry under \"Unreleased\" lists US-21..US-26 closure and ADR-003 supersession note",
+            "INT-INFO-2 vocabulary check: TUI [?] help output contains \"refresh tool\", \"refresh all\", \"recovery banner\", \"tool detail\", \"model detail\" terms (integration-checkpoints.feature INT-INFO-9 sample)",
+            "Final CI gate: `cargo fmt --all && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace` runs clean on macOS and Linux (CLAUDE.md §CI Lint Discipline before push)",
+            "All 30 non-skipped scenarios across the 7 feature files green; 3 sha256-persistence.feature scenarios remain @release-3 @skip (US-27 deferred per ADR-018)"
+          ],
+          "test_file": "tests/acceptance/regression_gate.rs",
+          "scenario_name": [
+            "Mutation kill-rate >= 80% on modeltap-store types + repos + revalidate",
+            "Mutation kill-rate >= 80% on modeltap-core domain::inspect + logic::inventory_diff",
+            "Parent master-acceptance suite still green (no regression on US-01..US-20 + US-05b)",
+            "Sibling folder-group-delete suite still green (no regression on US-05c)",
+            "TUI help output contains the new vocabulary (refresh tool, refresh all, recovery banner, tool detail, model detail)"
+          ],
+          "deps": ["06-01"],
+          "time_estimate_hours": 8,
+          "files_to_modify": [
+            "lat.md/lat.md",
+            "CHANGELOG.md",
+            "tests/acceptance/regression_gate.rs",
+            "docs/feature/tool-model-info-sqlite-cache/distill/features/sha256-persistence.feature"
+          ]
+        }
+      ]
+    }
+  ],
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer",
+    "reviewed_at": "2026-05-17T00:00:00Z",
+    "notes": "Reviewer issued APPROVED_WITH_REVISIONS. Orchestrator reconciliation: 1 CRITICAL was a 100h-vs-120h arithmetic typo in summary (fixed in place; JSON hours always at 120h, internally consistent); 1 HIGH was withdrawn by reviewer's own per-item verdict (PASS); 1 MEDIUM (ADR-016 pre-condition) is moot because ADR-016 already exists from DESIGN wave. See roadmap-review.md for the full critique. No architect re-dispatch needed. Roadmap moves to approved."
+  }
+}
