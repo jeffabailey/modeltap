@@ -4,6 +4,10 @@ members = [
     "crates/modeltap-core",
     "crates/modeltap-tui",
     "crates/modeltap-app",
+    # SQLite-backed inventory cache crate (per ADR-015 / ADR-017). Added in
+    # tool-model-info-sqlite-cache step 01-02. Sync I/O at the edge; pure
+    # transforms inside. R7: only modeltap-app may depend on this crate.
+    "crates/modeltap-store",
     "plugins/ollama",
     "plugins/hf",
     "plugins/lm-studio",
@@ -34,6 +38,7 @@ default-members = [
     "crates/modeltap-core",
     "crates/modeltap-tui",
     "crates/modeltap-app",
+    "crates/modeltap-store",
     "plugins/ollama",
     "plugins/hf",
     "plugins/lm-studio",
@@ -77,6 +82,12 @@ clap = { version = "4", features = ["derive", "env"] }
 
 # SHA-256 streaming (per ADR-002)
 sha2 = "0.10"
+
+# SQLite cache (per ADR-015, ADR-017). Bundled feature ships a known SQLite
+# version regardless of system SQLite. Only `modeltap-store` depends on these
+# (architecture rule R7).
+rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite_migration = "1.2"
 
 # Test deps
 assert_cmd = "2"

@@ -1,0 +1,36 @@
+[package]
+name = "modeltap-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "SQLite-backed inventory cache for modeltap (per ADR-015 / ADR-017). Sync I/O at the edge; pure transforms inside."
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[dependencies]
+# Pure-domain types (ToolId, ModelId, etc.). Architecture rule R8 allows
+# this dependency; tokio / ratatui are forbidden.
+modeltap-core = { path = "../modeltap-core" }
+
+# SQLite bindings (per ADR-015). `bundled` ships a known SQLite version so
+# behavior is independent of system SQLite.
+rusqlite = { workspace = true }
+
+# Forward-only embedded SQL migrations (per ADR-017).
+rusqlite_migration = { workspace = true }
+
+# Errors (per ADR-007).
+thiserror = { workspace = true }
+
+# JSON columns (search_paths, metadata_kv) and Serde-derived row types.
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Timestamp formatting / parsing (ISO-8601 UTC per data-models.md).
+time = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
