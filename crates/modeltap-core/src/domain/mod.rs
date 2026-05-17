@@ -5,6 +5,7 @@
 pub mod dedup_glyph;
 pub mod dedup_summary;
 pub mod indicator;
+pub mod inspect;
 pub mod last_action;
 pub mod synthetic_slot;
 

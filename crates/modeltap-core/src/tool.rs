@@ -22,6 +22,7 @@ use std::path::Path;
 
 use async_trait::async_trait;
 
+use crate::domain::inspect::{InspectError, ModelDetail, ModelId, ToolDetail};
 use crate::types::{
     DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, FolderDeletePlan, Format,
     LinkError, LinkOutcome, ModelMeta, ToolId,
@@ -87,5 +88,50 @@ pub trait Tool: Send + Sync {
     ) -> Result<Vec<DeleteOutcome>, DeleteError> {
         let _ = plan;
         Err(DeleteError::Unsupported { tool: self.name() })
+    }
+
+    /// Return tool-level details for the per-tool inspect screen (US-21).
+    ///
+    /// Per ADR-016, the default body returns
+    /// `Err(InspectError::Unsupported { tool: self.name() })` so plugins
+    /// that have no canonical version source (atomic-chat, gpt4all, and
+    /// any 3rd-party plugin) compile without an override. Plugins that
+    /// can introspect (Ollama, HF) override this in later steps.
+    ///
+    /// Contract (when overridden):
+    /// - Returns `Ok(ToolDetail { ... })` with `tool_id == self.name()`.
+    /// - `plugin_version` is non-empty (the plugin's own crate version).
+    /// - `search_paths` is non-empty; at least one entry tagged `Default`.
+    /// - Optional fields (`detected_version`, `last_scan_at`, etc.) are
+    ///   `None` when the plugin cannot determine them; the TUI renders
+    ///   `None` as `"(not detectable)"` per AC-21-3.
+    /// - Safe to call concurrently with `inspect_model` on the same plugin
+    ///   (the orchestrator may parallel-dispatch per INT-INFO-7).
+    async fn inspect_tool(&self) -> Result<ToolDetail, InspectError> {
+        Err(InspectError::Unsupported { tool: self.name() })
+    }
+
+    /// Return model-level details (including tool-native metadata KVs) for
+    /// the per-model detail screen (US-22).
+    ///
+    /// Per ADR-016, the default body returns
+    /// `Err(InspectError::Unsupported { tool: self.name() })` so plugins
+    /// without a model introspector compile without an override. Plugins
+    /// that can introspect (Ollama, HF, lm-studio, llama-cli) override
+    /// this in later steps.
+    ///
+    /// Contract (when overridden):
+    /// - Returns `Ok(ModelDetail { ... })` with `model_id` equal to the
+    ///   `id` argument.
+    /// - `metadata_kv` is non-empty for a known-good fixture model.
+    /// - Returns `Err(InspectError::FileReadable { path, source })` when
+    ///   the model file is missing or unreadable.
+    /// - Returns `Err(InspectError::FormatUnreadable { path, detail })`
+    ///   when the file is readable but its format cannot be parsed.
+    /// - Never returns `Ok(ModelDetail)` with all-empty fields for an
+    ///   unknown model — surface the error instead.
+    async fn inspect_model(&self, id: &ModelId) -> Result<ModelDetail, InspectError> {
+        let _ = id;
+        Err(InspectError::Unsupported { tool: self.name() })
     }
 }
