@@ -16,6 +16,8 @@ The `test-harness` feature gate is the middle ground: TestTool lives in `tests/`
 
 The feature is **default-on** in `crates/modeltap-app/Cargo.toml` so `cargo test --workspace` exercises the seam without per-crate feature flags. Release pipelines pass `--no-default-features` to strip it.
 
+The `test-harness` feature also pulls in `async-trait` as an optional dep (`async-trait = { version = "0.1", optional = true }` gated behind `test-harness = ["dep:async-trait"]`). Release builds compiled with `--no-default-features` link neither the env-var seam nor the `async-trait` proc-macro into `modeltap-app` itself; the only path by which `async-trait` reaches the release binary is transitively through `modeltap-core` (which needs it to declare the `Tool` trait).
+
 ## Two-arm cfg pattern
 
 [[crates/modeltap-app/src/registry.rs]] declares `maybe_register_test_plugins` twice — once decorated with `#[cfg(any(test, feature = "test-harness"))]` containing the env-var-reading logic, and once decorated with `#[cfg(not(...))]` returning a no-op.

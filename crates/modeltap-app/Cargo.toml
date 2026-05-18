@@ -35,7 +35,11 @@ test-fixtures = [
 # builds (`cargo build --release --no-default-features`) leave this OFF so
 # the env-var read and the TestToolRegistration body are absent from the
 # shipped binary (step 06-02 verifies via `strings target/release/modeltap`).
-test-harness = []
+# Pulls in the optional `async-trait` regular dep so the `#[async_trait]`
+# macro on `TestToolRegistration` resolves when the lib is compiled outside
+# `cfg(test)` (e.g. `cargo test --test plugin_registry_test_harness
+# --features test-harness`).
+test-harness = ["dep:async-trait"]
 
 [[bin]]
 name = "modeltap"
@@ -102,6 +106,15 @@ num_cpus = "1"
 # emptied via its HF-internal sidecar sweep, so the orchestrator owns a
 # second cleanup pass.
 walkdir = "2"
+
+# async_trait is needed when the `test-harness` feature compiles the
+# `TestToolRegistration` impl in registry.rs into the library target (e.g.
+# `cargo test --test plugin_registry_test_harness --features test-harness`,
+# which builds the lib without `cfg(test)`). Kept optional + feature-gated
+# so release binaries (`--no-default-features`) do not link it. Plain
+# `cargo test --lib` paths (where the same `mod test_harness` block compiles
+# via `cfg(test)`) continue to be satisfied by the dev-dependency below.
+async-trait = { version = "0.1", optional = true }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
