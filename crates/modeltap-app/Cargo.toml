@@ -29,6 +29,13 @@ test-fixtures = [
     # with `--no-default-features` never compile the seam (ADR-010 §D4).
     "modeltap-plugin-hf/test-harness",
 ]
+# tool-model-info-sqlite-cache step 01-03: opt-in feature flag that compiles
+# the in-process TestTool registration into the modeltap binary so the US-23
+# cache acceptance suite can drive `MODELTAP_TEST_PLUGINS=test-tool`. Release
+# builds (`cargo build --release --no-default-features`) leave this OFF so
+# the env-var read and the TestToolRegistration body are absent from the
+# shipped binary (step 06-02 verifies via `strings target/release/modeltap`).
+test-harness = []
 
 [[bin]]
 name = "modeltap"

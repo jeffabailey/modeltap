@@ -18,4 +18,10 @@ pub mod platform;
 pub mod plugin_isolation;
 pub mod reclassify;
 pub mod refresh;
+// Registry is exposed via the library half so integration tests can drive
+// the `MODELTAP_TEST_PLUGINS` seam (tool-model-info-sqlite-cache step 01-03)
+// directly via `modeltap_app::registry::collect_plugins` rather than spawning
+// the binary. main.rs imports through `modeltap_app::registry` instead of
+// declaring its own `mod registry;`.
+pub mod registry;
 pub mod sha256_cache;

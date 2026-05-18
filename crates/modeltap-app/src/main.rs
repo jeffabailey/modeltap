@@ -10,10 +10,14 @@ mod discovery;
 mod headless;
 mod interactive;
 mod observability;
-mod registry;
 
 use modeltap_app::inventory_build;
 use modeltap_app::platform::{current_platform, Platform};
+// `registry` moved from `mod registry;` (private to the bin) to
+// `pub mod registry` in lib.rs so integration tests can exercise the
+// `MODELTAP_TEST_PLUGINS` seam without spawning the binary
+// (tool-model-info-sqlite-cache step 01-03).
+use modeltap_app::registry;
 
 // `refresh` lives in the library half (src/lib.rs) so integration tests
 // can call `modeltap_app::refresh::refresh_tool` without re-compiling the

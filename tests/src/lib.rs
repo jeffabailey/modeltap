@@ -10,6 +10,13 @@
 // after multi_arch_e2e + version_consistency needed the same primitives.
 // See `nw-tdd-methodology` Mandate 5 + Mandate 6 for fixture provenance.
 
+// In-process TestTool plugin (tool-model-info-sqlite-cache step 01-03) -- the
+// harness-side `Tool` impl used by US-23 cache acceptance scenarios to drive
+// the orchestrator end-to-end without a real Ollama/HF install. Exposed at
+// crate root so both this crate's unit tests and the modeltap-app integration
+// tests can `use modeltap_acceptance::test_tool::TestTool`.
+pub mod test_tool;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

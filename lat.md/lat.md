@@ -5,3 +5,6 @@ This directory defines the high-level concepts, business logic, and architecture
 Index of architecture and design notes covering subsystems whose rationale is non-obvious from the source.
 
 - [[tui-icons]] — per-tool PNG icons in the left pane via `ratatui-image`
+- [[inspect-types]] — `Tool::inspect_tool` / `inspect_model` extension and `InspectError` (per ADR-016)
+- [[modeltap-store]] — SQLite-backed inventory cache (per ADR-015) for warm-start paint
+- [[test-plugin-seam]] — `MODELTAP_TEST_PLUGINS` env-var seam + in-process `TestTool` (cfg-gated)

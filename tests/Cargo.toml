@@ -34,6 +34,13 @@ path = "src/lib.rs"
 # integration tests that link against this crate's lib still see the same
 # crate version (cargo unifies them via the workspace dep).
 tempfile = { workspace = true }
+# tool-model-info-sqlite-cache step 01-03: the in-process TestTool plugin
+# (src/test_tool.rs) implements modeltap-core::Tool, so the lib half needs
+# the trait crate, async-trait for the trait's async methods, and tokio for
+# the unit tests (#[tokio::test]) over it.
+modeltap-core = { path = "../crates/modeltap-core" }
+async-trait = "0.1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
