@@ -10,6 +10,13 @@
 
 #![forbid(unsafe_code)]
 
+// tool-model-info-sqlite-cache step 01-04:
+// `adapters` hosts the cache-path resolver; `orchestration` hosts the
+// warm-start orchestrator. Both are exposed via the library half so
+// integration tests can drive them without spawning the binary.
+pub mod adapters;
+pub mod orchestration;
+
 pub mod hash_pool;
 pub mod hash_pool_wiring;
 pub mod inventory_build;

@@ -11,7 +11,9 @@ mod headless;
 mod interactive;
 mod observability;
 
+use modeltap_app::adapters::cache_path;
 use modeltap_app::inventory_build;
+use modeltap_app::orchestration::warm_start::{self, WarmStartConfig};
 use modeltap_app::platform::{current_platform, Platform};
 // `registry` moved from `mod registry;` (private to the bin) to
 // `pub mod registry` in lib.rs so integration tests can exercise the
@@ -67,6 +69,11 @@ struct Cli {
     /// In headless mode, render one frame and exit cleanly.
     #[arg(long)]
     quit_after_paint: bool,
+
+    /// Skip the warm-start cache entirely; cold-start always runs.
+    /// Equivalent to `[cache] enabled = false` (AC-23-8 / AC-23-9).
+    #[arg(long)]
+    no_cache: bool,
 }
 
 fn main() -> ExitCode {
@@ -90,7 +97,7 @@ fn main() -> ExitCode {
     let headless = cli.headless || headless_env;
 
     let log_dir = std::env::var_os("MODELTAP_LOG_DIR").map(PathBuf::from);
-    let mut logger = LaunchLogger::open(log_dir);
+    let mut logger = LaunchLogger::open(log_dir.clone());
     logger.record(RecordKind::LaunchStarted);
 
     let cols = resolve_terminal_cols(headless);
@@ -144,9 +151,66 @@ fn main() -> ExitCode {
         .collect::<modeltap_core::logic::compatibility::PluginCapabilityMap>();
     let _empty_offenders = inventory_build::warn_on_empty_capabilities(&plugin_capabilities);
 
+    // tool-model-info-sqlite-cache step 01-04: warm-start path.
+    // We only invoke the warm-start when `MODELTAP_CACHE_PATH` is set so the
+    // launch never silently writes to the user's real
+    // `$XDG_DATA_HOME/modeltap/cache.sqlite` until the walking-skeleton
+    // scenario (step 01-05) wires the full opt-in. `--no-cache` skips the
+    // warm-start regardless.
+    let cache_env_override = std::env::var_os("MODELTAP_CACHE_PATH");
+    let warm_start_outcome = if cli.no_cache || cache_env_override.is_none() {
+        // Cache disabled or no test override — skip warm-start (cold-start
+        // owns the launch). Honors AC-23-8 / AC-23-9 (zero cache bytes
+        // written) and preserves existing-acceptance-test behavior.
+        None
+    } else {
+        let resolved = cache_path::resolve(None, cache_env_override.as_deref());
+        match resolved {
+            Ok(cache_file) => {
+                let config = WarmStartConfig {
+                    cache_enabled: true,
+                    log_dir: log_dir.clone(),
+                };
+                match runtime.block_on(warm_start::run(&config, &cache_file)) {
+                    Ok(result) => Some(result),
+                    Err(e) => {
+                        // C-INFO-2: cache failure NEVER prevents launch. Log
+                        // and continue to cold-start.
+                        eprintln!("modeltap: warm-start cache read failed: {e}; falling back to cold-start");
+                        None
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "modeltap: cache path resolution failed: {e}; falling back to cold-start"
+                );
+                None
+            }
+        }
+    };
+    // Step 01-04 keeps the cold-start unconditional: the warm-start result is
+    // observed (for the JSONL event) but the existing per-plugin discovery
+    // still runs. Step 01-05 makes the warm-paint short-circuit the
+    // initial paint and dispatches the cold path as a background reconcile.
+    let warm_start_source = warm_start_outcome.as_ref().map(|r| r.source);
+
     let inventory_start = Instant::now();
     let summary: InventorySummary = runtime.block_on(run_discovery(plugins_for_discovery));
     let full_inventory_ms = inventory_start.elapsed().as_millis() as u64;
+
+    // Step 01-04: post-cold-start, write the discovered tools/models back to
+    // the cache so the next launch's warm-start has fresh data. Stub-level —
+    // executed only when the warm-start path ran (cache env override set,
+    // `--no-cache` absent). Full background-reconcile semantics (TTL, partial
+    // refresh) land in phase 04.
+    if warm_start_source.is_some() {
+        if let Some(env) = cache_env_override.as_deref() {
+            if let Ok(cache_file) = cache_path::resolve(None, Some(env)) {
+                runtime.block_on(reconcile_writeback(cache_file, &summary));
+            }
+        }
+    }
 
     let model_count = summary.total_models();
     logger.record(RecordKind::LaunchTiming {
@@ -297,6 +361,108 @@ fn status_label(s: &modeltap_core::ModelStatus) -> &'static str {
         BrokenSymlink { .. } => "BrokenSymlink",
         Corrupt { .. } => "Corrupt",
         Unreadable { .. } => "Unreadable",
+    }
+}
+
+/// Stub background-reconcile writeback (tool-model-info-sqlite-cache step
+/// 01-04). After cold-start completes, write each per-tool discovery result
+/// back to the cache so the next launch's warm-start has fresh data. Every
+/// rusqlite call is wrapped in `tokio::task::spawn_blocking`
+/// (architecture-design.md §7.1). Errors are swallowed (logged to stderr) —
+/// cache failure must never prevent the inventory view (C-INFO-2).
+///
+/// Full background-reconcile semantics (TTL eligibility, partial refresh,
+/// drift detection) land in phase 04.
+async fn reconcile_writeback(cache_file: std::path::PathBuf, summary: &InventorySummary) {
+    use modeltap_store::types::{CachedModel, CachedTool};
+    use modeltap_store::{Cache, CacheOpenResult};
+    use std::collections::BTreeMap;
+    use std::time::SystemTime;
+
+    // Open the cache via spawn_blocking — sync rusqlite at the edge of
+    // async land.
+    let opened = match tokio::task::spawn_blocking(move || Cache::open(&cache_file)).await {
+        Ok(Ok(r)) => r,
+        Ok(Err(e)) => {
+            eprintln!("modeltap: reconcile-writeback open failed: {e}");
+            return;
+        }
+        Err(e) => {
+            eprintln!("modeltap: reconcile-writeback join failed: {e}");
+            return;
+        }
+    };
+    let cache = match opened {
+        CacheOpenResult::OpenedExisting(c) => c,
+        CacheOpenResult::OpenedFresh(c) => c,
+        CacheOpenResult::OpenedAfterMigration { cache, .. } => cache,
+        CacheOpenResult::OpenedAfterRecovery { cache, .. } => cache,
+    };
+
+    // Project the discovery summary into cache rows.
+    let mut tools: Vec<CachedTool> = Vec::new();
+    let mut models_per_tool: Vec<(ToolId, Vec<CachedModel>)> = Vec::new();
+    let now = SystemTime::now();
+    for outcome in &summary.outcomes {
+        let Ok(models) = &outcome.result else {
+            continue;
+        };
+        let total_bytes: u64 = models.iter().map(|m| m.size_bytes).sum();
+        let largest_id = models
+            .iter()
+            .max_by_key(|m| m.size_bytes)
+            .map(|m| m.id_in_tool.clone());
+        tools.push(CachedTool {
+            tool_id: outcome.tool,
+            install_path: std::path::PathBuf::new(),
+            detected_version: None,
+            plugin_version: env!("CARGO_PKG_VERSION").to_string(),
+            model_count: models.len() as u64,
+            disk_usage_bytes: total_bytes,
+            largest_model_id: largest_id,
+            last_scan_at: now,
+            last_scan_duration_ms: 0,
+            last_error: None,
+            last_error_at: None,
+            search_paths: Vec::new(),
+        });
+
+        let cached_models: Vec<CachedModel> = models
+            .iter()
+            .map(|m| CachedModel {
+                model_id: m.id_in_tool.clone(),
+                tool_id: outcome.tool,
+                display_name: m.display_label.0.clone(),
+                format: Some(format_label(m.format).to_string()),
+                quantisation: None,
+                size_bytes: m.size_bytes,
+                sha256: None,
+                architecture: None,
+                parameters_billions: None,
+                context_length: None,
+                dedup_group_id: None,
+                metadata_kv: BTreeMap::new(),
+                metadata_introspected_at: None,
+                last_seen_at: now,
+                last_validated_at: None,
+            })
+            .collect();
+        models_per_tool.push((outcome.tool, cached_models));
+    }
+
+    // Write back via spawn_blocking — one task for all rows.
+    let join = tokio::task::spawn_blocking(move || {
+        for t in &tools {
+            cache.write_tool(t)?;
+        }
+        for (tool_id, models) in &models_per_tool {
+            cache.write_models(tool_id, models)?;
+        }
+        Ok::<(), modeltap_store::CacheError>(())
+    })
+    .await;
+    if let Ok(Err(e)) = join {
+        eprintln!("modeltap: reconcile-writeback row write failed: {e}");
     }
 }
 

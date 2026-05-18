@@ -48,6 +48,11 @@ path = "src/main.rs"
 [dependencies]
 modeltap-core = { path = "../modeltap-core" }
 modeltap-tui = { path = "../modeltap-tui" }
+# tool-model-info-sqlite-cache step 01-04: the SQLite-backed inventory cache.
+# Architecture invariant R7 — `modeltap-app` is the ONLY consumer of this
+# crate. The cache is sync; the composition root bridges to async via
+# `tokio::task::spawn_blocking` (architecture-design.md §7.1).
+modeltap-store = { path = "../modeltap-store" }
 
 # Plugin crates are linked into the binary at the composition root so their
 # `inventory::submit!` blocks are pulled in. Per ADR-001, modeltap-app is the
@@ -106,6 +111,11 @@ num_cpus = "1"
 # emptied via its HF-internal sidecar sweep, so the orchestrator owns a
 # second cleanup pass.
 walkdir = "2"
+
+# Cross-platform standard paths (per technology-stack.md §3). Used by
+# `adapters::cache_path::resolve` to compute the default cache location
+# (`dirs::data_dir().join("modeltap/cache.sqlite")`).
+dirs = "5"
 
 # async_trait is needed when the `test-harness` feature compiles the
 # `TestToolRegistration` impl in registry.rs into the library target (e.g.
