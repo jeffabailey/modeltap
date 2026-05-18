@@ -8,3 +8,5 @@ Index of architecture and design notes covering subsystems whose rationale is no
 - [[inspect-types]] — `Tool::inspect_tool` / `inspect_model` extension and `InspectError` (per ADR-016)
 - [[modeltap-store]] — SQLite-backed inventory cache (per ADR-015) for warm-start paint
 - [[test-plugin-seam]] — `MODELTAP_TEST_PLUGINS` env-var seam + in-process `TestTool` (cfg-gated)
+- [[warm-start]] — launch-time cache-paint via spawn_blocking; MODELTAP_CACHE_PATH adapter
+- [[walking-skeleton-acceptance]] — M1 two-process end-to-end pattern + CACHE introspection seam

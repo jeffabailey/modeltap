@@ -41,11 +41,29 @@ tempfile = { workspace = true }
 modeltap-core = { path = "../crates/modeltap-core" }
 async-trait = "0.1"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# tool-model-info-sqlite-cache step 01-05: the CACHE seam helper
+# (src/fixtures/cache_fixtures.rs) opens cache.sqlite via a read-only
+# `rusqlite::Connection` to verify `PRAGMA user_version` and row counts.
+# Per acceptance-test-plan.md §1 CM-A: this is a test-utility, not a
+# production import; rusqlite never reaches a release binary because the
+# `modeltap-acceptance` crate is `publish = false` and lives outside the
+# composition root.
+rusqlite = { workspace = true }
+# Step 01-05: the cache-introspection helper's unit tests seed the cache
+# via `modeltap_store::Cache::open` so the round-trip from real write to
+# read-only verifier mirrors what process A and the CACHE seam do at
+# scenario time. Test-only — never imported by the walking-skeleton driver
+# itself (which talks only to the modeltap binary + the CACHE seam).
+modeltap-store = { path = "../crates/modeltap-store" }
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
 predicates = { workspace = true }
 tempfile = { workspace = true }
+# tool-model-info-sqlite-cache step 01-05: the WS step-definitions parse
+# launch.log JSONL events (`launch.warm_paint_ms` from process B) to assert
+# the K-INFO-1 warm-paint latency budget.
+serde_json = { workspace = true }
 # YAML parsing for the workflow_structure acceptance test (DELIVER step 01-07,
 # US-08 / ADR-010): reads .github/workflows/release.yml and asserts the
 # architectural invariants of the multi-job DAG (validate-tag → build →
@@ -65,6 +83,17 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # One acceptance scenario per [[test]] block. Each block points at the file
 # under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
 # Cargo prints in test output.
+
+# tool-model-info-sqlite-cache step 01-05 — Walking Skeleton M1 (US-23 / US-25).
+# PHASE 01 WALKING-SKELETON EXIT GATE: Devon's second launch shows yesterday's
+# inventory instantly from cache. Drives two `modeltap` binary invocations
+# back-to-back against a real on-disk cache.sqlite under MODELTAP_CACHE_PATH;
+# process A writes (cold-start reconcile), process B paints from cache (warm-
+# start orchestration) and emits launch.warm_paint_ms <= 150 ms.
+[[test]]
+name = "cache_walking_skeleton"
+path = "acceptance/cache_walking_skeleton.rs"
+
 [[test]]
 name = "release_process_validate_tag"
 path = "acceptance/release_process/validate_tag.rs"

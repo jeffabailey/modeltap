@@ -19,7 +19,17 @@ path = "src/lib.rs"
 # certification scenarios end-to-end. Release builds disable it via
 # `cargo build --release --no-default-features` (see CI's release job + the
 # CONTRIBUTING.md "Adding a plugin" walk-through).
-default = ["test-fixtures"]
+#
+# `test-harness` is default-on so `cargo test --workspace` (and the
+# tool-model-info-sqlite-cache step 01-05 walking-skeleton acceptance test
+# that spawns the modeltap binary via `assert_cmd::cargo_bin`) exercises
+# the `MODELTAP_TEST_PLUGINS=test-tool` registry seam without per-crate
+# feature flags. Release pipelines pass `--no-default-features` to strip
+# both `test-fixtures` and `test-harness` so the env-var read and the
+# `TestToolRegistration` body do not appear in the shipped binary; step
+# 06-02 verifies via `strings target/release/modeltap`. See
+# lat.md/test-plugin-seam.md.
+default = ["test-fixtures", "test-harness"]
 test-fixtures = [
     "dep:modeltap-plugin-atomic-chat-fixture",
     # Step 04-01: the M4 EBUSY acceptance test spawns the modeltap binary and

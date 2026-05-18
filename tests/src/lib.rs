@@ -17,6 +17,14 @@
 // tests can `use modeltap_acceptance::test_tool::TestTool`.
 pub mod test_tool;
 
+// Per-feature fixture builders + seam helpers (tool-model-info-sqlite-cache
+// step 01-05). The `fixtures::cache_fixtures` submodule owns the
+// `devon-cache-empty` tempdir builder and the read-only `CacheVerifier`
+// CACHE seam used by the walking-skeleton step-definitions to assert
+// `PRAGMA user_version` + row counts on the cache.sqlite file written by
+// the modeltap binary.
+pub mod fixtures;
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
