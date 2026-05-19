@@ -420,8 +420,33 @@ async fn reconcile_writeback(cache_file: std::path::PathBuf, summary: &Inventory
     let mut models_per_tool: Vec<(ToolId, Vec<CachedModel>)> = Vec::new();
     let now = SystemTime::now();
     for outcome in &summary.outcomes {
-        let Ok(models) = &outcome.result else {
-            continue;
+        // tool-model-info-sqlite-cache step 02-02 (AC-21-4): per-tool
+        // `DiscoverError::Io` / `PermissionDenied` / `UnexpectedLayout` /
+        // `ManifestParse` are projected into a cache row whose `last_error`
+        // + `last_error_at` carry the failure reason. The detail-screen
+        // orchestrator then surfaces the message verbatim per AC-21-4. The
+        // `NotInstalled` variant is intentionally NOT a "tool error" — it
+        // matches the `(not installed)` left-pane status and writes no row.
+        let models = match &outcome.result {
+            Ok(models) => models,
+            Err(modeltap_core::DiscoverError::NotInstalled) => continue,
+            Err(err) => {
+                tools.push(CachedTool {
+                    tool_id: outcome.tool,
+                    install_path: std::path::PathBuf::new(),
+                    detected_version: None,
+                    plugin_version: env!("CARGO_PKG_VERSION").to_string(),
+                    model_count: 0,
+                    disk_usage_bytes: 0,
+                    largest_model_id: None,
+                    last_scan_at: now,
+                    last_scan_duration_ms: 0,
+                    last_error: Some(err.to_string()),
+                    last_error_at: Some(now),
+                    search_paths: Vec::new(),
+                });
+                continue;
+            }
         };
         let total_bytes: u64 = models.iter().map(|m| m.size_bytes).sum();
         let largest_id = models

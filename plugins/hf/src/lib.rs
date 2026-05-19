@@ -25,12 +25,14 @@ pub mod cache_walk;
 pub mod delete;
 pub mod discover;
 pub mod folder_delete;
+pub mod inspect;
 pub mod link;
 pub mod symlink_resolve;
 
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use modeltap_core::domain::inspect::{InspectError, ToolDetail};
 use modeltap_core::types::FolderDeletePlan;
 use modeltap_core::{
     DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, Format, LinkError, LinkOutcome,
@@ -166,6 +168,15 @@ impl Tool for HfPlugin {
                     "hf delete_folder task panicked: {join_err}"
                 )))
             })?
+    }
+
+    /// Per **ADR-016** §"Implementation Guidance": override the default
+    /// `Unsupported` to expose the hub root and any user-config search
+    /// paths. `detected_version` is intentionally `None` — HF cache has
+    /// no version concept. See `src/inspect.rs` for details and
+    /// `lat.md/plugin-inspect-overrides.md` for the rationale.
+    async fn inspect_tool(&self) -> Result<ToolDetail, InspectError> {
+        inspect::inspect_tool_impl(self.hub_root.clone()).await
     }
 }
 

@@ -11,3 +11,4 @@ Index of architecture and design notes covering subsystems whose rationale is no
 - [[warm-start]] — launch-time cache-paint via spawn_blocking; MODELTAP_CACHE_PATH adapter
 - [[walking-skeleton-acceptance]] — M1 two-process end-to-end pattern + CACHE introspection seam
 - [[tool-detail-tui]] — per-tool detail screen render + Msg/Screen/keymap routing (US-21 TUI half)
+- [[plugin-inspect-overrides]] — Ollama HTTP / env-var short-circuit + HF cache-dir detection + user-config search paths

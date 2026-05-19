@@ -17,12 +17,14 @@
 
 pub mod delete;
 pub mod discovery;
+pub mod inspect;
 pub mod link;
 pub mod manifest;
 
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use modeltap_core::domain::inspect::{InspectError, ToolDetail};
 use modeltap_core::{
     DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, Format, LinkError, LinkOutcome,
     ModelMeta, PluginFactory, Tool, ToolId,
@@ -139,6 +141,16 @@ impl Tool for OllamaPlugin {
                     "ollama delete_all task panicked: {join_err}"
                 )))
             })?
+    }
+
+    /// Per **ADR-016** §"Implementation Guidance": override the default
+    /// `Unsupported` to produce a real `ToolDetail` with detected version
+    /// (via `MODELTAP_OLLAMA_VERSION` or the HTTP probe against
+    /// `http://localhost:11434/api/version`) and search-paths (default
+    /// + user-config). See `src/inspect.rs` for the full strategy and
+    /// `lat.md/plugin-inspect-overrides.md` for the rationale.
+    async fn inspect_tool(&self) -> Result<ToolDetail, InspectError> {
+        inspect::inspect_tool_impl(self.models_root.clone()).await
     }
 }
 

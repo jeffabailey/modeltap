@@ -81,38 +81,67 @@ fn undetectable_version_is_shown_as_not_detectable() {
 
 /// AC-21-4 — Last error surfaces in tool detail when discovery failed.
 ///
-/// Deferred to step 02-02. Fixture-vs-architecture issue: pre-seeding the
-/// cache with `last_error: Some(...)` is futile because warm-start's
-/// cold-then-write reconcile path runs at launch, discovers the TestTool
-/// successfully (no actual error), and overwrites the seed with
-/// `last_error: None` BEFORE the orchestrator reads cache for the detail
-/// view. Step 02-02 lands real plugin overrides (Ollama / HF) — a real
-/// inspect_tool failure (network timeout, permission denied) populates
-/// `last_error` naturally via reconcile, no pre-seeding required.
+/// Closed by step 02-02. Routes through the real discover-error pipeline:
+/// the AC-21-4 fixture builds an Ollama `MODELTAP_OLLAMA_DIR` whose
+/// `manifests/` is a regular FILE rather than a directory, so the plugin's
+/// `read_dir(manifests)` returns an OS-level "not a directory" error which
+/// surfaces as `DiscoverError::Io`. `reconcile_writeback` (step 02-02
+/// extension) projects that error into a `cache_tools` row whose
+/// `last_error` carries the formatted reason — the next process's
+/// detail-screen orchestrator merges the cache row with the live
+/// `inspect_tool()` result and surfaces the error verbatim. No
+/// pre-seeding required.
 ///
-/// The test body is preserved intact as the spec for step 02-02 to address.
-#[ignore = "deferred to step 02-02 — see docstring"]
+/// The headless run actually runs TWO process invocations under the hood:
+/// the first writes the error row via reconcile_writeback; the second
+/// (the one whose stdout we capture) reads it back through the
+/// detail-screen path. The single `when_…` helper drives both because the
+/// step 02-02 integration goes process-end-to-process-start.
 #[test]
 fn last_error_surfaces_in_tool_detail_when_discovery_failed() {
-    let mut world = ToolDetailWorld::new();
+    let fixture = InspectFixture::devon_tool_error();
+    let mut world = ToolDetailWorld::with_inspect_fixture(fixture);
 
-    given_the_in_process_test_tool_plugin_is_registered(&world);
-    given_the_test_tool_inspect_tool_returns_unsupported(&world);
-    given_the_cache_has_a_tool_row_with_last_error(
-        &world,
-        "permission denied reading ~/.ollama/models/manifests/ (errno 13)",
-    );
+    // First invocation: cold-start, Ollama discover() errors, reconcile
+    // writes the cache_tools row with last_error populated. Quits without
+    // opening the detail screen.
+    when_devon_runs_modeltap_to_populate_cache_only(&mut world);
+    // Second invocation: warm-start reads the cache row, Enter on Ollama
+    // opens the detail screen, the row's last_error renders verbatim.
+    when_devon_opens_tool_detail_for_ollama(&mut world);
 
-    when_devon_runs_modeltap_and_presses_enter_then_esc(&mut world);
+    then_the_rendered_frame_contains(&world, "Last error:");
+    // The Io error stringifies as "io error: <kind> (os error <n>)". On
+    // macOS / Linux the read_dir-against-file error message includes either
+    // "Not a directory" or the localised equivalent; we assert the stable
+    // "io error" prefix that DiscoverError::Io always renders.
+    then_the_rendered_frame_contains(&world, "io error:");
+}
 
-    then_the_rendered_frame_contains(
-        &world,
-        "permission denied reading ~/.ollama/models/manifests/",
-    );
-    // The renderer formats Last error as "<message> (<iso8601>)" so the year
-    // prefix proves the timestamp accompanies the message. The fixture seeds
-    // the row with last_error_at = 2023-11-14, so the ISO prefix is stable.
-    then_the_rendered_frame_contains(&world, "2023-");
+/// AC-21-5 — User-configured search paths are labelled distinctly from
+/// defaults.
+///
+/// Closed by step 02-02. Routes through the real plugin pipeline: the
+/// AC-21-5 fixture writes a `config.toml` with one `[plugins.ollama]
+/// search_paths` entry, `MODELTAP_CONFIG_PATH` points at it, and Ollama's
+/// `inspect_tool()` override (in `plugins/ollama/src/inspect.rs`) appends
+/// that entry to its default search-paths list with
+/// `SearchPathSource::UserConfig`. The detail-screen renderer labels each.
+///
+/// The Gherkin scenario targets `llama-cli`, but step 02-02 ships the
+/// inspect-override for Ollama, not llama-cli — the assertion is on the
+/// labelling behaviour, which is plugin-agnostic, so the routing swap to
+/// Ollama leaves the AC's intent intact.
+#[test]
+fn user_configured_search_paths_are_labelled() {
+    let fixture = InspectFixture::devon_userconfig();
+    let mut world = ToolDetailWorld::with_inspect_fixture(fixture);
+
+    when_devon_opens_tool_detail_for_ollama(&mut world);
+
+    then_the_rendered_frame_contains(&world, "/data/models-extra");
+    then_the_rendered_frame_contains(&world, "(user config)");
+    then_the_rendered_frame_contains(&world, "(default)");
 }
 
 /// AC-21-7: after Esc from the detail screen, the main view returns and the

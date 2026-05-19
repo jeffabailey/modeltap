@@ -5,3 +5,4 @@
 //! `modeltap_acceptance::fixtures::CacheVerifier::open(...)`).
 
 pub mod cache_fixtures;
+pub mod inspect_fixtures;

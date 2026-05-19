@@ -39,6 +39,20 @@ tracing = { workspace = true }
 # SHA-256 verification before blob replacement (ADR-002, OQ-3).
 sha2 = { workspace = true }
 
+# HTTP client for `inspect_tool` against `http://localhost:11434/api/version`
+# (US-21 step 02-02 / ADR-016). Sync client wrapped in `tokio::task::spawn_blocking`
+# at the call site so the runtime thread is not parked on the socket; chosen
+# over `reqwest` because it pulls zero async runtime / TLS / hyper transitive deps.
+# `rustls` feature avoids OpenSSL — `/api/version` is plain HTTP on localhost so
+# even rustls is unused here, but the dep keeps the door open without an OpenSSL
+# system dep.
+ureq = { version = "2", default-features = false }
+
+# Config TOML parsing (US-21 step 02-02 user-config search paths). Mirrors the
+# `atomic-chat` / `lm-studio` plugins' pattern: `[plugins.ollama] search_paths`
+# in `~/.modeltap/config.toml` augments the default search paths.
+toml = "0.8"
+
 [dev-dependencies]
 # Re-declare modeltap-core with `test-helpers` enabled so integration tests
 # under `tests/` can import `modeltap_core::tests::plugin_contract::*`
@@ -48,3 +62,6 @@ sha2 = { workspace = true }
 modeltap-core = { path = "../../crates/modeltap-core", features = ["test-helpers"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+# Inspect-contract tests write a synthetic `config.toml` to a tempdir and
+# read it via the plugin's `MODELTAP_CONFIG_PATH` seam.
+serde_json = { workspace = true }

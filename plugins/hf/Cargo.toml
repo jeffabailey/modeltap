@@ -41,6 +41,15 @@ inventory = "0.3"
 # Diagnostic logging.
 tracing = { workspace = true }
 
+# Serde for the search-path entries the inspect override emits (also reused by
+# the TOML config loader below).
+serde = { workspace = true }
+
+# Config TOML parsing (US-21 step 02-02 user-config search paths). Mirrors the
+# `atomic-chat` / `lm-studio` plugins' pattern: `[plugins.hf] search_paths`
+# in `~/.modeltap/config.toml` augments the default search paths.
+toml = "0.8"
+
 [dev-dependencies]
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -15,10 +15,14 @@
                      // (e.g. AC-21-5 user-config search paths in step 02-02)
                      // will pick up the remaining helpers.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use assert_cmd::Command;
 use modeltap_acceptance::fixtures::cache_fixtures::DevonCacheEmptyFixture;
+use modeltap_acceptance::fixtures::inspect_fixtures::{
+    devon_ollama_userconfig, devon_tool_error_ollama, InspectFixture as RawInspectFixture,
+};
 use modeltap_acceptance::test_tool::TEST_MODEL_FILENAME;
 use modeltap_store::types::{CachedTool, SearchPathEntry as StoreSearchPathEntry};
 use modeltap_store::{Cache, CacheOpenResult};
@@ -34,16 +38,70 @@ pub const TOOL_DETAIL_OPEN_BUDGET_MS: u64 = 100;
 /// Scenario world. Holds the per-scenario tempdir fixture plus the captured
 /// stdout from the modeltap process so Then-steps can substring-match the
 /// rendered frame without rerunning the binary.
+///
+/// Two construction paths: the `DevonCacheEmptyFixture` variant (used by
+/// AC-21-1 / AC-21-3 / AC-21-7) drives the cache-empty TestTool flow; the
+/// `InspectFixture` variant (used by AC-21-4 / AC-21-5) drives the
+/// real-Ollama-plugin discover-error + user-config-search-paths flows. The
+/// world holds the SAME small set of paths regardless of source so the
+/// step helpers below can stay shape-uniform.
 pub struct ToolDetailWorld {
-    pub fixture: DevonCacheEmptyFixture,
+    /// Cache-empty fixture, present for the cache-empty TestTool flow.
+    pub fixture: Option<DevonCacheEmptyFixture>,
+    /// Inspect fixture, present for the discover-error / user-config flows.
+    pub inspect_fixture: Option<RawInspectFixture>,
     pub last_stdout: Option<String>,
 }
 
 impl ToolDetailWorld {
     pub fn new() -> Self {
         Self {
-            fixture: DevonCacheEmptyFixture::build(),
+            fixture: Some(DevonCacheEmptyFixture::build()),
+            inspect_fixture: None,
             last_stdout: None,
+        }
+    }
+
+    /// Build a world backed by an `InspectFixture` for the AC-21-4 / AC-21-5
+    /// scenarios.
+    pub fn with_inspect_fixture(fixture: RawInspectFixture) -> Self {
+        Self {
+            fixture: None,
+            inspect_fixture: Some(fixture),
+            last_stdout: None,
+        }
+    }
+
+    fn cache_path(&self) -> PathBuf {
+        if let Some(f) = &self.fixture {
+            f.cache_path()
+        } else {
+            self.inspect_fixture
+                .as_ref()
+                .expect("either fixture must be set")
+                .cache_path()
+        }
+    }
+
+    fn log_dir(&self) -> PathBuf {
+        if let Some(f) = &self.fixture {
+            f.log_dir()
+        } else {
+            self.inspect_fixture
+                .as_ref()
+                .expect("either fixture must be set")
+                .log_dir()
+        }
+    }
+
+    fn test_tool_root(&self) -> PathBuf {
+        if let Some(f) = &self.fixture {
+            f.test_tool_root()
+        } else {
+            self.inspect_fixture
+                .as_ref()
+                .expect("either fixture must be set")
+                .test_tool_root()
         }
     }
 }
@@ -51,6 +109,21 @@ impl ToolDetailWorld {
 impl Default for ToolDetailWorld {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Re-export of the inspect-fixture surface under the
+/// `InspectFixture::devon_…` constructor names the AC-21-4 / AC-21-5 driver
+/// uses. Wraps the bare `fn` builders into static methods so the call sites
+/// read symmetrically with the cache-empty fixture's `::build()` constructor.
+pub struct InspectFixture;
+
+impl InspectFixture {
+    pub fn devon_tool_error() -> RawInspectFixture {
+        devon_tool_error_ollama()
+    }
+    pub fn devon_userconfig() -> RawInspectFixture {
+        devon_ollama_userconfig()
     }
 }
 
@@ -65,7 +138,7 @@ impl Default for ToolDetailWorld {
 /// model file exists so the TestTool's `discover()` returns the expected
 /// non-empty inventory.
 pub fn given_the_in_process_test_tool_plugin_is_registered(world: &ToolDetailWorld) {
-    let model_path = world.fixture.test_tool_root().join(TEST_MODEL_FILENAME);
+    let model_path = world.test_tool_root().join(TEST_MODEL_FILENAME);
     assert!(
         model_path.exists(),
         "TestTool's seed model must exist at {} before the binary launches",
@@ -100,7 +173,8 @@ pub fn given_the_test_tool_inspect_tool_returns_unsupported(_world: &ToolDetailW
 /// UNIX_EPOCH + 1_700_000_000 seconds) so the year-prefix assertion in the
 /// Then step is stable.
 pub fn given_the_cache_has_a_tool_row_with_last_error(world: &ToolDetailWorld, last_error: &str) {
-    let path = world.fixture.cache_path();
+    let path = world.cache_path();
+    let test_tool_root = world.test_tool_root();
     let opened = Cache::open(&path).expect("open cache for pre-seed");
     let cache = match opened {
         CacheOpenResult::OpenedFresh(c)
@@ -112,7 +186,7 @@ pub fn given_the_cache_has_a_tool_row_with_last_error(world: &ToolDetailWorld, l
     cache
         .write_tool(&CachedTool {
             tool_id: modeltap_acceptance::test_tool::TEST_TOOL_NAME,
-            install_path: world.fixture.test_tool_root(),
+            install_path: test_tool_root.clone(),
             detected_version: None,
             plugin_version: "modeltap-acceptance-test-tool 0.0.0".to_string(),
             model_count: 0,
@@ -123,7 +197,7 @@ pub fn given_the_cache_has_a_tool_row_with_last_error(world: &ToolDetailWorld, l
             last_error: Some(last_error.to_string()),
             last_error_at: Some(stamp),
             search_paths: vec![StoreSearchPathEntry {
-                path: world.fixture.test_tool_root(),
+                path: test_tool_root,
                 source: modeltap_store::types::SearchPathSource::Default,
             }],
         })
@@ -167,6 +241,62 @@ pub fn when_devon_runs_modeltap_and_presses_enter_then_esc(world: &mut ToolDetai
     world.last_stdout = Some(String::from_utf8_lossy(&output.stdout).into_owned());
 }
 
+/// `When Devon runs modeltap once to populate the cache (no detail open)`
+///
+/// AC-21-4 cold-start invocation. Drives the modeltap process with a single
+/// `q` token so reconcile_writeback runs against the broken-Ollama fixture
+/// and writes a `cache_tools` row carrying `last_error` + `last_error_at`.
+/// stdout is intentionally not captured here — only the cache mutation
+/// matters for the subsequent warm-start invocation.
+///
+/// The Ollama plugin's `discover()` reaches `read_dir(<root>/manifests)` —
+/// the fixture made `manifests/` a regular file, so the read returns
+/// `NotADirectory`, the plugin surfaces `DiscoverError::Io`, and
+/// `reconcile_writeback` (step 02-02 extension in `main.rs`) projects the
+/// error into a cache row.
+pub fn when_devon_runs_modeltap_to_populate_cache_only(world: &mut ToolDetailWorld) {
+    let output = build_command(world)
+        .env("MODELTAP_HEADLESS_INPUT", "q")
+        .timeout(Duration::from_secs(30))
+        .output()
+        .expect("spawn cold-start modeltap process");
+    assert!(
+        output.status.success(),
+        "cold-start modeltap process must exit 0; got status={:?}, stderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    // We deliberately do NOT overwrite world.last_stdout — the warm-start
+    // invocation below is the one whose frame we substring-match.
+}
+
+/// `When Devon opens the tool-detail screen for ollama`
+///
+/// AC-21-4 / AC-21-5 detail-screen invocation. Navigates UP from the
+/// alphabetically-last test-tool row to the ollama row, then presses Enter
+/// + Esc. The tool list sorts alphabetically (`gpt4all`, `hf`, `lm-studio`,
+///   `ollama`, `test-tool`) and the default cursor lands on the first
+///   `ToolStatus::Ok` row — under both AC-21-4 (Ollama errors) and AC-21-5
+///   (Ollama NotInstalled), test-tool is the sole Ok row, so the cursor
+///   starts at index 4. One `<up>` lands on `ollama` (index 3).
+///
+/// Captures the final printed frame from stdout so subsequent Then steps
+/// can substring-match the rendered detail screen.
+pub fn when_devon_opens_tool_detail_for_ollama(world: &mut ToolDetailWorld) {
+    let output = build_command(world)
+        .env("MODELTAP_HEADLESS_INPUT", "<up><enter><esc>q")
+        .timeout(Duration::from_secs(30))
+        .output()
+        .expect("spawn warm-start modeltap process");
+    assert!(
+        output.status.success(),
+        "warm-start modeltap process must exit 0; got status={:?}, stderr={}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    world.last_stdout = Some(String::from_utf8_lossy(&output.stdout).into_owned());
+}
+
 // ---------------------------------------------------------------------------
 // Then steps
 // ---------------------------------------------------------------------------
@@ -178,7 +308,7 @@ pub fn when_devon_runs_modeltap_and_presses_enter_then_esc(world: &mut ToolDetai
 /// orchestrator's entry to the merge completion (covering cache I/O +
 /// inspect_tool + merge), which is the latency Devon perceives.
 pub fn then_the_tool_detail_screen_opens_within_ms(world: &ToolDetailWorld, budget_ms: u64) {
-    let events = read_launch_log(&world.fixture.log_dir());
+    let events = read_launch_log(&world.log_dir());
     let open_event = events
         .iter()
         .find(|e| e.get("event").and_then(|v| v.as_str()) == Some("tool_detail.open_ms"))
@@ -317,17 +447,33 @@ pub fn then_the_final_frame_is_the_main_view(world: &ToolDetailWorld) {
 /// cursor-preservation assertion to a single deterministic slot.
 fn build_command(world: &ToolDetailWorld) -> Command {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
+    // Resolve env-var values from whichever fixture variant is active. For
+    // the InspectFixture flow the world's ollama_dir + config_path are the
+    // discover-error / user-config seams; for the cache-empty flow they
+    // remain at the nonexistent defaults (so the left pane is solely the
+    // TestTool's row).
+    let (ollama_dir, config_path) = match &world.inspect_fixture {
+        Some(f) => (
+            f.ollama_dir.to_string_lossy().into_owned(),
+            f.config_path.to_string_lossy().into_owned(),
+        ),
+        None => (
+            "/nonexistent/no-such-ollama".to_string(),
+            "/nonexistent/no-such-config.toml".to_string(),
+        ),
+    };
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_TEST_PLUGINS", "test-tool")
-        .env("MODELTAP_TEST_TOOL_ROOT", world.fixture.test_tool_root())
+        .env("MODELTAP_TEST_TOOL_ROOT", world.test_tool_root())
         .env("MODELTAP_TEST_TOOL_INSPECT_UNSUPPORTED", "1")
         .env("MODELTAP_HEADLESS_TOOL_DETAIL", "1")
-        .env("MODELTAP_CACHE_PATH", world.fixture.cache_path())
-        .env("MODELTAP_LOG_DIR", world.fixture.log_dir())
-        // Isolate every real plugin so the left pane is unambiguously
-        // "test-tool" — mirrors cache_lifecycle.rs's isolation set.
-        .env("MODELTAP_OLLAMA_DIR", "/nonexistent/no-such-ollama")
+        .env("MODELTAP_CACHE_PATH", world.cache_path())
+        .env("MODELTAP_LOG_DIR", world.log_dir())
+        // Per-plugin isolation. Ollama may be reseated by InspectFixture to
+        // a real broken-discovery tempdir or to a nonexistent path; everyone
+        // else stays nonexistent so the left pane is the TestTool + Ollama.
+        .env("MODELTAP_OLLAMA_DIR", ollama_dir)
         .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
         .env(
@@ -335,8 +481,14 @@ fn build_command(world: &ToolDetailWorld) -> Command {
             "/nonexistent/no-such-atomic-chat",
         )
         .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
-        .env("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml")
-        .env("HF_HOME", "/nonexistent/no-such-hf-cache");
+        .env("MODELTAP_CONFIG_PATH", config_path)
+        .env("HF_HOME", "/nonexistent/no-such-hf-cache")
+        // Short-circuit Ollama's `inspect_tool` HTTP probe so the inspect
+        // path is deterministic across CI and dev machines (ADR-016 §D12 /
+        // R5). The detected_version reported in the detail screen will be
+        // this literal — irrelevant to AC-21-4 / AC-21-5 assertions but
+        // pins the inspect-side merge to a no-network code path.
+        .env("MODELTAP_OLLAMA_VERSION", "0.6.4");
     cmd
 }
 
