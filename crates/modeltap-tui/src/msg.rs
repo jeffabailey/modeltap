@@ -5,6 +5,7 @@
 //! a `Msg` and returns the next `AppState` plus a description of any side
 //! effects (`UpdateEffect`).
 
+use modeltap_core::domain::inspect::ToolDetail;
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::logic::plan::UnifyPlan;
 use modeltap_core::{ContentHash, ToolId};
@@ -38,7 +39,15 @@ pub enum HashFailureReason {
 /// All the messages that can drive `update()`. Step 01-03 covers keyboard
 /// navigation; later steps add discovery-progress, action-completion, and
 /// tick variants.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Step 02-01 dropped the `Eq` derive: `ToolDetailReady(Box<ToolDetail>)`
+/// carries a `ToolDetail` from `modeltap-core` whose `Option<SystemTime>`
+/// fields (`last_scan_at`, `last_error_at`, `introspected_at`) legitimately
+/// do not implement `Eq` (wall-clock time is not reflexively equal across
+/// system clock changes — a well-established stdlib choice). `PartialEq` is
+/// retained for `assert_eq!` and all in-tree equality checks; nothing in the
+/// TUI ever required the stronger `Eq` bound.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Msg {
     /// User pressed `q`. Clean shutdown, exit 0.
     Quit,
@@ -131,6 +140,36 @@ pub enum Msg {
     /// User pressed Esc while on the detail screen. `update()` writes
     /// `current_screen = Screen::Main` and preserves the prior selection.
     CloseDetail,
+
+    // -----------------------------------------------------------------------
+    // US-21 per-tool detail screen (step 02-01).
+    //
+    // The composition root (modeltap-app::orchestration::open_tool_detail)
+    // composes the cached `CachedTool` with `Tool::inspect_tool()` into a
+    // single `ToolDetail`. The keymap dispatches `Msg::OpenToolDetail` when
+    // Enter is pressed in the left pane; the orchestrator runs asynchronously
+    // and dispatches `Msg::ToolDetailReady` once the merged detail is in
+    // hand. Esc dispatches `Msg::CloseToolDetail` (preserving the left-pane
+    // cursor).
+    // -----------------------------------------------------------------------
+    /// User pressed Enter on a left-pane row. `update()` transitions into
+    /// `Screen::ToolDetail { tool_id, detail: None, left_pane_cursor }`
+    /// (loading state); the composition root sees this Msg and dispatches the
+    /// async `open_tool_detail` orchestration which will subsequently
+    /// dispatch `Msg::ToolDetailReady`. The payload carries the selected
+    /// `tool_id` so the orchestrator does not need to inspect AppState; the
+    /// composition root resolves the cursor from `state.selected_tool` and
+    /// passes it through `Msg::OpenToolDetail(tool_id)`.
+    OpenToolDetail(ToolId),
+    /// Composition root dispatches this when `open_tool_detail` returns the
+    /// merged `ToolDetail`. `update()` writes `detail = Some(...)` on the
+    /// existing `Screen::ToolDetail` variant — preserving `left_pane_cursor`
+    /// so the Esc handler keeps working.
+    ToolDetailReady(Box<ToolDetail>),
+    /// User pressed Esc while on the tool detail screen. `update()` writes
+    /// `current_screen = Screen::Main` and restores `selected_tool` from the
+    /// saved `left_pane_cursor` (AC-21-7).
+    CloseToolDetail,
 
     // -----------------------------------------------------------------------
     // US-08 help overlay + cross-step shortcut placeholders.

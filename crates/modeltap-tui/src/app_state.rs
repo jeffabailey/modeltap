@@ -18,6 +18,7 @@ use crate::dialogs::running_tool_prompt::RunningToolDialog;
 use crate::dialogs::unify_confirm::UnifyDialogState;
 use crate::dialogs::zap_confirm::ZapConfirmState;
 use crate::screens::detail::DetailScreenState;
+use crate::screens::tool_detail::ToolDetailScreenState;
 
 /// Top-level screen the TUI is currently displaying. The `view()` function in
 /// `layout.rs` dispatches on this enum to the appropriate render path:
@@ -32,12 +33,31 @@ use crate::screens::detail::DetailScreenState;
 /// Per ADR-006, screen state is pure data inside `AppState`. Screen
 /// transitions are dispatched by `Msg::OpenDetail(...)` / `Msg::CloseDetail`
 /// / `Msg::ToggleHelp`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Step 02-01 dropped the `Eq` derive — the `ToolDetail` payload in
+/// `Screen::ToolDetail` (sourced from modeltap-core) only implements
+/// `PartialEq`. `Eq` was never directly required by any caller; `assert_eq!`
+/// and equality tests in the test suite operate against `PartialEq`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Screen {
     /// The default two-pane discovery view.
     Main,
     /// The per-model detail screen (US-13).
     Detail(DetailScreenState),
+    /// The per-tool detail screen (US-21). Opened by pressing Enter on a
+    /// left-pane row. `detail` is `None` while the orchestrator is composing
+    /// the data (cache read + `inspect_tool` call); once the orchestrator
+    /// dispatches `Msg::ToolDetailReady(_)`, `detail` becomes `Some(_)` and
+    /// the render layer paints the field grid.
+    ///
+    /// `left_pane_cursor` captures `state.selected_tool` at the moment Enter
+    /// was pressed so `Msg::CloseToolDetail` (Esc) can restore the cursor
+    /// even if intervening async refreshes changed `selected_tool`.
+    ToolDetail {
+        tool_id: modeltap_core::ToolId,
+        detail: Option<Box<ToolDetailScreenState>>,
+        left_pane_cursor: usize,
+    },
     /// The layered help overlay (US-08). `previous` is the screen `?` was
     /// pressed on; `Msg::ToggleHelp` (or Esc) restores it.
     Help { previous: Box<Screen> },
@@ -133,7 +153,12 @@ pub struct SummaryDelta {
 
 /// The pure view-model. Cloned per Elm `update` call. Per ADR-006, a few KB
 /// of allocation per keystroke is negligible.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Step 02-01 dropped the `Eq` derive in lock-step with `Screen` so the
+/// `Screen::ToolDetail` payload (which holds a `ToolDetail` from
+/// modeltap-core that only implements `PartialEq`) compiles. No caller
+/// required `Eq` directly — `assert_eq!` chains use `PartialEq`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct AppState {
     /// Left-pane slots in render order. Per ADR-014 the left pane is a
     /// heterogeneous list: `LeftPaneSlot::Real(ToolView)` for registered

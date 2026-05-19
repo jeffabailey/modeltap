@@ -196,6 +196,77 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             },
             UpdateEffect::default(),
         ),
+        // ----- US-21 per-tool detail screen (step 02-01) --------------------
+        Msg::OpenToolDetail(tool_id) => {
+            let cursor = state.selected_tool;
+            (
+                AppState {
+                    current_screen: Screen::ToolDetail {
+                        tool_id,
+                        detail: None,
+                        left_pane_cursor: cursor,
+                    },
+                    ..state
+                },
+                UpdateEffect::default(),
+            )
+        }
+        Msg::ToolDetailReady(detail) => {
+            // Only populate when we are still on the ToolDetail screen — the
+            // user may have already Esc'd back by the time the orchestrator
+            // returns. Defense in depth.
+            let Screen::ToolDetail {
+                tool_id,
+                left_pane_cursor,
+                ..
+            } = &state.current_screen
+            else {
+                return (state, UpdateEffect::default());
+            };
+            // If the tool id mismatches (e.g., the user opened a different
+            // tool's detail in the interim), drop the stale payload.
+            if *tool_id != detail.tool_id {
+                return (state, UpdateEffect::default());
+            }
+            let next_screen = Screen::ToolDetail {
+                tool_id: *tool_id,
+                detail: Some(Box::new(
+                    crate::screens::tool_detail::ToolDetailScreenState::new(*detail),
+                )),
+                left_pane_cursor: *left_pane_cursor,
+            };
+            (
+                AppState {
+                    current_screen: next_screen,
+                    ..state
+                },
+                UpdateEffect::default(),
+            )
+        }
+        Msg::CloseToolDetail => {
+            // Restore the left-pane cursor recorded at OpenToolDetail time so
+            // AC-21-7 holds even if intervening async refreshes moved the
+            // selection. Bound-check defensively in case the slot list has
+            // shrunk during the detail-screen lifetime.
+            let saved_cursor = match &state.current_screen {
+                Screen::ToolDetail {
+                    left_pane_cursor, ..
+                } => Some(*left_pane_cursor),
+                _ => None,
+            };
+            let next_selected = match saved_cursor {
+                Some(c) if c < state.left_pane_slots.len() => c,
+                _ => state.selected_tool,
+            };
+            (
+                AppState {
+                    current_screen: Screen::Main,
+                    selected_tool: next_selected,
+                    ..state
+                },
+                UpdateEffect::default(),
+            )
+        }
         Msg::CloseDetail => (
             AppState {
                 current_screen: Screen::Main,

@@ -6,5 +6,7 @@
 
 pub mod detail;
 pub mod help_overlay;
+pub mod tool_detail;
 
 pub use detail::{render_detail, DetailScreenState};
+pub use tool_detail::{render as render_tool_detail, ToolDetailScreenState};

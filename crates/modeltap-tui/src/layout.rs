@@ -16,6 +16,7 @@ use crate::render::{
 };
 use crate::screens::detail::render_detail;
 use crate::screens::help_overlay;
+use crate::screens::tool_detail::render as render_tool_detail;
 
 /// Returned when the terminal is narrower than the minimum width on startup
 /// (US-01 AC-4). The composition root prints this to stderr and exits 2.
@@ -114,6 +115,18 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
 
     match &state.current_screen {
         Screen::Main => view_main(state, frame, area),
+        Screen::ToolDetail { detail, .. } => {
+            // While `detail` is `None` (orchestrator still composing cache +
+            // inspect_tool), render the main-view skeleton in the background
+            // and a brief loading paragraph in the foreground so the user
+            // sees an immediate response to Enter. Once
+            // `Msg::ToolDetailReady` arrives, `detail` becomes `Some(_)`
+            // and the full screen renders.
+            match detail.as_deref() {
+                Some(screen) => render_tool_detail(frame, area, screen, state),
+                None => render_tool_detail_loading(frame, area, state),
+            }
+        }
         Screen::Detail(detail) => {
             render_detail(frame, area, detail, state);
             // The unify dialog (US-10) is opened from the detail screen via
@@ -147,6 +160,10 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
             match &underlay.current_screen {
                 Screen::Main => view_main(&underlay, frame, area),
                 Screen::Detail(d) => render_detail(frame, area, d, &underlay),
+                Screen::ToolDetail { detail, .. } => match detail.as_deref() {
+                    Some(s) => render_tool_detail(frame, area, s, &underlay),
+                    None => render_tool_detail_loading(frame, area, &underlay),
+                },
                 Screen::Help { .. } => {
                     // Pathological double-help; render an empty main so the
                     // user can dismiss with `?`/Esc to escape the recursion.
@@ -156,6 +173,35 @@ pub fn view(state: &AppState, frame: &mut Frame<'_>) {
             help_overlay::render(frame, area);
         }
     }
+}
+
+/// Loading placeholder shown between `Msg::OpenToolDetail` and
+/// `Msg::ToolDetailReady` (US-21, step 02-01). Pure render — emits a single
+/// "Loading tool detail..." line plus the standard bottom bar so the user
+/// sees an immediate response to Enter even when the orchestrator's
+/// cache+`inspect_tool` round-trip takes a few ms.
+fn render_tool_detail_loading(
+    frame: &mut Frame<'_>,
+    area: ratatui::layout::Rect,
+    state: &AppState,
+) {
+    use ratatui::widgets::{Block, Borders, Paragraph};
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(area);
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Tool detail ");
+    let inner = block.inner(chunks[0]);
+    frame.render_widget(block, chunks[0]);
+    frame.render_widget(Paragraph::new("Loading tool detail..."), inner);
+    let ctx = crate::render::bottom_bar::BarContext::for_state(state);
+    let bar = crate::render::bottom_bar::render_bottom_bar(
+        &ctx,
+        crate::render::colors::no_color_active(),
+    );
+    frame.render_widget(Paragraph::new(bar), chunks[1]);
 }
 
 fn view_main(state: &AppState, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {

@@ -80,6 +80,12 @@ impl<'a> BarContext<'a> {
         let section = match &state.current_screen {
             Screen::Main => BarSection::Main,
             Screen::Detail(_) => BarSection::Detail,
+            // The per-tool detail screen (US-21) reuses the Detail bar
+            // section because AC-21-8's shortcuts (`[Esc] back`, `[r]
+            // refresh this tool`, `[?] help`) overlap exactly with the
+            // existing model-detail bar surface — single-source-of-truth
+            // via SHORTCUT_TABLE.
+            Screen::ToolDetail { .. } => BarSection::Detail,
             Screen::Help { .. } => BarSection::Help,
         };
         let detail = match &state.current_screen {

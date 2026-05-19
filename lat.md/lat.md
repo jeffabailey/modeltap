@@ -10,3 +10,4 @@ Index of architecture and design notes covering subsystems whose rationale is no
 - [[test-plugin-seam]] — `MODELTAP_TEST_PLUGINS` env-var seam + in-process `TestTool` (cfg-gated)
 - [[warm-start]] — launch-time cache-paint via spawn_blocking; MODELTAP_CACHE_PATH adapter
 - [[walking-skeleton-acceptance]] — M1 two-process end-to-end pattern + CACHE introspection seam
+- [[tool-detail-tui]] — per-tool detail screen render + Msg/Screen/keymap routing (US-21 TUI half)
