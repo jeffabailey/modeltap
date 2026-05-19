@@ -35,3 +35,11 @@ The `detail` is `Option` because the screen opens immediately on Enter (loading 
 When `Screen::ToolDetail` is active, [[crates/modeltap-tui/src/render/bottom_bar.rs]] shows `[Esc] back / [r] refresh this tool / [?] help` per AC-21-8.
 
 The keymap dispatches Esc → `Msg::CloseToolDetail`, `r` → a refresh Msg (full refresh wiring lands in step 02-02), and `?` → the existing help overlay. The two-arm pattern from `test-plugin-seam` style is not reused here — keymap context is a runtime `ContextFilter` enum value, not a cfg gate, because Screen state is dynamic.
+
+## Msg dispatch — interactive and headless event loops
+
+`Msg::OpenToolDetail(tool_id)` is dispatched into the async runtime by both [[crates/modeltap-app/src/interactive.rs]] (the production event loop) and [[crates/modeltap-app/src/headless.rs]] (the acceptance-test harness).
+
+Both paths follow the same shape: resolve the `&dyn Tool` from the live plugin registry by `tool_id`, locate the open `&Cache` (held in the app's runtime state since the warm-start path opened it), then `tokio::spawn` the async [[crates/modeltap-app/src/orchestration/open_tool_detail.rs]] orchestration. The spawned task posts `Msg::ToolDetailReady(Box<ToolDetail>)` back through the existing msg channel once `inspect_tool()` returns and the cache merge completes.
+
+The headless variant differs in one detail: the keymap binds Enter to `Msg::OpenToolDetail` directly, while the interactive variant goes through `ContextFilter::LeftPaneFocus`. Both end up at the same dispatch site so the orchestration only knows one caller pattern.

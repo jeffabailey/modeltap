@@ -94,6 +94,18 @@ pulldown-cmark = { version = "0.13", default-features = false }
 name = "cache_walking_skeleton"
 path = "acceptance/cache_walking_skeleton.rs"
 
+# tool-model-info-sqlite-cache step 02-01 — US-21 tool-detail screen (closes
+# the Msg::OpenToolDetail dispatch wiring). Four scenarios covering AC-21-1
+# (Enter -> detail screen within 100 ms via the tool_detail.open_ms JSONL
+# event), AC-21-3 (undetectable version renders as "(not detectable)"),
+# AC-21-4 (last_error surfaces from the cache with timestamp), AC-21-7 (Esc
+# returns to Main preserving the left-pane cursor). AC-21-5 ("User-configured
+# search paths are labelled") is deferred to step 02-02 — it requires a
+# plugin override of inspect_tool that no production plugin ships in 02-01.
+[[test]]
+name = "tool_detail"
+path = "acceptance/tool_detail.rs"
+
 [[test]]
 name = "release_process_validate_tag"
 path = "acceptance/release_process/validate_tag.rs"

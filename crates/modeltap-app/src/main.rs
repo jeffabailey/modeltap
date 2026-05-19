@@ -263,12 +263,26 @@ fn main() -> ExitCode {
         })
         .collect();
 
+    // Step 02-01 (US-21): resolve the tool-detail orchestrator's cache
+    // path the same way warm-start does. When `--no-cache` was passed OR
+    // `MODELTAP_CACHE_PATH` is unset, we skip the cache half of the merge
+    // (the orchestrator falls back to `inspect_tool()` alone). When set,
+    // we hand the resolved absolute path to the event loop so the
+    // composition root can pass it into `orchestration::open_tool_detail`.
+    let tool_detail_cache_path: Option<PathBuf> = if cli.no_cache || cache_env_override.is_none() {
+        None
+    } else {
+        cache_path::resolve(None, cache_env_override.as_deref()).ok()
+    };
+
     if headless {
         let config = HeadlessConfig {
             cols,
             rows: 40,
             input: std::env::var("MODELTAP_HEADLESS_INPUT").unwrap_or_default(),
             quit_after_paint: cli.quit_after_paint,
+            cache_path: tool_detail_cache_path.clone(),
+            log_dir: log_dir.clone(),
         };
         let exit = headless::run(
             config,
@@ -292,6 +306,8 @@ fn main() -> ExitCode {
         logger,
         plugins_for_actions,
         discovered_per_tool,
+        tool_detail_cache_path,
+        log_dir.clone(),
     ) {
         Ok(code) => ExitCode::from(code as u8),
         Err(e) => {

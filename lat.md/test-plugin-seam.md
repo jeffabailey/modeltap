@@ -35,3 +35,13 @@ The compiler picks exactly one based on build flags. The two-arm pattern is pref
 Methods the walking skeleton does not exercise (`link`, `delete_one`, `delete_all`, `delete_folder`) return sensible stub `Ok` values rather than panicking. The future Phase 05 scenarios (US-26 mutation-path coverage) will need richer behavior here, but the Phase 01 contract is "does not panic and returns the type the trait promises".
 
 [[crates/modeltap-app/tests/plugin_registry_test_harness.rs]] asserts the registration: setting `MODELTAP_TEST_PLUGINS=test-tool` produces a `Vec<Box<dyn Tool>>` containing a TestTool entry. The test runs under the `test-harness` feature (Cargo enables it automatically for `[[test]]` targets in the same crate).
+
+## Per-method behavior-override env vars
+
+Beyond registration, individual TestTool methods read additional env vars to flip behavior at scenario boundaries without modifying production plugin code.
+
+`MODELTAP_TEST_TOOL_INSPECT_UNSUPPORTED=1` is the first of these. When set, both [[tests/src/test_tool.rs]]'s canonical `TestTool::inspect_tool` and [[crates/modeltap-app/src/registry.rs]]'s inline `TestToolRegistration::inspect_tool` return `Err(InspectError::Unsupported { tool })` instead of their normal `Ok(ToolDetail)`.
+
+The env var exists because step 02-01's tool-detail acceptance scenarios need to assert AC-21-3 ("(not detectable)" version) and AC-21-4 (cache-sourced `last_error` rendering) under the default-Unsupported path that every production plugin will exhibit until step 02-02 lands the real Ollama override. Without the seam the acceptance suite would either (a) modify production plugin code just to test the default path, or (b) wait for step 02-02 before any tool-detail scenario can ship.
+
+The two impls (acceptance crate + in-binary registration) match each other so a fixture that sets the env var sees the same `Unsupported` behavior whether the test invokes TestTool directly or through the modeltap binary's in-binary `TestToolRegistration`. Both impls are inside the same `cfg(any(test, feature = "test-harness"))` regions that gate the rest of the seam — release builds compiled with `--no-default-features` link neither read of the env var.

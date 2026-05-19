@@ -199,6 +199,23 @@ mod test_harness {
             Ok(vec![])
         }
         async fn inspect_tool(&self) -> Result<ToolDetail, InspectError> {
+            // Step 02-01 (US-21) AC-21-3 seam: when
+            // `MODELTAP_TEST_TOOL_INSPECT_UNSUPPORTED=1` is set on the
+            // process, simulate the default-Unsupported path so the
+            // tool-detail acceptance suite can drive AC-21-3 ("Undetectable
+            // version"), AC-21-4 ("Last error surfaces from cache"), and
+            // AC-21-7 ("Esc returns") without modifying any production
+            // plugin. Mirrors the same seam in
+            // `modeltap-acceptance::test_tool::TestTool::inspect_tool`. Step
+            // 02-02 lands the Ollama inspect_tool override; until then every
+            // production plugin uses the trait default (Unsupported) and so
+            // does this in-binary test-harness registration when the env-var
+            // is set.
+            if std::env::var("MODELTAP_TEST_TOOL_INSPECT_UNSUPPORTED").as_deref() == Ok("1") {
+                return Err(InspectError::Unsupported {
+                    tool: TEST_TOOL_NAME,
+                });
+            }
             Ok(ToolDetail {
                 tool_id: TEST_TOOL_NAME,
                 install_path: self.root.clone(),

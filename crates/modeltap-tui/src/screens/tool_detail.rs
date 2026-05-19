@@ -134,7 +134,10 @@ pub fn build_body_lines(detail: &ToolDetail) -> Vec<Line<'static>> {
         "Plugin version: {}",
         detail.plugin_version
     )));
-    lines.push(Line::from(format!("Model count:    {}", detail.model_count)));
+    lines.push(Line::from(format!(
+        "Model count:    {}",
+        detail.model_count
+    )));
     lines.push(Line::from(format!(
         "Disk usage:     {}",
         format_bytes(detail.disk_usage_bytes)
@@ -153,10 +156,7 @@ pub fn build_body_lines(detail: &ToolDetail) -> Vec<Line<'static>> {
     )));
     lines.push(Line::from(format!(
         "Last error:     {}",
-        format_last_error(
-            detail.last_error.as_deref(),
-            detail.last_error_at.as_ref(),
-        )
+        format_last_error(detail.last_error.as_deref(), detail.last_error_at.as_ref(),)
     )));
     lines.push(Line::from(""));
     lines.push(Line::from("Search paths:"));
@@ -253,7 +253,11 @@ fn unix_seconds_to_ymdhms(seconds: i64) -> (i32, u8, u8, u8, u8, u8) {
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = (doy - (153 * mp + 2) / 5 + 1) as u8;
-    let m: u8 = if mp < 10 { (mp + 3) as u8 } else { (mp - 9) as u8 };
+    let m: u8 = if mp < 10 {
+        (mp + 3) as u8
+    } else {
+        (mp - 9) as u8
+    };
     let year = if m <= 2 { y + 1 } else { y };
     (year, m, d, hour, minute, second)
 }
@@ -288,7 +292,9 @@ pub fn render_to_plain_string(detail: &ToolDetail) -> String {
                     // assertion surface lives next to the render fn.
 pub fn rendered_screen_contains_all_required_labels(detail: &ToolDetail) -> bool {
     let txt = render_to_plain_string(detail);
-    REQUIRED_FIELD_LABELS.iter().all(|label| txt.contains(label))
+    REQUIRED_FIELD_LABELS
+        .iter()
+        .all(|label| txt.contains(label))
 }
 
 /// The nine field labels AC-21-2 mandates appear on the detail screen.

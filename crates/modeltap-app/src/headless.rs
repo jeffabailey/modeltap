@@ -54,6 +54,16 @@ pub struct HeadlessConfig {
     /// When true, render one frame and exit cleanly. Used by `launch.timing`
     /// and the K3 benchmark.
     pub quit_after_paint: bool,
+    /// Resolved absolute path to `cache.sqlite` when `MODELTAP_CACHE_PATH`
+    /// was set at startup (and `--no-cache` was NOT passed), else `None`.
+    /// Threaded down to the tool-detail orchestrator (step 02-01) so the
+    /// cache half of the merge can run; `None` skips the cache read and
+    /// falls back to `inspect_tool()` alone.
+    pub cache_path: Option<PathBuf>,
+    /// `MODELTAP_LOG_DIR` if set, else `None`. Threaded to the tool-detail
+    /// orchestrator so the `tool_detail.open_ms` JSONL event lands next to
+    /// `launch.log` / `models.log`.
+    pub log_dir: Option<PathBuf>,
 }
 
 /// Run the headless event loop. Returns the process exit code.
@@ -395,6 +405,21 @@ pub fn run(
         // Intercept Enter on the main screen so we can open the detail
         // screen with synthesized registrations from the AppState.
         let msg = lift_enter_in_main(&state, msg);
+        // Step 02-01 (US-21): when MODELTAP_HEADLESS_TOOL_DETAIL=1 is set,
+        // lift `Msg::ToggleFolderExpansion` (the production Enter dispatch
+        // on Main) into `Msg::OpenToolDetail(selected_tool_id)`. The
+        // env-var gate prevents this from clashing with existing scenarios
+        // that rely on Enter doing folder expand/collapse OR opening the
+        // model detail (US-10 path, which uses MODELTAP_HEADLESS_DETAIL_REGS).
+        let msg = lift_enter_in_left_pane_to_tool_detail(&state, msg);
+        // Step 02-01: capture OpenToolDetail's tool_id BEFORE moving `msg`
+        // into `update()` so we can run the async orchestrator AFTER the
+        // pure update has transitioned us into `Screen::ToolDetail{detail:
+        // None}`. Mirrors interactive.rs::run's peek-then-dispatch pattern.
+        let open_tool_detail_id = match &msg {
+            Msg::OpenToolDetail(tool_id) => Some(*tool_id),
+            _ => None,
+        };
         let (next, effect) = update(state, msg);
         state = next;
         if let Err(e) = terminal.draw(|f| view(&state, f)) {
@@ -410,6 +435,32 @@ pub fn run(
             Some(&msg_tx),
             &discovered,
         );
+        // Step 02-01 (US-21): run the tool-detail orchestrator now that the
+        // pure update transitioned us into `Screen::ToolDetail{detail: None}`.
+        // Skipped silently when no plugin matches (logged via tracing).
+        if let Some(tool_id) = open_tool_detail_id {
+            dispatch_open_tool_detail(
+                &rt,
+                &plugins,
+                config.cache_path.as_deref(),
+                config.log_dir.as_deref(),
+                &mut state,
+                tool_id,
+            );
+            if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                eprintln!("modeltap: tool-detail redraw failed: {e}");
+                return 1;
+            }
+            // Frame-capture seam: the tool-detail screen is opened
+            // synchronously by `Msg::OpenToolDetail` and populated
+            // synchronously by `Msg::ToolDetailReady` (the orchestrator
+            // resolves in the same iteration). Print THIS frame so
+            // acceptance assertions can substring-match the rendered
+            // detail fields BEFORE the next iteration's `<esc>` closes
+            // the screen. Same pattern as the dry-run / running-tool /
+            // already-unified / confirm frame-capture seams below.
+            print_frame(&terminal);
+        }
         // US-14 frame-capture seam: when `apply_effect` dispatched
         // `UnifyDryRunCompleted`, the unify dialog just transitioned into
         // `UnifyMode::DryRunPreview { lines }`. The next iteration's `<esc>`
@@ -1146,6 +1197,89 @@ fn lift_enter_in_main(state: &AppState, msg: Msg) -> Msg {
         return msg;
     };
     Msg::OpenDetail(detail)
+}
+
+/// Step 02-01 (US-21): on the main screen with `MODELTAP_HEADLESS_TOOL_DETAIL=1`
+/// set, lift `Msg::ToggleFolderExpansion` (the production Enter dispatch) into
+/// `Msg::OpenToolDetail(selected_tool_id)`. The env-var gate keeps the
+/// existing scenarios (folder collapse/expand from step 01-07, model detail
+/// from US-10 via `MODELTAP_HEADLESS_DETAIL_REGS`) bit-for-bit unchanged —
+/// only the new tool-detail acceptance scenarios opt in.
+///
+/// The selected tool id is read from `state.current_tool()` (the
+/// `LeftPaneSlot::Real(ToolView)` at `state.selected_tool`). Synthetic slots
+/// (e.g. `[All Unified]`) return `None` so this lift is inert there.
+fn lift_enter_in_left_pane_to_tool_detail(state: &AppState, msg: Msg) -> Msg {
+    if !matches!(msg, Msg::ToggleFolderExpansion) {
+        return msg;
+    }
+    if !matches!(state.current_screen, Screen::Main) {
+        return msg;
+    }
+    if state.zap_dialog.is_some()
+        || state.unify_dialog.is_some()
+        || state.delete_one_dialog.is_some()
+    {
+        return msg;
+    }
+    if std::env::var("MODELTAP_HEADLESS_TOOL_DETAIL").as_deref() != Ok("1") {
+        return msg;
+    }
+    let Some(tool_view) = state.current_tool() else {
+        return msg;
+    };
+    Msg::OpenToolDetail(tool_view.tool)
+}
+
+/// Step 02-01 (US-21): run the tool-detail orchestrator after a
+/// `Msg::OpenToolDetail(tool_id)` transitioned `Screen::ToolDetail{detail:
+/// None}`. Composes the cached `CachedTool` row with `Tool::inspect_tool()`
+/// into a unified `ToolDetail` and dispatches `Msg::ToolDetailReady` back
+/// into `update()` so the screen leaves its loading state.
+///
+/// Mirrors `interactive::dispatch_open_tool_detail` — the headless harness
+/// and the production loop produce byte-identical screens for the
+/// acceptance-test asserts. On orchestrator error (plugin not in registry,
+/// cache I/O failed) we tracing::warn and skip the ready-dispatch so the
+/// user sees the loading-state placeholder (Esc returns).
+fn dispatch_open_tool_detail(
+    rt: &tokio::runtime::Runtime,
+    plugins: &[Box<dyn Tool>],
+    cache_path: Option<&std::path::Path>,
+    log_dir: Option<&std::path::Path>,
+    state: &mut AppState,
+    tool_id: ToolId,
+) {
+    let Some(plugin) = find_plugin(plugins, tool_id) else {
+        tracing::warn!(
+            target: "modeltap.tool_detail",
+            "Msg::OpenToolDetail dispatched for tool {} not in plugin registry; \
+             screen stays in loading state",
+            tool_id.0
+        );
+        return;
+    };
+    let config = modeltap_app::orchestration::open_tool_detail::OpenToolDetailConfig {
+        log_dir: log_dir.map(|p| p.to_path_buf()),
+    };
+    match rt.block_on(modeltap_app::orchestration::open_tool_detail::run(
+        tool_id, plugin, cache_path, &config,
+    )) {
+        Ok(detail) => {
+            let (next, _eff) = update(
+                std::mem::take(state),
+                Msg::ToolDetailReady(Box::new(detail)),
+            );
+            *state = next;
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "modeltap.tool_detail",
+                "open_tool_detail orchestration failed for {}: {e}",
+                tool_id.0
+            );
+        }
+    }
 }
 
 /// US-U5: rewrite `Msg::ToggleTarget(0)` (placeholder produced by

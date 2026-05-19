@@ -33,6 +33,7 @@
 //! happy-path teardown.
 
 use std::io::{self, Stdout};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -85,6 +86,8 @@ pub fn run(
     mut logger: LaunchLogger,
     plugins: Vec<Box<dyn Tool>>,
     discovered: Vec<(ToolId, Vec<DiscoveredModel>)>,
+    cache_path: Option<PathBuf>,
+    log_dir: Option<PathBuf>,
 ) -> io::Result<i32> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -107,6 +110,10 @@ pub fn run(
         &mut logger,
         &plugins,
         &discovered,
+        OrchestrationPaths {
+            cache_path: cache_path.as_deref(),
+            log_dir: log_dir.as_deref(),
+        },
     );
 
     // Always restore the terminal — even if the event loop returned an
@@ -119,6 +126,15 @@ pub fn run(
     result
 }
 
+/// Bundles the orchestration-side filesystem paths (cache + launch log dir)
+/// that `event_loop` forwards to the tool-detail dispatcher. Grouped into a
+/// borrowed struct so `event_loop`'s arg count stays within clippy's
+/// `too_many_arguments` budget (7) after the step 02-01 wiring of US-21.
+struct OrchestrationPaths<'a> {
+    cache_path: Option<&'a Path>,
+    log_dir: Option<&'a Path>,
+}
+
 /// The actual event loop, factored out so the surrounding `run()` can
 /// guarantee terminal teardown via the `let result = ...; restore; result`
 /// pattern even when `event_loop` returns `Err`.
@@ -129,6 +145,7 @@ fn event_loop(
     logger: &mut LaunchLogger,
     plugins: &[Box<dyn Tool>],
     discovered: &[(ToolId, Vec<DiscoveredModel>)],
+    paths: OrchestrationPaths<'_>,
 ) -> io::Result<i32> {
     let mut state = initial_state;
 
@@ -221,12 +238,34 @@ fn event_loop(
                 sync_viewport_sizes(terminal, &mut state)?;
 
                 let msg = translate_key(&state, key);
+                // Step 02-01 (US-21): capture OpenToolDetail's tool_id BEFORE
+                // we move `msg` into `update()` so the composition root can
+                // dispatch the async tool-detail orchestrator AFTER the pure
+                // update has transitioned us to `Screen::ToolDetail{..,
+                // detail: None}`. `Msg::OpenToolDetail` does not flow through
+                // `UpdateEffect` (the screen transition is the whole effect)
+                // so this peek replaces the effect-trigger pattern.
+                let open_tool_detail_id = match &msg {
+                    Msg::OpenToolDetail(tool_id) => Some(*tool_id),
+                    _ => None,
+                };
                 let (next, effect) = update(state, msg);
                 state = next;
                 terminal.draw(|f| view(&state, f))?;
                 apply_effect(
                     &effect, logger, plugins, runtime, &mut state, &msg_tx, discovered,
                 );
+                if let Some(tool_id) = open_tool_detail_id {
+                    dispatch_open_tool_detail(
+                        runtime,
+                        plugins,
+                        paths.cache_path,
+                        paths.log_dir,
+                        &mut state,
+                        tool_id,
+                    );
+                    terminal.draw(|f| view(&state, f))?;
+                }
                 terminal.draw(|f| view(&state, f))?;
             }
             Event::Resize(_, _) => {
@@ -722,6 +761,60 @@ fn find_plugin(plugins: &[Box<dyn Tool>], tool_id: ToolId) -> Option<&dyn Tool> 
         .iter()
         .find(|p| p.name().0 == tool_id.0)
         .map(|b| b.as_ref())
+}
+
+/// Step 02-01 (US-21): run the tool-detail orchestrator after a
+/// `Msg::OpenToolDetail(tool_id)` transitioned `Screen::ToolDetail{detail:
+/// None}`. Composes the cached `CachedTool` row with `Tool::inspect_tool()`
+/// into a unified `ToolDetail` and dispatches `Msg::ToolDetailReady` back
+/// into `update()` so the screen leaves its loading state.
+///
+/// On orchestrator error (plugin not in registry, cache I/O failed) we log
+/// and skip the ready-dispatch — the user sees the loading-state placeholder
+/// and can Esc back. Future steps may add a `Msg::ToolDetailFailed` variant
+/// to surface a richer error banner.
+///
+/// Mirrors `headless::dispatch_open_tool_detail` — the production loop must
+/// stay byte-for-byte equivalent so users get the same screen in real
+/// terminals as the acceptance suite captures.
+fn dispatch_open_tool_detail(
+    runtime: &tokio::runtime::Runtime,
+    plugins: &[Box<dyn Tool>],
+    cache_path: Option<&Path>,
+    log_dir: Option<&Path>,
+    state: &mut AppState,
+    tool_id: ToolId,
+) {
+    let Some(plugin) = find_plugin(plugins, tool_id) else {
+        tracing::warn!(
+            target: "modeltap.tool_detail",
+            "Msg::OpenToolDetail dispatched for tool {} not in plugin registry; \
+             screen stays in loading state",
+            tool_id.0
+        );
+        return;
+    };
+    let config = modeltap_app::orchestration::open_tool_detail::OpenToolDetailConfig {
+        log_dir: log_dir.map(|p| p.to_path_buf()),
+    };
+    match runtime.block_on(modeltap_app::orchestration::open_tool_detail::run(
+        tool_id, plugin, cache_path, &config,
+    )) {
+        Ok(detail) => {
+            let (next, _eff) = update(
+                std::mem::take(state),
+                Msg::ToolDetailReady(Box::new(detail)),
+            );
+            *state = next;
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "modeltap.tool_detail",
+                "open_tool_detail orchestration failed for {}: {e}",
+                tool_id.0
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
