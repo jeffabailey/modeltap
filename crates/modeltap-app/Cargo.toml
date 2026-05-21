@@ -122,6 +122,15 @@ num_cpus = "1"
 # second cleanup pass.
 walkdir = "2"
 
+# tool-model-info-sqlite-cache step 02-03 (US-21 / AC-21-9 / INT-INFO-8):
+# the tool-detail orchestrator wraps `plugin.inspect_tool().await` in
+# `AssertUnwindSafe + FutureExt::catch_unwind` so a panic inside a plugin's
+# inspect_tool body surfaces as a structured `InspectError::PluginPanic`
+# rather than tearing down the TUI. `futures-util` already lives in the
+# workspace transitively (via tokio's task fork); making the dep explicit
+# here documents the panic-catch boundary at the call site that needs it.
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
 # Cross-platform standard paths (per technology-stack.md §3). Used by
 # `adapters::cache_path::resolve` to compute the default cache location
 # (`dirs::data_dir().join("modeltap/cache.sqlite")`).

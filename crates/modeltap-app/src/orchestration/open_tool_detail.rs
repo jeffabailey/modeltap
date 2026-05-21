@@ -33,9 +33,11 @@
 
 use std::fs::OpenOptions;
 use std::io::Write;
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use futures_util::FutureExt;
 use modeltap_core::domain::inspect::{
     InspectError, ModelId, SearchPathEntry as DomainSearchPathEntry,
     SearchPathSource as DomainSearchPathSource, ToolDetail,
@@ -46,12 +48,36 @@ use modeltap_store::{Cache, CacheError, CacheOpenResult};
 use serde_json::json;
 use thiserror::Error;
 
+/// Sentinel message rendered in the detail screen's `Last error:` field when a
+/// plugin's `inspect_tool` panicked. Public so step definitions can assert
+/// against the literal without duplicating the string. Per INT-INFO-8 (US-21
+/// AC-21-9, US-22 AC-22-7): the TUI MUST NOT crash on a plugin panic — it
+/// surfaces this sentinel and the operator consults diagnostics.log for
+/// triage detail.
+pub const INSPECT_PANIC_SENTINEL: &str = "(inspection failed -- see diagnostics.log)";
+
+/// Filename under `<diagnostics_dir>` for the panic-isolation log. The
+/// composition root resolves the directory from `MODELTAP_DIAGNOSTICS_DIR`
+/// (test override) or falls back to `~/.modeltap` (production). The
+/// orchestrator only sees a fully-resolved path via `OpenToolDetailConfig`.
+pub const DIAGNOSTICS_LOG_FILENAME: &str = "diagnostics.log";
+
 /// Inputs into the tool-detail orchestrator.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct OpenToolDetailConfig {
     /// JSONL log directory (matches `WarmStartConfig::log_dir`). `None`
     /// disables JSONL emission entirely.
     pub log_dir: Option<PathBuf>,
+
+    /// Directory under which `diagnostics.log` is written when a plugin's
+    /// `inspect_tool` panics (US-21 AC-21-9 / INT-INFO-8). Typically resolved
+    /// from `MODELTAP_DIAGNOSTICS_DIR` (test override) or `~/.modeltap`
+    /// (production). `None` disables panic-isolation logging entirely — the
+    /// panic is still caught and surfaced in `ToolDetail.last_error`, only
+    /// the on-disk audit trail is skipped. Best-effort I/O policy matches
+    /// `log_dir`: a missing or unwritable directory is swallowed so
+    /// observability never blocks the user-visible TUI transition.
+    pub diagnostics_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Error)]
@@ -93,7 +119,27 @@ pub async fn run(
         None => None,
     };
 
-    let inspect_result = plugin.inspect_tool().await;
+    // INT-INFO-8 / US-21 AC-21-9 / US-22 AC-22-7: wrap the plugin's
+    // inspect_tool future in catch_unwind so a panic in the plugin body
+    // surfaces as Err(InspectError::PluginPanic) instead of unwinding into
+    // the orchestrator. `AssertUnwindSafe` is sound here: the plugin owns no
+    // mutable state we share, and any internal partial-mutation a panic
+    // leaves behind is irrelevant because we discard the plugin reference
+    // immediately after the catch (we do not re-call inspect_tool on the
+    // same plugin instance after a panic in the same run).
+    let inspect_fut = AssertUnwindSafe(plugin.inspect_tool()).catch_unwind();
+    let inspect_result = match inspect_fut.await {
+        Ok(inner) => inner,
+        Err(panic_payload) => {
+            let message = format_panic_payload(panic_payload);
+            write_diagnostics_panic_line(
+                config.diagnostics_dir.as_deref(),
+                tool_id,
+                &message,
+            );
+            Err(InspectError::PluginPanic { tool: tool_id, message })
+        }
+    };
 
     let detail = merge(tool_id, inspect_result, cached);
 
@@ -101,6 +147,22 @@ pub async fn run(
     emit_open_event(config.log_dir.as_deref(), tool_id, elapsed_ms);
 
     Ok(detail)
+}
+
+/// Best-effort downcast of a `catch_unwind` payload into a human-readable
+/// message. Mirrors the formatting `JoinError::Display` would have produced
+/// had we used `tokio::spawn` (per modeltap-core's
+/// `run_inspect_with_panic_isolation`), so step definitions can assert
+/// against a stable substring regardless of which catch path the
+/// orchestrator took.
+fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&'static str>() {
+        return (*s).to_string();
+    }
+    if let Some(s) = payload.downcast_ref::<String>() {
+        return s.clone();
+    }
+    "<non-string panic payload>".to_string()
 }
 
 /// Open the cache, pull the row for `tool_id`, return it (or `None` when
@@ -127,6 +189,13 @@ async fn load_cached_tool(
 }
 
 /// Pure merge fn — exposed for unit testing.
+///
+/// When `inspect` is `Err(InspectError::PluginPanic { .. })`, the merge
+/// overrides the `last_error` field with `INSPECT_PANIC_SENTINEL` so the
+/// detail screen's `Last error:` line surfaces
+/// `(inspection failed -- see diagnostics.log)` regardless of what the
+/// cache row says — the panic supersedes any prior error because it
+/// happened on the just-now invocation that opened the detail screen.
 pub fn merge(
     tool_id: ToolId,
     inspect: Result<ToolDetail, InspectError>,
@@ -134,6 +203,12 @@ pub fn merge(
 ) -> ToolDetail {
     match inspect {
         Ok(insp) => merge_with_inspect_ok(insp, cached),
+        Err(InspectError::PluginPanic { .. }) => {
+            let mut detail = from_cache_only(tool_id, cached);
+            detail.last_error = Some(INSPECT_PANIC_SENTINEL.to_string());
+            detail.last_error_at = Some(std::time::SystemTime::now());
+            detail
+        }
         Err(_) => from_cache_only(tool_id, cached),
     }
 }
@@ -210,6 +285,40 @@ fn store_search_path_to_domain(e: modeltap_store::types::SearchPathEntry) -> Dom
             StoreSearchPathSource::UserConfig => DomainSearchPathSource::UserConfig,
         },
     }
+}
+
+/// Append a single `inspect_panic tool=<id> message=<msg>` line to
+/// `<diagnostics_dir>/diagnostics.log` (US-21 AC-21-9 / INT-INFO-8). Newline-
+/// delimited plain text (NOT JSONL — diagnostics.log is the human-readable
+/// triage trail per architecture-design.md; the structured JSONL stream lives
+/// in `<log_dir>/launch.log`). Best-effort: a missing diagnostics_dir or an
+/// unwritable file is swallowed so a panic-isolation event never compounds
+/// into a second user-visible failure.
+///
+/// The `message` field is sanitised to a single line (any embedded `\n` is
+/// replaced with `\\n`) so a multi-line panic payload does not corrupt the
+/// line-oriented file format.
+fn write_diagnostics_panic_line(
+    diagnostics_dir: Option<&Path>,
+    tool_id: ToolId,
+    message: &str,
+) {
+    let Some(dir) = diagnostics_dir else {
+        return;
+    };
+    // Ensure the directory exists — release builds may launch with a fresh
+    // ~/.modeltap that has never been touched. Best-effort: ignore errors and
+    // let the subsequent `open` call surface them (which we also swallow).
+    let _ = std::fs::create_dir_all(dir);
+    let path = dir.join(DIAGNOSTICS_LOG_FILENAME);
+    let sanitised = message.replace('\n', "\\n");
+    let mut line = format!("inspect_panic tool={} message={}", tool_id.0, sanitised);
+    line.push('\n');
+    let _ = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut f| f.write_all(line.as_bytes()));
 }
 
 /// Append a single `tool_detail.open_ms` JSONL line to `<log_dir>/launch.log`.
@@ -519,7 +628,10 @@ mod tests {
         }
 
         let plugin = UnsupportedPlugin;
-        let config = OpenToolDetailConfig { log_dir: None };
+        let config = OpenToolDetailConfig {
+            log_dir: None,
+            diagnostics_dir: None,
+        };
 
         let detail = run(fixture_tool_id(), &plugin, None, &config)
             .await

@@ -794,8 +794,12 @@ fn dispatch_open_tool_detail(
         );
         return;
     };
+    // Step 02-03 part 2/3: panic-isolation diagnostics dir defaults to `None`
+    // on the interactive path. Wiring `MODELTAP_DIAGNOSTICS_DIR` / `~/.modeltap`
+    // through interactive::run is deferred — the in-TUI sentinel still renders.
     let config = modeltap_app::orchestration::open_tool_detail::OpenToolDetailConfig {
         log_dir: log_dir.map(|p| p.to_path_buf()),
+        diagnostics_dir: None,
     };
     match runtime.block_on(modeltap_app::orchestration::open_tool_detail::run(
         tool_id, plugin, cache_path, &config,

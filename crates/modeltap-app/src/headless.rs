@@ -64,6 +64,13 @@ pub struct HeadlessConfig {
     /// orchestrator so the `tool_detail.open_ms` JSONL event lands next to
     /// `launch.log` / `models.log`.
     pub log_dir: Option<PathBuf>,
+    /// Step 02-03 (US-21 AC-21-9 / INT-INFO-8): directory under which
+    /// `diagnostics.log` is written when a plugin's `inspect_tool` panics.
+    /// Resolved from `MODELTAP_DIAGNOSTICS_DIR` (test override) or
+    /// `~/.modeltap` (production). `None` disables on-disk panic logging
+    /// without changing the in-TUI panic surface (the sentinel still
+    /// renders).
+    pub diagnostics_dir: Option<PathBuf>,
 }
 
 /// Run the headless event loop. Returns the process exit code.
@@ -444,6 +451,7 @@ pub fn run(
                 &plugins,
                 config.cache_path.as_deref(),
                 config.log_dir.as_deref(),
+                config.diagnostics_dir.as_deref(),
                 &mut state,
                 tool_id,
             );
@@ -1247,6 +1255,7 @@ fn dispatch_open_tool_detail(
     plugins: &[Box<dyn Tool>],
     cache_path: Option<&std::path::Path>,
     log_dir: Option<&std::path::Path>,
+    diagnostics_dir: Option<&std::path::Path>,
     state: &mut AppState,
     tool_id: ToolId,
 ) {
@@ -1261,6 +1270,7 @@ fn dispatch_open_tool_detail(
     };
     let config = modeltap_app::orchestration::open_tool_detail::OpenToolDetailConfig {
         log_dir: log_dir.map(|p| p.to_path_buf()),
+        diagnostics_dir: diagnostics_dir.map(|p| p.to_path_buf()),
     };
     match rt.block_on(modeltap_app::orchestration::open_tool_detail::run(
         tool_id, plugin, cache_path, &config,

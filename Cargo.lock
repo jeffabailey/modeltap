@@ -1412,6 +1412,7 @@ dependencies = [
  "clap",
  "crossterm",
  "dirs",
+ "futures-util",
  "insta",
  "inventory",
  "modeltap-core",

@@ -275,6 +275,14 @@ fn main() -> ExitCode {
         cache_path::resolve(None, cache_env_override.as_deref()).ok()
     };
 
+    // Step 02-03 (US-21 AC-21-9 / INT-INFO-8): resolve the panic-isolation
+    // diagnostics directory. `MODELTAP_DIAGNOSTICS_DIR` (test override) wins;
+    // production falls back to `~/.modeltap`. `None` disables on-disk panic
+    // logging entirely (in-TUI sentinel is unaffected).
+    let diagnostics_dir: Option<PathBuf> = std::env::var_os("MODELTAP_DIAGNOSTICS_DIR")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".modeltap")));
+
     if headless {
         let config = HeadlessConfig {
             cols,
@@ -283,6 +291,7 @@ fn main() -> ExitCode {
             quit_after_paint: cli.quit_after_paint,
             cache_path: tool_detail_cache_path.clone(),
             log_dir: log_dir.clone(),
+            diagnostics_dir: diagnostics_dir.clone(),
         };
         let exit = headless::run(
             config,

@@ -199,6 +199,20 @@ mod test_harness {
             Ok(vec![])
         }
         async fn inspect_tool(&self) -> Result<ToolDetail, InspectError> {
+            // Step 02-03 (US-21 / AC-21-9 / INT-INFO-8) panic-isolation seam:
+            // when `MODELTAP_TEST_TOOL_INSPECT_PANIC=1` is set, panic
+            // deliberately. Mirrors the canonical TestTool seam in
+            // `modeltap-acceptance::test_tool::TestTool::inspect_tool` so a
+            // fixture that sets the env var sees the same panic regardless of
+            // which TestTool implementation the modeltap binary routes to
+            // (the in-binary TestToolRegistration is the path the acceptance
+            // crate's headless harness drives). Placed BEFORE the
+            // Unsupported seam so the panic precedes any normal logic.
+            if std::env::var("MODELTAP_TEST_TOOL_INSPECT_PANIC").as_deref() == Ok("1") {
+                panic!(
+                    "MODELTAP_TEST_TOOL_INSPECT_PANIC=1 -- deliberate test panic in inspect_tool"
+                );
+            }
             // Step 02-01 (US-21) AC-21-3 seam: when
             // `MODELTAP_TEST_TOOL_INSPECT_UNSUPPORTED=1` is set on the
             // process, simulate the default-Unsupported path so the

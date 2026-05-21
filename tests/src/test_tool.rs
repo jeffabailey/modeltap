@@ -178,6 +178,19 @@ impl Tool for TestTool {
     // No override needed.
 
     async fn inspect_tool(&self) -> Result<ToolDetail, InspectError> {
+        // Step 02-03 (US-21 / AC-21-9 / INT-INFO-8) panic-isolation seam:
+        // when `MODELTAP_TEST_TOOL_INSPECT_PANIC=1` is set, panic deliberately
+        // from inspect_tool() so the acceptance suite can drive the
+        // orchestrator's panic-catch boundary end-to-end (real modeltap
+        // binary, real catch_unwind wrap, real diagnostics.log write). Step
+        // 02-03 part 1 (12f9559) landed the in-harness panic-isolation
+        // contract test via `run_inspect_with_panic_isolation`; this seam
+        // exercises the END-TO-END orchestrator boundary in the modeltap
+        // binary. Placed at the TOP of the function so the panic precedes
+        // any normal logic (including the Unsupported seam check below).
+        if std::env::var("MODELTAP_TEST_TOOL_INSPECT_PANIC").as_deref() == Ok("1") {
+            panic!("MODELTAP_TEST_TOOL_INSPECT_PANIC=1 -- deliberate test panic in inspect_tool");
+        }
         // Step 02-01 (US-21) AC-21-3 seam: simulate the default-Unsupported
         // path so the tool-detail acceptance suite can drive AC-21-3
         // ("Undetectable version") + AC-21-4 ("Last error surfaces from

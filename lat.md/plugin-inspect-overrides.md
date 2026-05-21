@@ -57,3 +57,15 @@ Both capability arms also exercise `run_inspect_with_panic_isolation` — a wrap
 The plugin-side test files (`plugins/<id>/tests/inspect_tool_contract.rs`) are thin: each is one `#[tokio::test]` that builds the plugin via its public constructor and invokes the harness with the appropriate capability. Ollama uses `MODELTAP_OLLAMA_VERSION=0.6.4` to deterministically hit the env-var short-circuit (no HTTP probe in CI). HF uses a tempdir-based `$HF_HOME` fixture.
 
 The orchestrator-side panic boundary lives in [[crates/modeltap-app/src/orchestration/open_tool_detail.rs]]: a panic in a plugin's `inspect_tool` returns `Err(InspectError::PluginPanic)` to the orchestration, which renders "(inspection failed -- see diagnostics.log)" in the detail view and writes `inspect_panic tool=<id>` to the diagnostics log. That cross-cutting behavior is asserted end-to-end by INT-INFO-8 in `tests/acceptance/integration_checkpoints.rs`.
+
+## Panic isolation at the orchestrator boundary
+
+[[crates/modeltap-app/src/orchestration/open_tool_detail.rs]] wraps each `plugin.inspect_tool()` future in `AssertUnwindSafe(...).catch_unwind()` (from the `futures` crate). A plugin panic in `inspect_tool` becomes `Err(InspectError::PluginPanic { tool, message })` — the orchestrator never unwinds.
+
+`AssertUnwindSafe` is sound at this seam because the plugin owns no mutable state shared with the orchestrator. Any internal partial-mutation a panic leaves behind is irrelevant — the orchestration discards the plugin reference immediately after the catch and never re-calls `inspect_tool` on the same panicked instance in the same run.
+
+When the catch fires, the orchestration emits one line to `<diagnostics_dir>/diagnostics.log` tagged `inspect_panic tool=<id> message=<msg>`. The directory is resolved by the composition root from `MODELTAP_DIAGNOSTICS_DIR` (test override) or `~/.modeltap` (production), threaded into `OpenToolDetailConfig::diagnostics_dir`. Setting it to `None` disables panic-isolation logging entirely (useful for unit tests that don't care about the log artifact).
+
+`INSPECT_PANIC_SENTINEL = "(inspection failed -- see diagnostics.log)"` is the user-visible string the render layer emits for `Err(PluginPanic)`. The convention preserves the rest of the detail-screen's cache-sourced fields — only the version line collapses to the sentinel — so the user still sees model count, disk usage, last scan, etc.
+
+The end-to-end INT-INFO-8 scenario drives this via `MODELTAP_TEST_TOOL_INSPECT_PANIC=1` (see [[test-plugin-seam]]) and asserts: TUI does not crash, sentinel appears in the rendered frame, diagnostics.log gains the tagged line, process stays alive.
