@@ -1,20 +1,45 @@
-//! Plugin-contract tests for `HfPlugin::inspect_tool` (US-21 step 02-02).
+//! Plugin-contract tests for `HfPlugin::inspect_tool` (US-21 step 02-03).
 //!
-//! Per ADR-016 + `component-boundaries.md` §"HF plugin coexistence note".
+//! Per `docs/feature/tool-model-info-sqlite-cache/distill/plugin-contract-spec.md`
+//! §3.12 — HF overrides `inspect_tool` and must satisfy the
+//! `InspectCapability::Supported` 3-test suite (happy path, determinism,
+//! panic isolation).
 //!
-//! Behaviors covered (3 distinct = budget 6; this file uses 3):
-//!
-//! - HF cache dir detection: HF_HOME / ~/.cache/huggingface populates
-//!   `install_path` and `search_paths[Default]`.
-//! - User-config search paths from `~/.modeltap/config.toml [plugins.hf]
-//!   search_paths` are appended after defaults with `SearchPathSource::UserConfig`.
-//! - `detected_version` is `None` by design — HF cache has no version concept.
+//! Step 02-02 shipped the HF-specific inspect tests (default hub-root search
+//! path, `detected_version: None`, user-config search paths). Those remain
+//! — they exercise HF-specific behaviours the cross-plugin `Supported`
+//! contract does not assert. Step 02-03 ADDS the cross-plugin §3.12.S.*
+//! contract via `modeltap_core::tests::inspect::run_inspect_tool_contract`.
 
 use std::path::PathBuf;
 
 use modeltap_core::domain::inspect::SearchPathSource;
-use modeltap_core::Tool;
+use modeltap_core::tests::inspect::{run_inspect_tool_contract, InspectCapability};
+use modeltap_core::{Tool, ToolId};
 use modeltap_plugin_hf::HfPlugin;
+
+/// §3.12 Supported contract: invoke the cross-plugin harness against the
+/// HF plugin. The harness exercises §3.12.S.1 (happy path), §3.12.S.2
+/// (determinism), §3.12.S.3 (panic isolation).
+#[tokio::test]
+async fn hf_satisfies_inspect_tool_contract() {
+    let _g_cfg = ScopedEnv::set("MODELTAP_CONFIG_PATH", "/nonexistent/no-such-config.toml");
+
+    let fixture = tempfile::tempdir().expect("tempdir for hf inspect contract fixture");
+    let plugin = HfPlugin::new_with_hub_root(fixture.path().to_path_buf());
+    run_inspect_tool_contract(
+        &plugin,
+        ToolId("hf"),
+        fixture.path(),
+        InspectCapability::Supported,
+    )
+    .await;
+}
+
+// ---------------------------------------------------------------------------
+// Step-02-02 HF-specific behaviors. Preserved verbatim from the file's 02-02
+// commit; documented in `component-boundaries.md` §"HF plugin coexistence note".
+// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn inspect_tool_search_paths_includes_default_hub_root() {

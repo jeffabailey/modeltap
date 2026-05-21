@@ -45,3 +45,15 @@ Before step 02-02 the function hardcoded `last_error: None` for every tool, thro
 The detail view in [[crates/modeltap-tui/src/screens/tool_detail.rs]] reads these fields from the cache row via [[crates/modeltap-app/src/orchestration/open_tool_detail.rs]] and renders them per AC-21-4. Acceptance tests drive the path end-to-end by pointing `MODELTAP_OLLAMA_DIR` at a non-existent directory: `Ollama::discover()` returns `DiscoverError::NotInstalled`, reconcile records it, the detail screen displays it on the next Enter.
 
 No `inspect_tool`-into-reconcile wiring is needed for this to work — the existing discover-error pathway already carries the signal, the change was just to stop discarding it.
+
+## Plugin-contract harness
+
+[[crates/modeltap-core/src/tests/inspect.rs]] hosts `run_inspect_tool_contract<T: Tool + ?Sized>` — the layer-B contract test every plugin runs against to prove its `inspect_tool` implementation satisfies the parent's `Tool` invariants.
+
+The harness dispatches on an `InspectCapability::{Unsupported, Supported}` enum. `Unsupported` plugins (lm-studio, atomic-chat, gpt4all) must return `Err(InspectError::Unsupported { tool })` matching `plugin.name()` — that's the test of the trait's default-body inheritance from step 01-01. `Supported` plugins (Ollama, HF) must return `Ok(ToolDetail)` and pass a determinism check (two consecutive calls return equal results modulo `introspected_at` timestamps).
+
+Both capability arms also exercise `run_inspect_with_panic_isolation` — a wrapper that uses `std::panic::catch_unwind` inside a `spawn_blocking` boundary to convert any `inspect_tool()` panic into `Err(InspectError::PluginPanic { tool, message })`. This extends US-18's panic-isolation invariant from the parent feature into the inspect domain: a buggy plugin can never crash modeltap by panicking inside `inspect_tool`.
+
+The plugin-side test files (`plugins/<id>/tests/inspect_tool_contract.rs`) are thin: each is one `#[tokio::test]` that builds the plugin via its public constructor and invokes the harness with the appropriate capability. Ollama uses `MODELTAP_OLLAMA_VERSION=0.6.4` to deterministically hit the env-var short-circuit (no HTTP probe in CI). HF uses a tempdir-based `$HF_HOME` fixture.
+
+The orchestrator-side panic boundary lives in [[crates/modeltap-app/src/orchestration/open_tool_detail.rs]]: a panic in a plugin's `inspect_tool` returns `Err(InspectError::PluginPanic)` to the orchestration, which renders "(inspection failed -- see diagnostics.log)" in the detail view and writes `inspect_panic tool=<id>` to the diagnostics log. That cross-cutting behavior is asserted end-to-end by INT-INFO-8 in `tests/acceptance/integration_checkpoints.rs`.

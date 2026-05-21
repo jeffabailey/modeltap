@@ -18,3 +18,9 @@
 //! module, so the binary's footprint is unaffected.
 
 pub mod plugin_contract;
+
+/// Parametrized contract-test harness for `Tool::inspect_tool` (US-21 step
+/// 02-03, ADR-016). Mirrors `plugin_contract` but for the inspect capability;
+/// dispatches on `InspectCapability::{Unsupported, Supported}` per
+/// `docs/feature/tool-model-info-sqlite-cache/distill/plugin-contract-spec.md` §3.12.
+pub mod inspect;

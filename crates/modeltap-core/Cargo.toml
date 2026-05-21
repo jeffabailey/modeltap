@@ -14,8 +14,10 @@ unsafe_code = "forbid"
 # Public parametrized contract-test harness for plugin crates. Off by default
 # so production builds (binary, library consumers) do not link `walkdir` or
 # any other test-only machinery. Plugin crates opt-in from their
-# `[dev-dependencies]`. See `src/tests/plugin_contract.rs`.
-test-helpers = ["dep:walkdir"]
+# `[dev-dependencies]`. See `src/tests/plugin_contract.rs` +
+# `src/tests/inspect.rs`. `tokio` is pulled in only when the harness is
+# enabled because the §3.12.S.3 panic-isolation helper requires `tokio::spawn`.
+test-helpers = ["dep:walkdir", "dep:tokio"]
 
 [dependencies]
 # ADR-007: thiserror in domain.
@@ -26,6 +28,14 @@ serde = { workspace = true }
 # Used by the plugin contract-test harness to manifest the fixture directory
 # pre/post `Tool::delete_folder` for the §3.11.U.1 immutability assertion.
 walkdir = { version = "2", optional = true }
+
+# Optional dep — only pulled in when the `test-helpers` feature is enabled.
+# Used by `tests::inspect::run_inspect_with_panic_isolation` to spawn the
+# `inspect_tool()` future inside a tokio task so a panic surfaces as
+# `JoinError::is_panic()` (per US-21 step 02-03 / INT-INFO-8). Production
+# builds without `test-helpers` re-use the dev-dep declared in
+# `[dev-dependencies]` below — Cargo unifies the two declarations.
+tokio = { workspace = true, optional = true }
 
 # ADR-001: object-safe async trait for `Tool`. This is a domain port; the
 # adapters (plugins) live outside the hexagon.

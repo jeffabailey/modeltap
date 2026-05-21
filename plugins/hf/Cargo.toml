@@ -51,5 +51,11 @@ serde = { workspace = true }
 toml = "0.8"
 
 [dev-dependencies]
+# Re-declare modeltap-core with `test-helpers` enabled so the integration test
+# `tests/inspect_tool_contract.rs` (US-21 step 02-03) can import
+# `modeltap_core::tests::inspect::*` (the parametrized §3.12 harness). Cargo
+# unifies this with the `[dependencies]` entry; the feature is dev-only. Per
+# `docs/feature/tool-model-info-sqlite-cache/distill/plugin-contract-spec.md` §2.
+modeltap-core = { path = "../../crates/modeltap-core", features = ["test-helpers"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
