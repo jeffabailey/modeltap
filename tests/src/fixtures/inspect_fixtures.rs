@@ -106,6 +106,64 @@ pub fn devon_tool_error_ollama() -> InspectFixture {
     }
 }
 
+/// INT-INFO-8 fixture (step 02-03 part 3/3): a tempdir tree wired so that
+/// modeltap launches with the TestTool plugin registered AND with the
+/// TestTool's `inspect_tool()` armed to panic. The orchestrator must catch
+/// the panic at the `catch_unwind` boundary shipped in step 02-03 part 2/3
+/// (commit bd2a975), surface `INSPECT_PANIC_SENTINEL` in the
+/// `last_error` field of the rendered detail screen, and append an
+/// `inspect_panic tool=test-tool` line to `<diagnostics_dir>/diagnostics.log`.
+///
+/// The fixture exposes a `diagnostics_dir` path under the tempdir so the
+/// test can override `MODELTAP_DIAGNOSTICS_DIR` (resolved in
+/// `crates/modeltap-app/src/main.rs`) at launch and read the resulting
+/// `diagnostics.log` from the SAME directory after the process exits.
+///
+/// Route note: the INT-INFO-8 Gherkin text names "Ollama" — we route through
+/// the TestTool (`MODELTAP_TEST_PLUGINS=test-tool` + the
+/// `MODELTAP_TEST_TOOL_INSPECT_PANIC=1` seam landed in step 02-03 part 1) so
+/// no production plugin needs an artificial panic injection point. The
+/// panic-isolation contract is plugin-agnostic by construction (the
+/// orchestrator wraps EVERY plugin's `inspect_tool()` future in
+/// `AssertUnwindSafe(...).catch_unwind()`), so the routing swap does not
+/// weaken AC-21-9 / AC-22-7.
+pub fn devon_panic_inspect_fixture() -> InspectFixture {
+    let temp = TempDir::new().expect("create devon-panic-inspect tempdir");
+    setup_common_tree(temp.path());
+
+    // The diagnostics directory under the tempdir mirrors the production
+    // `~/.modeltap` location; the fixture creates it eagerly so the
+    // orchestrator's best-effort write into `diagnostics.log` does not race
+    // against the missing-directory branch.
+    let diagnostics_dir = temp.path().join(".modeltap");
+    std::fs::create_dir_all(&diagnostics_dir).expect("create .modeltap diagnostics dir");
+
+    // Per the Ollama / NotInstalled pattern in `devon_ollama_userconfig`:
+    // pinning a non-existent path keeps Ollama out of the left-pane (the
+    // panic-injection happens through TestTool, not Ollama). config path
+    // similarly stays at a nonexistent location so the inspect-side
+    // user-config branch is empty.
+    let ollama_dir = PathBuf::from("/nonexistent/no-such-ollama-root");
+    let config_path = PathBuf::from("/nonexistent/no-such-config.toml");
+
+    InspectFixture {
+        temp,
+        ollama_dir,
+        config_path,
+    }
+}
+
+/// Convenience helper: absolute path to `<temp>/.modeltap` — the value the
+/// INT-INFO-8 scenario sets `MODELTAP_DIAGNOSTICS_DIR` to. Kept as a method
+/// on `InspectFixture` so the cucumber driver and the step impls share a
+/// single source of truth (no path-join drift between fixture builder and
+/// assertion site).
+impl InspectFixture {
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.temp.path().join(".modeltap")
+    }
+}
+
 /// AC-21-5 fixture: a real `config.toml` that adds one user-config search
 /// path under `[plugins.ollama]`. `MODELTAP_CONFIG_PATH` is pointed at it.
 /// Ollama's `inspect_tool` then emits one `Default` entry (the models root)
@@ -182,6 +240,23 @@ mod tests {
         assert!(
             meta.is_file(),
             "manifests must be a regular file (not a directory) so read_dir errors"
+        );
+    }
+
+    #[test]
+    fn devon_panic_inspect_fixture_creates_diagnostics_dir() {
+        let fix = devon_panic_inspect_fixture();
+        let diag = fix.diagnostics_dir();
+        assert!(
+            diag.exists() && diag.is_dir(),
+            "diagnostics dir must exist as a directory at {}",
+            diag.display()
+        );
+        // Boundary check: the fixture's tempdir hosts both the TestTool's
+        // model file and the diagnostics directory, so they share a parent.
+        assert!(
+            diag.starts_with(fix.temp.path()),
+            "diagnostics_dir must live under the fixture tempdir"
         );
     }
 

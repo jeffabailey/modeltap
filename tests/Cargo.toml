@@ -106,6 +106,18 @@ path = "acceptance/cache_walking_skeleton.rs"
 name = "tool_detail"
 path = "acceptance/tool_detail.rs"
 
+# tool-model-info-sqlite-cache step 02-03 part 3/3 — INT-INFO-8 panic-
+# isolation orchestrator boundary (US-21 AC-21-9 + US-22 AC-22-7). Drives the
+# TestTool's `inspect_tool` panic seam (`MODELTAP_TEST_TOOL_INSPECT_PANIC=1`,
+# landed in part 1 / commit 12f9559) through the real modeltap binary against
+# the catch_unwind boundary (landed in part 2 / commit bd2a975). Asserts the
+# rendered frame surfaces "(inspection failed -- see diagnostics.log)",
+# `<MODELTAP_DIAGNOSTICS_DIR>/diagnostics.log` gains an
+# `inspect_panic tool=test-tool` line, and the process exits cleanly.
+[[test]]
+name = "integration_checkpoints"
+path = "acceptance/integration_checkpoints.rs"
+
 [[test]]
 name = "release_process_validate_tag"
 path = "acceptance/release_process/validate_tag.rs"
