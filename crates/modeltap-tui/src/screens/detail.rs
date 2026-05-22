@@ -22,6 +22,9 @@
 //! port + `Sha256Cache` and dispatches `Msg::OpenDetail(...)`/progress
 //! updates.
 
+use std::collections::BTreeMap;
+use std::time::SystemTime;
+
 use modeltap_core::logic::unification_status::{
     compute_reclaim_estimate, compute_unification_status, DetailModelView, DetailRegistration,
     UnificationStatus,
@@ -39,6 +42,34 @@ use crate::app_state::AppState;
 use crate::render::bottom_bar::{render_bottom_bar, BarContext};
 use crate::render::last_action;
 
+/// US-22 / step 03-01 — payload for the new Metadata section. Carried on the
+/// `DetailScreenState` when the model-detail orchestrator has resolved the
+/// `ModelDetail.metadata_kv` for the screen's model. `None` means the
+/// orchestrator hasn't dispatched `Msg::ModelDetailReady` yet (or the
+/// composition root never wired the model-detail orchestrator at all — the
+/// legacy US-13 path) — in which case the Metadata section is omitted.
+///
+/// The `kv` BTreeMap renders as aligned key-value pairs (AC-22-4); the
+/// `source` + `introspected_at` populate the dim section header
+/// "Metadata (from <source>, introspected <N> ago)". `kv` may contain the
+/// single `_status` key carrying one of the sentinel strings
+/// (`METADATA_UNSUPPORTED_SENTINEL` /
+/// `open_tool_detail::INSPECT_PANIC_SENTINEL`) — that key is rendered as a
+/// bare status line rather than a key-value pair.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MetadataSection {
+    /// Plugin-defined key-value pairs. Sorted by key (BTreeMap). When the
+    /// map contains a single `_status` key, the renderer treats it as a
+    /// status line (e.g., "(metadata unsupported for this tool)").
+    pub kv: BTreeMap<String, String>,
+    /// Free-form label of where the metadata came from — e.g., "ollama",
+    /// "hf", "test-tool". Surfaces in the dim section header.
+    pub source: String,
+    /// When the metadata was last computed. `None` means "just now" /
+    /// "unknown" — renders as "introspected just now".
+    pub introspected_at: Option<SystemTime>,
+}
+
 /// Pure state for the detail screen. Constructed by `update()` from
 /// `Msg::OpenDetail(...)`; mutated by `Msg::SetHashProgress(N)` when a lazy
 /// hash is in flight.
@@ -52,6 +83,12 @@ pub struct DetailScreenState {
     /// Most-recent progress update from the Hasher port (0..=100). Renders
     /// "computing dedup key... N%" while `content_hash.is_none()`.
     pub hash_progress_pct: u8,
+    /// US-22 / step 03-01 — optional Metadata section payload. `None` means
+    /// the screen renders WITHOUT the Metadata section (legacy US-13 path
+    /// + tests that don't exercise model-detail orchestration). `Some(_)`
+    /// means the model-detail orchestrator dispatched the metadata for this
+    /// model_id and the renderer paints the Metadata section per AC-22-4.
+    pub metadata: Option<MetadataSection>,
 }
 
 impl DetailScreenState {
@@ -65,6 +102,7 @@ impl DetailScreenState {
             registrations,
             content_hash,
             hash_progress_pct: if content_hash.is_some() { 100 } else { 0 },
+            metadata: None,
         }
     }
 
@@ -72,6 +110,13 @@ impl DetailScreenState {
     /// while `content_hash.is_none()`.
     pub fn set_hash_progress(&mut self, percent: u8) {
         self.hash_progress_pct = percent.min(100);
+    }
+
+    /// Attach a Metadata section payload (US-22). Returns `self` for fluent
+    /// chaining at construction sites.
+    pub fn with_metadata(mut self, metadata: MetadataSection) -> Self {
+        self.metadata = Some(metadata);
+        self
     }
 
     /// Derived status, computed on demand from the registrations. Pure.
@@ -188,7 +233,101 @@ fn build_body_lines(state: &DetailScreenState) -> Vec<Line<'static>> {
             Style::default().add_modifier(Modifier::DIM),
         )));
     }
+
+    // US-22 / step 03-01 — append the Metadata section when the model-detail
+    // orchestrator has populated it. The header line is dim per AC-22-4; the
+    // body renders one line per key-value pair with `:` alignment OR a single
+    // status line when the map contains only the `_status` sentinel.
+    if let Some(meta) = &state.metadata {
+        lines.push(Line::from(""));
+        append_metadata_section(&mut lines, meta);
+    }
     lines
+}
+
+/// AC-22-4 — render the Metadata section. The header is a dim line of the
+/// form "Metadata (from <source>, introspected <provenance>)"; the body is
+/// either a single bare status line (when `kv` contains exactly one entry
+/// with key `_status`, which is how the orchestrator surfaces the
+/// "(metadata unsupported for this tool)" /
+/// "(introspection failed -- see diagnostics.log)" sentinels) OR one
+/// "  <key> : <value>" line per BTreeMap entry, padded so the `:` separator
+/// aligns across all keys.
+fn append_metadata_section(lines: &mut Vec<Line<'static>>, meta: &MetadataSection) {
+    let provenance = format_metadata_provenance(meta.introspected_at);
+    let header = format!(
+        "Metadata (from {}, introspected {})",
+        meta.source, provenance
+    );
+    lines.push(Line::from(Span::styled(
+        header,
+        Style::default().add_modifier(Modifier::DIM),
+    )));
+
+    // Sentinel mode: the orchestrator surfaces a single `_status` key when
+    // the inspect call could not produce a real metadata map. Render that
+    // value as a bare status line so the user sees the sentinel verbatim
+    // (AC-22-7 + the US-22 default-Unsupported path).
+    if meta.kv.len() == 1 {
+        if let Some(status) = meta.kv.get("_status") {
+            lines.push(Line::from(format!("  {}", status)));
+            return;
+        }
+    }
+
+    if meta.kv.is_empty() {
+        // Defensive: an empty kv map with no `_status` key means the plugin
+        // returned Ok with an empty metadata_kv. Render an empty-state line
+        // rather than painting nothing — surfaces the degraded path during
+        // triage without crashing.
+        lines.push(Line::from("  (no metadata)"));
+        return;
+    }
+
+    // Aligned key-value rendering: compute the longest key length so each
+    // `:` lines up under the longest one. AC-22-4 mandates "aligned"; this
+    // is the minimum interpretation that survives a future change to the
+    // KV set.
+    let max_key_len = meta.kv.keys().map(|k| k.len()).max().unwrap_or(0);
+    for (key, value) in &meta.kv {
+        lines.push(Line::from(format!(
+            "  {key:<width$} : {value}",
+            key = key,
+            width = max_key_len,
+            value = value
+        )));
+    }
+}
+
+/// Human-readable provenance string for the dim section header. Mirrors the
+/// AC-22-2 / AC-22-8 contract: when `introspected_at` is `None` OR very
+/// recent (within a few seconds of `SystemTime::now`), render "just now";
+/// otherwise render a coarse "<N> <unit> ago" relative time. Keeps the
+/// allocator-free string formatter local rather than pulling in `chrono`.
+fn format_metadata_provenance(introspected_at: Option<SystemTime>) -> String {
+    let Some(t) = introspected_at else {
+        return "just now".to_string();
+    };
+    let now = SystemTime::now();
+    let Ok(elapsed) = now.duration_since(t) else {
+        // Clock went backwards or the stamp is in the future — treat as just
+        // now so the display never panics on a weird wall-clock.
+        return "just now".to_string();
+    };
+    let secs = elapsed.as_secs();
+    if secs < 5 {
+        return "just now".to_string();
+    }
+    if secs < 60 {
+        return format!("{secs} seconds ago");
+    }
+    if secs < 3600 {
+        return format!("{} minutes ago", secs / 60);
+    }
+    if secs < 86_400 {
+        return format!("{} hours ago", secs / 3600);
+    }
+    format!("{} days ago", secs / 86_400)
 }
 
 /// Append the per-inode group view of `regs` to `lines` (US-U9 inode proof).
@@ -378,5 +517,155 @@ mod tests {
             4_400_000_000,
         );
         assert_eq!(s, "If unified: would reclaim 8.8 GB");
+    }
+
+    // -----------------------------------------------------------------------
+    // US-22 / step 03-01 — Metadata section render tests (AC-22-3 / AC-22-4).
+    // -----------------------------------------------------------------------
+
+    fn metadata_with_sentinel(status: &str) -> MetadataSection {
+        let mut kv = BTreeMap::new();
+        kv.insert("_status".to_string(), status.to_string());
+        MetadataSection {
+            kv,
+            source: "test-tool".to_string(),
+            introspected_at: None,
+        }
+    }
+
+    fn metadata_with_kv() -> MetadataSection {
+        let mut kv = BTreeMap::new();
+        kv.insert("general.architecture".to_string(), "llama".to_string());
+        kv.insert("llama.context_length".to_string(), "32768".to_string());
+        MetadataSection {
+            kv,
+            source: "llama-cli".to_string(),
+            introspected_at: None,
+        }
+    }
+
+    /// RED_UNIT — AC-22-4: when the orchestrator surfaced the sentinel
+    /// "(metadata unsupported for this tool)" (default-Unsupported path),
+    /// the Metadata section renders that string verbatim as a bare status
+    /// line.
+    #[test]
+    fn metadata_section_renders_unsupported_sentinel_when_status_only() {
+        let meta = metadata_with_sentinel("(metadata unsupported for this tool)");
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        append_metadata_section(&mut lines, &meta);
+        let rendered: String = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("Metadata (from test-tool, introspected just now)"),
+            "header must include source + provenance — got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("(metadata unsupported for this tool)"),
+            "sentinel must appear in body — got:\n{rendered}"
+        );
+    }
+
+    /// RED_UNIT — AC-22-4: aligned key-value pairs in the Metadata section.
+    /// The renderer pads each key to the longest key length so the `:`
+    /// separator lines up across all rows.
+    #[test]
+    fn metadata_section_renders_aligned_key_value_pairs() {
+        let meta = metadata_with_kv();
+        let mut lines: Vec<Line<'static>> = Vec::new();
+        append_metadata_section(&mut lines, &meta);
+        let rendered: String = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("general.architecture : llama"),
+            "kv row must align around colon — got:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("llama.context_length : 32768"),
+            "kv row must align around colon — got:\n{rendered}"
+        );
+    }
+
+    /// RED_UNIT — AC-22-3 retention: when `metadata` is `None` (legacy
+    /// US-13 path), build_body_lines emits NO Metadata header line.
+    #[test]
+    fn build_body_lines_omits_metadata_section_when_payload_is_none() {
+        let state = DetailScreenState::new(
+            DetailModelView {
+                id: "test-model".to_string(),
+                canonical_size_bytes: 1024,
+                format: Format::Gguf,
+                format_quant: None,
+                display_label: modeltap_core::DisplayLabel::from("test-model"),
+                status: modeltap_core::ModelStatus::Healthy,
+            },
+            Vec::new(),
+            None,
+        );
+        let lines = build_body_lines(&state);
+        let rendered: String = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !rendered.contains("Metadata ("),
+            "no Metadata section should render when state.metadata is None — got:\n{rendered}"
+        );
+    }
+
+    /// RED_UNIT — AC-22-4: with metadata attached via with_metadata, the
+    /// Metadata section appears in build_body_lines output. End-to-end
+    /// integration of the per-line builder + the payload.
+    #[test]
+    fn build_body_lines_renders_metadata_section_when_payload_present() {
+        let mut state = DetailScreenState::new(
+            DetailModelView {
+                id: "test-model".to_string(),
+                canonical_size_bytes: 1024,
+                format: Format::Gguf,
+                format_quant: None,
+                display_label: modeltap_core::DisplayLabel::from("test-model"),
+                status: modeltap_core::ModelStatus::Healthy,
+            },
+            Vec::new(),
+            None,
+        );
+        state = state.with_metadata(metadata_with_kv());
+        let lines = build_body_lines(&state);
+        let rendered: String = lines
+            .iter()
+            .map(|l| {
+                l.spans
+                    .iter()
+                    .map(|s| s.content.to_string())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            rendered.contains("Metadata (from llama-cli"),
+            "with metadata payload the section must render — got:\n{rendered}"
+        );
     }
 }

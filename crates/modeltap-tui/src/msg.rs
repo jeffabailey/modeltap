@@ -14,7 +14,7 @@ use crate::app_state::ToolView;
 use crate::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use crate::dialogs::running_tool_prompt::RunningToolDialog;
 use crate::effects::unify_outcome::UnifyOutcome;
-use crate::screens::detail::DetailScreenState;
+use crate::screens::detail::{DetailScreenState, MetadataSection};
 
 /// Reason a hash-pool worker reported a failure for a given (tool, model_id).
 /// Carried inside `Msg::HashFailed` so the renderer / observability layer can
@@ -140,6 +140,31 @@ pub enum Msg {
     /// User pressed Esc while on the detail screen. `update()` writes
     /// `current_screen = Screen::Main` and preserves the prior selection.
     CloseDetail,
+
+    // -----------------------------------------------------------------------
+    // US-22 per-model detail Metadata section (step 03-01).
+    //
+    // Mirrors the US-21 ToolDetailReady pattern. After `Msg::OpenDetail`
+    // transitions into `Screen::Detail(state)`, the composition root dispatches
+    // the async `open_model_detail` orchestration; on completion it dispatches
+    // `Msg::ModelDetailReady(metadata)` so the pure update can attach the
+    // metadata to the active detail screen's state.
+    //
+    // `[r]` while on the detail screen dispatches `Msg::ReintrospectModel`;
+    // the composition root re-runs the orchestrator in `RunMode::ForceReintrospect`
+    // so the next ModelDetailReady carries refreshed metadata (AC-22-2, AC-22-8).
+    // -----------------------------------------------------------------------
+    /// Composition root dispatches this when `open_model_detail` returns. The
+    /// payload is the fully-resolved Metadata section (kv pairs OR sentinel
+    /// status); `update()` attaches it to the active `Screen::Detail(state)`'s
+    /// `state.metadata`. Stale dispatches (the user already Esc'd back to
+    /// Main) are silently dropped.
+    ModelDetailReady(Box<MetadataSection>),
+    /// User pressed `[r]` while on the detail screen. Pure-update is a
+    /// state-noop; the composition root re-runs `open_model_detail` in
+    /// `RunMode::ForceReintrospect` and dispatches `Msg::ModelDetailReady`
+    /// when it completes (AC-22-2, AC-22-8).
+    ReintrospectModel,
 
     // -----------------------------------------------------------------------
     // US-21 per-tool detail screen (step 02-01).

@@ -274,6 +274,29 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             },
             UpdateEffect::default(),
         ),
+        // ----- US-22 per-model detail Metadata section (step 03-01) -------
+        Msg::ModelDetailReady(metadata) => {
+            // Attach the metadata payload to the active Screen::Detail(_)
+            // state. If the user already Esc'd back to Main (stale dispatch)
+            // the payload is silently dropped.
+            let Screen::Detail(detail) = &state.current_screen else {
+                return (state, UpdateEffect::default());
+            };
+            let mut next_detail = detail.clone();
+            next_detail.metadata = Some(*metadata);
+            (
+                AppState {
+                    current_screen: Screen::Detail(next_detail),
+                    ..state
+                },
+                UpdateEffect::default(),
+            )
+        }
+        // The composition root sees this message and re-spawns the
+        // model-detail orchestrator in ForceReintrospect mode. The pure
+        // update is a state-noop; the post-orchestrator ModelDetailReady
+        // dispatch is what actually changes state.
+        Msg::ReintrospectModel => (state, UpdateEffect::default()),
         Msg::ToggleHelp => (toggle_help(state), UpdateEffect::default()),
         // ----- US-19 cross-filesystem fallback dialog (ADR-008, step 03-03) ---
         Msg::OpenCrossFsDialog(plan) => (

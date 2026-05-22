@@ -12,3 +12,4 @@ Index of architecture and design notes covering subsystems whose rationale is no
 - [[walking-skeleton-acceptance]] — M1 two-process end-to-end pattern + CACHE introspection seam
 - [[tool-detail-tui]] — per-tool detail screen render + Msg/Screen/keymap routing (US-21 TUI half)
 - [[plugin-inspect-overrides]] — Ollama HTTP / env-var short-circuit + HF cache-dir detection + user-config search paths
+- [[model-detail-tui]] — per-model detail screen Metadata section + open_model_detail orchestration (US-22 in-progress)
