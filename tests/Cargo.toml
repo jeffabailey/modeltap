@@ -118,6 +118,22 @@ path = "acceptance/tool_detail.rs"
 name = "integration_checkpoints"
 path = "acceptance/integration_checkpoints.rs"
 
+# tool-model-info-sqlite-cache step 03-01 part 3/3 — US-22 model-detail
+# screen cucumber driver (CLOSES step 03-01). Part 1 (commit 4b4197c) landed
+# the open_model_detail orchestrator scaffolding (METADATA_UNSUPPORTED_SENTINEL,
+# Msg::OpenDetail / ModelDetailReady / ReintrospectModel variants, RunMode
+# enum). Part 2 (commit 03b6143) wired those Msg variants into both the
+# interactive and headless event loops via dispatch_open_model_detail. This
+# block exposes the end-to-end driver for the 5 model-detail.feature
+# scenarios. ONE active scenario (AC-22-7 partial-info-graceful via the
+# Unsupported render path through MODELTAP_HEADLESS_DETAIL_REGS routed at the
+# Ollama plugin's trait-default inspect_model); FOUR scenarios stay
+# `#[ignore]` pending step 03-02 plugin overrides (GGUF header metadata, Ollama
+# manifest fields, HF config.json fields, re-introspect cache writeback).
+[[test]]
+name = "model_detail"
+path = "acceptance/model_detail.rs"
+
 [[test]]
 name = "release_process_validate_tag"
 path = "acceptance/release_process/validate_tag.rs"
