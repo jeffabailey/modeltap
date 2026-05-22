@@ -35,3 +35,17 @@ The merge logic distinguishes four cases. `Ok(ModelDetail)` updates cache via `c
 The keymap distinguishes user intent — Enter wants the fastest paint (cache hit OK), `[r]` wants fresh data regardless of cache age. Both modes feed the same merge + writeback pipeline; only the cache-hit short-circuit differs.
 
 The `RunMode` lives in the orchestrator (not the TUI) because the TUI emits Msg-level intent and the composition root translates that intent into orchestrator-level mode. This keeps the TUI free of cache-policy decisions.
+
+## Msg dispatch — interactive and headless event loops
+
+[[crates/modeltap-app/src/interactive.rs]] and [[crates/modeltap-app/src/headless.rs]] both wire `Msg::OpenDetail` and `Msg::ReintrospectModel` into the model-detail orchestrator via a peek-then-dispatch block that mirrors the Phase 02 `Msg::OpenToolDetail` pattern in [[tool-detail-tui]].
+
+Before `update(state, msg)` consumes the Msg, each event loop captures the intent into a local `open_model_detail: Option<(ToolId, ModelId, RunMode)>`. `Msg::OpenDetail(detail)` captures the (tool_id, model_id) from the carried `DetailScreenState` with `RunMode::WarmIfCached`. `Msg::ReintrospectModel` re-reads the same fields from the active `Screen::Detail(state)` with `RunMode::ForceReintrospect` — the pure update is a state-noop for that Msg, so the orchestrator dispatch is the entire effect.
+
+After the pure update + `apply_effect` complete (and the screen has transitioned into `Screen::Detail(state)`), `dispatch_open_model_detail` resolves the plugin from the registry by `tool_id`, runs `open_model_detail::run(...)` under `runtime.block_on`, and on success dispatches `Msg::ModelDetailReady(Box::new(MetadataSection { kv, source, introspected_at }))` back through `update()`. On orchestrator error (unknown tool, cache I/O failure) the dispatch is skipped with a `tracing::warn!` — the detail screen renders WITHOUT the Metadata section, matching the legacy US-13 path.
+
+`extract_model_detail_dispatch` is a pure helper colocated with the dispatcher that pulls (tool_id, model_id) out of a `DetailScreenState`. It reads tool_id from `registrations.first()?.tool` — the orchestrator only needs ONE plugin to consult for `inspect_model()` and the cache writeback is keyed on (tool_id, model_id). When `registrations` is empty (synthetic / empty detail row) the helper returns `None` and the dispatch is skipped — graceful degradation per AC-22-4's metadata-absent fallback.
+
+The headless dispatch additionally drives a frame-capture seam: after `dispatch_open_model_detail` returns, the loop forces a redraw and `print_frame(&terminal)` so US-22 acceptance assertions see the rendered Metadata section BEFORE the next iteration's `<esc>` closes the screen. Same pattern as the tool-detail / dry-run / running-tool capture seams above it in the loop.
+
+The interactive path defaults `diagnostics_dir` to `None` for now — wiring `MODELTAP_DIAGNOSTICS_DIR` / `~/.modeltap` through `interactive::run` is deferred, identical to the tool-detail dispatch's deferral. The in-TUI `INSPECT_PANIC_SENTINEL` still renders without on-disk panic logging on the production path.

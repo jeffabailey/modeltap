@@ -249,6 +249,33 @@ fn event_loop(
                     Msg::OpenToolDetail(tool_id) => Some(*tool_id),
                     _ => None,
                 };
+                // Step 03-01 part 2/N (US-22): peek OpenDetail / ReintrospectModel
+                // BEFORE the pure update consumes the Msg so we can dispatch
+                // the async model-detail orchestrator AFTER the pure update
+                // has transitioned into `Screen::Detail(state)`. Mirrors the
+                // OpenToolDetail peek-then-dispatch pattern above.
+                //
+                // `Msg::OpenDetail` carries a fresh `DetailScreenState` (with
+                // `metadata: None`) — we want the orchestrator to fill the
+                // Metadata section in WarmIfCached mode.
+                //
+                // `Msg::ReintrospectModel` is dispatched from the [r] keymap on
+                // the detail screen — we re-read the current detail state and
+                // re-run the orchestrator in ForceReintrospect mode.
+                let open_model_detail = match &msg {
+                    Msg::OpenDetail(detail) => extract_model_detail_dispatch(
+                        detail,
+                        modeltap_app::orchestration::open_model_detail::RunMode::WarmIfCached,
+                    ),
+                    Msg::ReintrospectModel => match &state.current_screen {
+                        Screen::Detail(detail) => extract_model_detail_dispatch(
+                            detail,
+                            modeltap_app::orchestration::open_model_detail::RunMode::ForceReintrospect,
+                        ),
+                        _ => None,
+                    },
+                    _ => None,
+                };
                 let (next, effect) = update(state, msg);
                 state = next;
                 terminal.draw(|f| view(&state, f))?;
@@ -263,6 +290,19 @@ fn event_loop(
                         paths.log_dir,
                         &mut state,
                         tool_id,
+                    );
+                    terminal.draw(|f| view(&state, f))?;
+                }
+                if let Some((tool_id, model_id, run_mode)) = open_model_detail {
+                    dispatch_open_model_detail(
+                        runtime,
+                        plugins,
+                        paths.cache_path,
+                        paths.log_dir,
+                        &mut state,
+                        tool_id,
+                        model_id,
+                        run_mode,
                     );
                     terminal.draw(|f| view(&state, f))?;
                 }
@@ -816,6 +856,105 @@ fn dispatch_open_tool_detail(
                 target: "modeltap.tool_detail",
                 "open_tool_detail orchestration failed for {}: {e}",
                 tool_id.0
+            );
+        }
+    }
+}
+
+/// Step 03-01 part 2/N (US-22): extract (tool_id, model_id, run_mode) from a
+/// `DetailScreenState` so the composition root can dispatch the model-detail
+/// orchestrator. The tool_id is read from the FIRST `DetailRegistration` —
+/// the orchestrator only needs one plugin to consult for `inspect_model()`
+/// and the AC-22 cache writeback is keyed on (tool_id, model_id).
+///
+/// Returns `None` when there are no registrations (a synthetic / empty
+/// detail row); the orchestrator dispatch is skipped and the screen renders
+/// without a Metadata section (graceful degradation per AC-22-4 fallback).
+///
+/// Pure (no I/O, no AppState mutation) so both interactive.rs and
+/// headless.rs can call it identically — bit-for-bit equivalent metadata
+/// rendering across real terminals and the acceptance harness.
+fn extract_model_detail_dispatch(
+    detail: &modeltap_tui::screens::detail::DetailScreenState,
+    run_mode: modeltap_app::orchestration::open_model_detail::RunMode,
+) -> Option<(
+    ToolId,
+    modeltap_core::domain::inspect::ModelId,
+    modeltap_app::orchestration::open_model_detail::RunMode,
+)> {
+    let first_reg = detail.registrations.first()?;
+    let model_id = modeltap_core::domain::inspect::ModelId(detail.model.id.clone());
+    Some((first_reg.tool, model_id, run_mode))
+}
+
+/// Step 03-01 part 2/N (US-22): run the model-detail orchestrator after a
+/// `Msg::OpenDetail(_)` (or `Msg::ReintrospectModel` re-issue) transitioned
+/// us into `Screen::Detail(state)`. Composes the cached `CachedModel` row
+/// with `Tool::inspect_model()` into a `ModelDetail`, then dispatches
+/// `Msg::ModelDetailReady(Box::new(MetadataSection))` back into `update()`
+/// so the screen's Metadata section paints per AC-22-4.
+///
+/// On orchestrator error (plugin not in registry, cache I/O failed) we log
+/// and skip the ready-dispatch — the detail screen renders WITHOUT the
+/// Metadata section (legacy US-13 path). Future steps may add a
+/// `Msg::ModelDetailFailed` variant to surface a richer error banner.
+///
+/// Mirrors `headless::dispatch_open_model_detail` — the production loop and
+/// the acceptance harness produce byte-identical metadata renders for the
+/// US-22 acceptance assertions.
+#[allow(clippy::too_many_arguments)]
+fn dispatch_open_model_detail(
+    runtime: &tokio::runtime::Runtime,
+    plugins: &[Box<dyn Tool>],
+    cache_path: Option<&Path>,
+    log_dir: Option<&Path>,
+    state: &mut AppState,
+    tool_id: ToolId,
+    model_id: modeltap_core::domain::inspect::ModelId,
+    run_mode: modeltap_app::orchestration::open_model_detail::RunMode,
+) {
+    let Some(plugin) = find_plugin(plugins, tool_id) else {
+        tracing::warn!(
+            target: "modeltap.model_detail",
+            "Msg::OpenDetail dispatched for tool {} not in plugin registry; \
+             detail screen renders without metadata",
+            tool_id.0
+        );
+        return;
+    };
+    // Step 02-03 part 2/3 parity: panic-isolation diagnostics dir defaults
+    // to `None` on the interactive path. Wiring `MODELTAP_DIAGNOSTICS_DIR`
+    // / `~/.modeltap` through interactive::run is deferred — the in-TUI
+    // sentinel still renders.
+    let config = modeltap_app::orchestration::open_model_detail::OpenModelDetailConfig {
+        log_dir: log_dir.map(|p| p.to_path_buf()),
+        diagnostics_dir: None,
+    };
+    match runtime.block_on(modeltap_app::orchestration::open_model_detail::run(
+        tool_id,
+        model_id.clone(),
+        plugin,
+        cache_path,
+        &config,
+        run_mode,
+    )) {
+        Ok(detail) => {
+            let metadata = modeltap_tui::screens::detail::MetadataSection {
+                kv: detail.metadata_kv,
+                source: tool_id.0.to_string(),
+                introspected_at: detail.introspected_at,
+            };
+            let (next, _eff) = update(
+                std::mem::take(state),
+                Msg::ModelDetailReady(Box::new(metadata)),
+            );
+            *state = next;
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "modeltap.model_detail",
+                "open_model_detail orchestration failed for tool={} model={}: {e}",
+                tool_id.0, model_id
             );
         }
     }
