@@ -32,7 +32,7 @@ pub mod symlink_resolve;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use modeltap_core::domain::inspect::{InspectError, ToolDetail};
+use modeltap_core::domain::inspect::{InspectError, ModelDetail, ModelId, ToolDetail};
 use modeltap_core::types::FolderDeletePlan;
 use modeltap_core::{
     DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, Format, LinkError, LinkOutcome,
@@ -177,6 +177,19 @@ impl Tool for HfPlugin {
     /// `lat.md/plugin-inspect-overrides.md` for the rationale.
     async fn inspect_tool(&self) -> Result<ToolDetail, InspectError> {
         inspect::inspect_tool_impl(self.hub_root.clone()).await
+    }
+
+    /// Per **ADR-016** §"Implementation Guidance" + US-22 AC-22-3..AC-22-6:
+    /// override the trait-default `Unsupported` to read `config.json` from the
+    /// HF snapshot dir at `<hub>/models--<org>--<repo>/snapshots/<rev>/config.json`
+    /// and emit a small tool-relevant metadata_kv subset (`model_type`,
+    /// `architectures`, `hidden_size`, `num_attention_heads`,
+    /// `num_hidden_layers`, `max_position_embeddings`). See
+    /// `src/inspect.rs::inspect_model_impl` for the locator + read + parse +
+    /// projection pipeline and `lat.md/plugin-inspect-overrides.md` §"HF
+    /// inspect_model" for the rationale. Step 03-02 part 2/N.
+    async fn inspect_model(&self, id: &ModelId) -> Result<ModelDetail, InspectError> {
+        inspect::inspect_model_impl(self.hub_root.clone(), id.clone()).await
     }
 }
 

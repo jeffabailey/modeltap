@@ -97,16 +97,31 @@ fn model_detail_surfaces_ollama_manifest_fields_for_an_ollama_only_model() {
 }
 
 /// AC-22-3 + AC-22-4 + AC-22-5: Model detail surfaces HF config.json fields.
-/// Deferred to step 03-02 — requires an HF plugin override of
-/// `inspect_model` that reads `config.json` from the HF cache directory and
-/// emits `model_type`, `architectures`, `hidden_size`, `num_attention_heads`,
-/// `num_hidden_layers` into `metadata_kv`.
+/// Closes the HF half of step 03-02. The production HF plugin's
+/// `inspect_model` override (landed in step 03-02 part 2) reads the synthetic
+/// `config.json` seeded by `devon_hf_with_config_json_fixture` and projects
+/// `model_type`, `architectures`, `hidden_size`, `num_attention_heads`,
+/// `num_hidden_layers`, `max_position_embeddings` into
+/// `ModelDetail.metadata_kv`. The detail-screen renderer paints each KV pair
+/// as an aligned `key : value` line, so the substring assertions hit against
+/// the captured frame.
 #[test]
-#[ignore = "deferred to step 03-02 — needs HF inspect_model config.json reader"]
 fn model_detail_surfaces_hf_config_json_fields_for_an_hf_only_model() {
-    unimplemented!(
-        "step 03-02 lands HF `inspect_model` override that reads `config.json`"
-    );
+    let fixture = devon_hf_with_config_json_fixture();
+    let result = launch_modeltap_hf_config_json(&fixture, "<enter><esc>q");
+
+    assert_no_crash(&result);
+    // AC-22-5: the Metadata section's source label matches the registering
+    // plugin ("hf" — the headless dispatch hands the id off to the HF plugin
+    // per the REGS payload).
+    assert_frame_contains(&result, "Metadata (from hf");
+    // AC-22-4 aligned KV pairs (the renderer formats each as `  key : value`):
+    assert_frame_contains(&result, "model_type");
+    assert_frame_contains(&result, "architectures");
+    assert_frame_contains(&result, "hidden_size");
+    // AC-22-3 config.json projection: the model_type value flows through
+    // (proves the JSON was parsed end-to-end, not just located).
+    assert_frame_contains(&result, "mistral");
 }
 
 /// AC-22-2 + AC-22-8: Re-introspect updates the metadata provenance and

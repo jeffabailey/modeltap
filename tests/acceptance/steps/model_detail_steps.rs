@@ -42,9 +42,10 @@ use std::time::Duration;
 
 use assert_cmd::Command;
 pub use modeltap_acceptance::fixtures::inspect_fixtures::{
+    devon_hf_config_json_path, devon_hf_with_config_json_fixture,
     devon_model_unintrospectable_fixture, devon_ollama_manifest_fixture,
     devon_ollama_manifest_path, devon_unintrospectable_model_path, InspectFixture,
-    OLLAMA_MANIFEST_FIXTURE_ID,
+    HF_CONFIG_JSON_FIXTURE_ID, OLLAMA_MANIFEST_FIXTURE_ID,
 };
 
 /// Captured outcome of one `modeltap` headless launch. Mirrors
@@ -325,6 +326,90 @@ pub fn launch_modeltap_ollama_manifest(
         .env("HF_HOME", "/nonexistent/no-such-hf-cache")
         // Short-circuit the inspect_tool HTTP probe (irrelevant to the
         // model-detail surface but keeps the launch deterministic).
+        .env("MODELTAP_OLLAMA_VERSION", "0.6.4")
+        .env("MODELTAP_HEADLESS_INPUT", headless_input)
+        .timeout(Duration::from_secs(30));
+
+    let output = cmd.output().expect("spawn modeltap process");
+    LaunchResult::from_output(output)
+}
+
+// ---------------------------------------------------------------------------
+// AC-22-3 + AC-22-4 + AC-22-5 (step 03-02 part 2/N): HF config.json fields
+// surface in the Metadata section for an HF-only model.
+//
+// Drives the production HF plugin's `inspect_model` override (landed in step
+// 03-02 part 2) end to end: the fixture seeds a synthetic config.json at
+// `<HF_HOME>/hub/models--mistralai--Mistral-7B-v0.1/snapshots/<rev>/config.json`;
+// the `MODELTAP_HEADLESS_DETAIL_REGS` payload's `id` field is
+// `HF_CONFIG_JSON_FIXTURE_ID` so the orchestrator passes that exact id to
+// `plugin.inspect_model(&id)`; the plugin's locator parses out
+// `<org>/<repo>`, joins the snapshot dir via `refs/main`, reads the JSON, and
+// projects the KV subset (`model_type`, `architectures`, `hidden_size`,
+// `num_attention_heads`, `num_hidden_layers`, `max_position_embeddings`) into
+// `ModelDetail.metadata_kv`. The detail-screen renderer paints each KV pair
+// as an aligned `key : value` line.
+// ---------------------------------------------------------------------------
+
+/// Spawn modeltap headless against the AC-22-3 / AC-22-4 / AC-22-5 HF fixture
+/// and script the requested keystroke sequence. Returns the captured frame so
+/// the Then-step helpers can substring-match the metadata KVs.
+pub fn launch_modeltap_hf_config_json(
+    fixture: &InspectFixture,
+    headless_input: &str,
+) -> LaunchResult {
+    let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
+
+    let config_path = devon_hf_config_json_path(fixture);
+    // The headless synthesizer routes the `tool` field through the production
+    // HF plugin. `path` is the on-disk model artefact's location; the
+    // synthesizer uses it to derive inode + size, the renderer prints it
+    // verbatim in the `Registered with` panel. The plugin's `inspect_model`
+    // does NOT read this path — the inspector reads `config.json` under
+    // `<HF_HOME>/hub/...`. Using the config.json path here gives the
+    // renderer a real on-disk file to stat (so the panel paints non-zero
+    // values) without inventing a phantom blob path.
+    let regs_payload = serde_json::json!({
+        "id": HF_CONFIG_JSON_FIXTURE_ID,
+        "regs": [
+            {
+                "tool": "hf",
+                "path": config_path.to_string_lossy(),
+            }
+        ]
+    })
+    .to_string();
+
+    cmd.env("MODELTAP_HEADLESS", "1")
+        .env("MODELTAP_TERM_COLS", "160")
+        .env("MODELTAP_TEST_PLUGINS", "test-tool")
+        .env("MODELTAP_TEST_TOOL_ROOT", fixture.test_tool_root())
+        // Point the HF plugin at the fixture's hf-cache root. The plugin
+        // reads `<HF_HOME>/hub/` per `resolve_hub_root` (see
+        // `plugins/hf/src/discover.rs`).
+        .env("HF_HOME", fixture.hf_home.to_string_lossy().into_owned())
+        .env("MODELTAP_HEADLESS_DETAIL_REGS", regs_payload)
+        .env("MODELTAP_DIAGNOSTICS_DIR", fixture.diagnostics_dir())
+        .env("MODELTAP_CACHE_PATH", fixture.cache_path())
+        .env("MODELTAP_LOG_DIR", fixture.log_dir())
+        // Park every OTHER plugin at a nonexistent root so they
+        // discover-NotInstalled and contribute nothing to the inventory —
+        // only the HF path is under test here.
+        .env("MODELTAP_OLLAMA_DIR", "/nonexistent/no-such-ollama-root")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
+        .env(
+            "MODELTAP_CONFIG_PATH",
+            fixture.config_path.to_string_lossy().into_owned(),
+        )
+        // Short-circuit Ollama's inspect_tool HTTP probe (irrelevant to the
+        // HF model-detail surface, but keeps the launch deterministic across
+        // CI and dev hardware).
         .env("MODELTAP_OLLAMA_VERSION", "0.6.4")
         .env("MODELTAP_HEADLESS_INPUT", headless_input)
         .timeout(Duration::from_secs(30));

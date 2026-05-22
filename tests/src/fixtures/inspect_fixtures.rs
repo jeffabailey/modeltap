@@ -50,6 +50,14 @@ pub struct InspectFixture {
     /// this is `/nonexistent/no-such-config.toml` so the inspect path takes
     /// the empty-user-config branch.
     pub config_path: PathBuf,
+    /// Value the scenario assigns to `HF_HOME`. For HF-targeted fixtures
+    /// (e.g. `devon_hf_with_config_json_fixture`) this points at a tempdir
+    /// laying out `<HF_HOME>/hub/models--<org>--<repo>/snapshots/<sha>/config.json`.
+    /// For the other fixtures it stays `/nonexistent/no-such-hf-cache` so the
+    /// HF plugin's `discover()` returns `NotInstalled` (no left-pane noise
+    /// from HF). The HF plugin reads `<HF_HOME>/hub/` per the env-resolution
+    /// rule in `plugins/hf/src/discover.rs::resolve_hub_root`.
+    pub hf_home: PathBuf,
 }
 
 impl InspectFixture {
@@ -98,11 +106,13 @@ pub fn devon_tool_error_ollama() -> InspectFixture {
     std::fs::write(&manifests_as_file, b"this-is-not-a-directory").expect("seed manifests-as-file");
 
     let config_path = PathBuf::from("/nonexistent/no-such-config.toml");
+    let hf_home = PathBuf::from("/nonexistent/no-such-hf-cache");
 
     InspectFixture {
         temp,
         ollama_dir,
         config_path,
+        hf_home,
     }
 }
 
@@ -145,11 +155,13 @@ pub fn devon_panic_inspect_fixture() -> InspectFixture {
     // user-config branch is empty.
     let ollama_dir = PathBuf::from("/nonexistent/no-such-ollama-root");
     let config_path = PathBuf::from("/nonexistent/no-such-config.toml");
+    let hf_home = PathBuf::from("/nonexistent/no-such-hf-cache");
 
     InspectFixture {
         temp,
         ollama_dir,
         config_path,
+        hf_home,
     }
 }
 
@@ -213,11 +225,13 @@ pub fn devon_model_unintrospectable_fixture() -> InspectFixture {
         .expect("seed unintrospectable model file");
 
     let config_path = PathBuf::from("/nonexistent/no-such-config.toml");
+    let hf_home = PathBuf::from("/nonexistent/no-such-hf-cache");
 
     InspectFixture {
         temp,
         ollama_dir,
         config_path,
+        hf_home,
     }
 }
 
@@ -312,11 +326,13 @@ pub fn devon_ollama_manifest_fixture() -> InspectFixture {
         .expect("write synthetic ollama manifest");
 
     let config_path = PathBuf::from("/nonexistent/no-such-config.toml");
+    let hf_home = PathBuf::from("/nonexistent/no-such-hf-cache");
 
     InspectFixture {
         temp,
         ollama_dir,
         config_path,
+        hf_home,
     }
 }
 
@@ -333,6 +349,127 @@ pub fn devon_ollama_manifest_path(fixture: &InspectFixture) -> PathBuf {
         .join("library")
         .join("llama3")
         .join("8b-instruct-q4_K_M")
+}
+
+/// Canonical model_id the AC-22-3 / AC-22-5 HF scenario passes to the HF
+/// plugin's `inspect_model`. The id follows the discovery projection
+/// `<org>/<repo>/<filename>` (see `plugins/hf/src/discover.rs`) so a real
+/// modeltap launch round-trips `model.id == HF_CONFIG_JSON_FIXTURE_ID`
+/// through the headless DETAIL_REGS payload AND the plugin's `model_id`
+/// → snapshot-dir locator.
+pub const HF_CONFIG_JSON_FIXTURE_ID: &str =
+    "mistralai/Mistral-7B-v0.1/model.safetensors";
+
+/// Body of the synthetic HF `config.json` the AC-22-3 / AC-22-5 HF scenario
+/// reads. Carries every field the plugin's `inspect_model` projects into
+/// `metadata_kv`:
+///
+/// - `model_type = "mistral"` → emitted verbatim
+/// - `architectures = ["MistralForCausalLM"]` → joined into a KV string AND
+///   lifted to the typed `ModelDetail.architecture` field (first entry)
+/// - `hidden_size = 4096`
+/// - `num_attention_heads = 32`
+/// - `num_hidden_layers = 32`
+/// - `max_position_embeddings = 32768` → also lifted to `context_length`
+///
+/// `vocab_size` is included so the fixture matches a real HF `config.json`
+/// shape, but the plugin's projection deliberately drops it (out of the
+/// AC-22-5 selection per acceptance-test-plan.md §R6).
+const HF_CONFIG_JSON_FIXTURE_BODY: &str = r#"{
+  "model_type": "mistral",
+  "architectures": ["MistralForCausalLM"],
+  "hidden_size": 4096,
+  "num_attention_heads": 32,
+  "num_hidden_layers": 32,
+  "max_position_embeddings": 32768,
+  "vocab_size": 32000
+}"#;
+
+/// Snapshot revision id used by the HF fixture. The HF cache layout pins
+/// every snapshot under a `<sha>` directory; we use a stable token here so
+/// the fixture's path joins are deterministic across test runs (a real HF
+/// cache would use a 40-char git sha — the plugin doesn't care about the
+/// shape, only that the directory exists and contains `config.json`).
+const HF_CONFIG_JSON_FIXTURE_SNAPSHOT_REV: &str = "abc1234567890";
+
+/// AC-22-3 / AC-22-4 / AC-22-5 HF fixture (step 03-02 part 2/N): a tempdir
+/// tree wired so the production HF plugin's `inspect_model` reads a synthetic
+/// `config.json` at
+/// `<HF_HOME>/hub/models--mistralai--Mistral-7B-v0.1/snapshots/<rev>/config.json`.
+///
+/// Combined with `MODELTAP_HEADLESS_DETAIL_REGS={"id": HF_CONFIG_JSON_FIXTURE_ID, ...}`,
+/// the orchestrator's `dispatch_open_model_detail` resolves
+/// `model_id = HF_CONFIG_JSON_FIXTURE_ID`, the HF plugin's
+/// `inspect_model_impl` parses the model_id into `(org, repo)`, joins
+/// `<hub>/models--mistralai--Mistral-7B-v0.1/`, picks the snapshot via
+/// `refs/main` (which this fixture writes), reads the synthetic
+/// `config.json`, and projects `model_type`, `architectures`, `hidden_size`,
+/// `num_attention_heads`, `num_hidden_layers`, `max_position_embeddings`
+/// into `ModelDetail.metadata_kv`. The detail-screen renderer paints them as
+/// aligned `key : value` lines so the acceptance substring assertions land.
+///
+/// Layout:
+/// ```
+/// <temp>/
+///   hf-cache/
+///     hub/
+///       models--mistralai--Mistral-7B-v0.1/
+///         refs/main                                ← snapshot rev pointer
+///         snapshots/abc1234567890/config.json      ← synthetic config JSON
+///   xdg-data/modeltap/             ← cache.sqlite landing pad
+///   test-tool/models/...           ← TestTool seed (parity with siblings)
+///   logs/                          ← log dir
+///   modeltap-home/                 ← inert HOME shim
+/// ```
+///
+/// The Ollama plugin is parked at a NonInstalled path so it does not
+/// contribute to the inventory — the scenario asserts only against the HF
+/// path. The TestTool seed parallels `devon_ollama_manifest_fixture` so the
+/// left-pane invariant ("at least one tool present") holds.
+pub fn devon_hf_with_config_json_fixture() -> InspectFixture {
+    let temp = TempDir::new().expect("create devon-hf-with-config-json tempdir");
+    setup_common_tree(temp.path());
+
+    let hf_home = temp.path().join("hf-cache");
+    let hub = hf_home.join("hub");
+    let model_dir = hub.join("models--mistralai--Mistral-7B-v0.1");
+    let snapshot_dir = model_dir
+        .join("snapshots")
+        .join(HF_CONFIG_JSON_FIXTURE_SNAPSHOT_REV);
+    std::fs::create_dir_all(&snapshot_dir).expect("create hf snapshot dir");
+    std::fs::write(snapshot_dir.join("config.json"), HF_CONFIG_JSON_FIXTURE_BODY)
+        .expect("write synthetic hf config.json");
+    // refs/main pointer so the plugin's `resolve_snapshot_dir` takes the
+    // priority-1 path (deterministic across multiple snapshot dirs).
+    let refs_dir = model_dir.join("refs");
+    std::fs::create_dir_all(&refs_dir).expect("create hf refs dir");
+    std::fs::write(refs_dir.join("main"), HF_CONFIG_JSON_FIXTURE_SNAPSHOT_REV)
+        .expect("write hf refs/main");
+
+    let ollama_dir = PathBuf::from("/nonexistent/no-such-ollama-root");
+    let config_path = PathBuf::from("/nonexistent/no-such-config.toml");
+
+    InspectFixture {
+        temp,
+        ollama_dir,
+        config_path,
+        hf_home,
+    }
+}
+
+/// Absolute path to the synthetic HF `config.json` under the
+/// `devon_hf_with_config_json_fixture` tempdir. The cucumber driver does not
+/// dereference the file (the HF plugin reads it under `HF_HOME`), but the
+/// path is exposed so the fixture's unit tests below can assert layout
+/// invariants without re-deriving the join.
+pub fn devon_hf_config_json_path(fixture: &InspectFixture) -> PathBuf {
+    fixture
+        .hf_home
+        .join("hub")
+        .join("models--mistralai--Mistral-7B-v0.1")
+        .join("snapshots")
+        .join(HF_CONFIG_JSON_FIXTURE_SNAPSHOT_REV)
+        .join("config.json")
 }
 
 /// AC-21-5 fixture: a real `config.toml` that adds one user-config search
@@ -360,11 +497,13 @@ search_paths = ["/data/models-extra"]
     .expect("write config.toml");
 
     let ollama_dir = PathBuf::from("/nonexistent/no-such-ollama-root");
+    let hf_home = PathBuf::from("/nonexistent/no-such-hf-cache");
 
     InspectFixture {
         temp,
         ollama_dir,
         config_path,
+        hf_home,
     }
 }
 
@@ -482,6 +621,47 @@ mod tests {
         assert!(
             raw.contains("\"system\""),
             "manifest must carry top-level system; got:\n{raw}"
+        );
+    }
+
+    #[test]
+    fn devon_hf_with_config_json_writes_synthetic_config_at_expected_path() {
+        let fix = devon_hf_with_config_json_fixture();
+        let path = devon_hf_config_json_path(&fix);
+        assert!(
+            path.exists(),
+            "synthetic hf config.json must exist at {}",
+            path.display()
+        );
+        let raw = std::fs::read_to_string(&path).expect("read hf config.json");
+        assert!(
+            raw.contains("\"model_type\": \"mistral\""),
+            "config.json must carry model_type; got:\n{raw}"
+        );
+        assert!(
+            raw.contains("\"architectures\""),
+            "config.json must carry architectures; got:\n{raw}"
+        );
+        assert!(
+            raw.contains("\"hidden_size\": 4096"),
+            "config.json must carry hidden_size; got:\n{raw}"
+        );
+        assert!(
+            raw.contains("\"max_position_embeddings\": 32768"),
+            "config.json must carry max_position_embeddings; got:\n{raw}"
+        );
+        // refs/main pointer must exist so the plugin's resolver takes the
+        // priority-1 path.
+        let refs_main = fix
+            .hf_home
+            .join("hub")
+            .join("models--mistralai--Mistral-7B-v0.1")
+            .join("refs")
+            .join("main");
+        assert!(
+            refs_main.exists(),
+            "refs/main pointer must exist at {}",
+            refs_main.display()
         );
     }
 

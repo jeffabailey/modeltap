@@ -26,6 +26,18 @@ Error mapping mirrors the `Tool::inspect_model` trait contract: manifest-file-mi
 
 The `Format` top-level field reads `"Ollama manifest v2"` for every Ollama model (the manifest schemaVersion is part of the envelope, not user-visible content). `parameters` is also lifted to the typed `ModelDetail.parameters: Option<f64>` field via a best-effort `<n>B` / `<n>M` suffix parse so the cache row carries a numeric value alongside the raw KV string.
 
+## HF inspect_model
+
+[[plugins/hf/src/inspect.rs]]'s `inspect_model_impl` reads `config.json` at `<HF_HOME>/hub/models--<org>--<repo>/snapshots/<rev>/config.json` and projects a small tool-relevant KV subset into `ModelDetail.metadata_kv` per US-22 AC-22-3..AC-22-6.
+
+The locator parses `<org>/<repo>` out of the model_id (stripping any trailing `/<filename>` segment from the HF discovery projection), reconstructs the `models--<org>--<repo>` directory, then resolves the snapshot via `refs/main` (priority 1) or the lexicographically first snapshot subdirectory (fallback). First match wins — no walkdir, no SHA recomputation, no blob touch.
+
+KV selection (≤ 10 keys per AC-22-6; current selection emits up to 6): `model_type`, `architectures` (comma-joined when multiple), `hidden_size`, `num_attention_heads`, `num_hidden_layers`, `max_position_embeddings`. The detail-screen renderer paints each as an aligned `  key : value` line; the source `.feature` substring assertions hit on the literal key names.
+
+Error mapping mirrors the `Tool::inspect_model` trait contract: missing model dir / snapshot / config.json → `Err(InspectError::FileReadable { path, source: NotFound })`; JSON parse failure → `Err(InspectError::FormatUnreadable { path, detail })`. Never panics — the plugin-contract harness in [[crates/modeltap-core/src/tests/inspect.rs]] verifies the panic-isolation invariant for every plugin including this one.
+
+The `Format` top-level field reads `"safetensors v2"` for every HF model (the canonical on-disk format for HF model artifacts). `architecture` lifts the first entry from `architectures`. `context_length` lifts `max_position_embeddings` clamped to `u32`. `parameters_billions` is a best-effort estimate from `12 * num_hidden_layers * hidden_size^2 / 1e9` — coarse by design, falls back to `(not detectable)` when either input is absent.
+
 ## Ollama: env-var short-circuit
 
 `MODELTAP_OLLAMA_VERSION` env var short-circuits the HTTP call. When set, [[plugins/ollama/src/inspect.rs]] returns the env var's value as `detected_version` immediately — no network call, no timeout wait.

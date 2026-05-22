@@ -45,6 +45,12 @@ tracing = { workspace = true }
 # the TOML config loader below).
 serde = { workspace = true }
 
+# JSON parsing for `inspect_model` (Step 03-02 part 2/N): the HF override
+# reads `<hub>/models--<org>--<repo>/snapshots/<rev>/config.json` and
+# projects a tool-relevant KV subset into `ModelDetail.metadata_kv`. Matches
+# the Ollama plugin's manifest-reader pattern (workspace pin `serde_json = "1"`).
+serde_json = { workspace = true }
+
 # Config TOML parsing (US-21 step 02-02 user-config search paths). Mirrors the
 # `atomic-chat` / `lm-studio` plugins' pattern: `[plugins.hf] search_paths`
 # in `~/.modeltap/config.toml` augments the default search paths.
