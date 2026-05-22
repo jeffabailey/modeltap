@@ -43,9 +43,10 @@ use std::time::Duration;
 use assert_cmd::Command;
 pub use modeltap_acceptance::fixtures::inspect_fixtures::{
     devon_hf_config_json_path, devon_hf_with_config_json_fixture,
-    devon_model_unintrospectable_fixture, devon_ollama_manifest_fixture,
-    devon_ollama_manifest_path, devon_unintrospectable_model_path, InspectFixture,
-    HF_CONFIG_JSON_FIXTURE_ID, OLLAMA_MANIFEST_FIXTURE_ID,
+    devon_mistral_gguf_fixture, devon_model_unintrospectable_fixture,
+    devon_ollama_manifest_fixture, devon_ollama_manifest_path,
+    devon_unintrospectable_model_path, InspectFixture, LmStudioGgufFixture,
+    HF_CONFIG_JSON_FIXTURE_ID, LM_STUDIO_GGUF_FIXTURE_ID, OLLAMA_MANIFEST_FIXTURE_ID,
 };
 
 /// Captured outcome of one `modeltap` headless launch. Mirrors
@@ -410,6 +411,95 @@ pub fn launch_modeltap_hf_config_json(
         // Short-circuit Ollama's inspect_tool HTTP probe (irrelevant to the
         // HF model-detail surface, but keeps the launch deterministic across
         // CI and dev hardware).
+        .env("MODELTAP_OLLAMA_VERSION", "0.6.4")
+        .env("MODELTAP_HEADLESS_INPUT", headless_input)
+        .timeout(Duration::from_secs(30));
+
+    let output = cmd.output().expect("spawn modeltap process");
+    LaunchResult::from_output(output)
+}
+
+// ---------------------------------------------------------------------------
+// AC-22-3 + AC-22-4 + AC-22-5 (step 03-02 part 3/N): GGUF header KVs surface
+// in the Metadata section for an LM-Studio-only model.
+//
+// Drives the production LM Studio plugin's `inspect_model` override (landed
+// in step 03-02 part 3) end to end: the fixture seeds a synthetic GGUF v3
+// file at `<root>/mistralai/Mistral-7B-Instruct-v0.2-GGUF/mistral.Q4_K_M.gguf`;
+// the `MODELTAP_HEADLESS_DETAIL_REGS` payload's `id` field is
+// `LM_STUDIO_GGUF_FIXTURE_ID` so the orchestrator passes that exact id to
+// `plugin.inspect_model(&id)`; the plugin's locator walks each configured
+// search path, finds the matching file under `MODELTAP_LMSTUDIO_DIRS`,
+// invokes `modeltap_core::domain::gguf::parse_header` to read the metadata
+// KV table, projects the standard subset (`general.architecture`,
+// `general.quantization_version`, `llama.context_length`,
+// `llama.embedding_length`, `tokenizer.ggml.model`), and returns
+// `Ok(ModelDetail)`. The detail-screen renderer paints each KV pair as an
+// aligned `key : value` line.
+// ---------------------------------------------------------------------------
+
+/// Spawn modeltap headless against the AC-22-1 LM Studio GGUF fixture and
+/// script the requested keystroke sequence. Returns the captured frame so the
+/// Then-step helpers can substring-match the metadata KVs.
+pub fn launch_modeltap_lm_studio_gguf(
+    fixture: &LmStudioGgufFixture,
+    headless_input: &str,
+) -> LaunchResult {
+    let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
+
+    let gguf_path = fixture.gguf_path();
+    // The headless synthesizer routes the `tool` field through the production
+    // LM Studio plugin. `path` is the on-disk GGUF artefact's location; the
+    // synthesizer uses it to derive inode + size, and the plugin's
+    // `inspect_model` reads the same file under `MODELTAP_LMSTUDIO_DIRS`.
+    let regs_payload = serde_json::json!({
+        "id": LM_STUDIO_GGUF_FIXTURE_ID,
+        "regs": [
+            {
+                "tool": "lm-studio",
+                "path": gguf_path.to_string_lossy(),
+            }
+        ]
+    })
+    .to_string();
+
+    cmd.env("MODELTAP_HEADLESS", "1")
+        .env("MODELTAP_TERM_COLS", "160")
+        .env("MODELTAP_TEST_PLUGINS", "test-tool")
+        .env("MODELTAP_TEST_TOOL_ROOT", fixture.inner.test_tool_root())
+        // Point the LM Studio plugin at the fixture's lm-studio-models root.
+        // The plugin's `config::load_config` reads `MODELTAP_LMSTUDIO_DIRS`
+        // (colon-separated) and threads it into `LmStudioPlugin.search_paths`,
+        // which `inspect_model_impl` walks.
+        .env(
+            "MODELTAP_LMSTUDIO_DIRS",
+            fixture.lm_studio_root.to_string_lossy().into_owned(),
+        )
+        .env("MODELTAP_HEADLESS_DETAIL_REGS", regs_payload)
+        .env(
+            "MODELTAP_DIAGNOSTICS_DIR",
+            fixture.inner.diagnostics_dir(),
+        )
+        .env("MODELTAP_CACHE_PATH", fixture.inner.cache_path())
+        .env("MODELTAP_LOG_DIR", fixture.inner.log_dir())
+        // Park every OTHER plugin at a nonexistent root so they
+        // discover-NotInstalled and contribute nothing to the inventory —
+        // only the LM Studio path is under test here.
+        .env("MODELTAP_OLLAMA_DIR", "/nonexistent/no-such-ollama-root")
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
+        .env(
+            "MODELTAP_CONFIG_PATH",
+            fixture.inner.config_path.to_string_lossy().into_owned(),
+        )
+        .env("HF_HOME", "/nonexistent/no-such-hf-cache")
+        // Short-circuit Ollama's inspect_tool HTTP probe (irrelevant to the
+        // LM Studio model-detail surface, but keeps the launch deterministic
+        // across CI and dev hardware).
         .env("MODELTAP_OLLAMA_VERSION", "0.6.4")
         .env("MODELTAP_HEADLESS_INPUT", headless_input)
         .timeout(Duration::from_secs(30));

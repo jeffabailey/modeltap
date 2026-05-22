@@ -38,6 +38,32 @@ Error mapping mirrors the `Tool::inspect_model` trait contract: missing model di
 
 The `Format` top-level field reads `"safetensors v2"` for every HF model (the canonical on-disk format for HF model artifacts). `architecture` lifts the first entry from `architectures`. `context_length` lifts `max_position_embeddings` clamped to `u32`. `parameters_billions` is a best-effort estimate from `12 * num_hidden_layers * hidden_size^2 / 1e9` — coarse by design, falls back to `(not detectable)` when either input is absent.
 
+## lm-studio inspect_model + GGUF header parser
+
+[[plugins/lm-studio/src/inspect.rs]]'s `inspect_model_impl` parses the GGUF v3 header at `<search_path>/<model_id>` and projects a small tool-relevant KV subset into `ModelDetail.metadata_kv` per US-22 AC-22-3..AC-22-6.
+
+The locator walks each configured search path (`MODELTAP_LMSTUDIO_DIRS` + TOML + defaults — see [[plugins/lm-studio/src/config.rs]]) joined with the `model_id` (`<org>/<repo>/<filename>` per the LM Studio discovery projection). First existing match wins. When the resolved path is a `.gguf` file the plugin calls [[crates/modeltap-core/src/domain/gguf.rs]]'s `parse_header`.
+
+KV selection (≤ 10 keys per AC-22-6; current selection emits up to 6): `general.architecture`, `general.quantization_version`, `tokenizer.ggml.model`, plus `<arch>.context_length`, `<arch>.embedding_length`, `<arch>.block_count` for the file's declared architecture (e.g. `llama.context_length` when `general.architecture = "llama"`). The detail-screen renderer paints each as an aligned `  key : value` line; the source `.feature` substring assertions hit on the literal key names.
+
+When the resolved path is a DIRECTORY rather than a `.gguf` file, the plugin falls back to reading a sibling `model.json` (older LM Studio layouts). The JSON schema is loose; the projector lifts `arch` / `architecture` / `quantization` / `context_length` / `n_ctx` / `name` / `version` when present.
+
+Error mapping mirrors the `Tool::inspect_model` trait contract: missing artefact / unreadable file → `Err(InspectError::FileReadable { path, source })`; GGUF header parse failure (bad magic, truncated, unsupported version, malformed metadata) or sibling JSON parse failure → `Err(InspectError::FormatUnreadable { path, detail })`. Never panics — the plugin-contract harness in [[crates/modeltap-core/src/tests/inspect.rs]] verifies the panic-isolation invariant for every plugin including this one.
+
+The `Format` top-level field reads `"GGUF v3"` for `.gguf` artefacts (echoed from the parsed header) and `"LM Studio model.json"` for the sibling-JSON fallback path. `architecture` lifts `general.architecture`. `quantisation` lifts `general.quantization_version`. `context_length` lifts whichever `<arch>.context_length` the header carried, clamped to `u32`.
+
+## GGUF v3 header parser (shared by lm-studio + llama-cli)
+
+[[crates/modeltap-core/src/domain/gguf.rs]] is a minimal hand-rolled parser that reads just the header KV table — never tensor data.
+
+ADR-016 sanctions the choice ("use the `gguf` crate or hand-roll a minimal parser — both acceptable"); hand-roll wins because the KV subset modeltap surfaces is small and we avoid a workspace dep that would pull in tensor-data machinery the inspect screen never reads.
+
+The parser reads just the header KV table — magic + version + tensor_count + kv_count + the KV entries themselves. It never touches tensor data. Bounds are enforced at every layer: max header read 16 MB; max kv_count 100k; max string length 1 MB; max array length 100k. Truncated, garbage, or maliciously-crafted bytes return `Err(GgufParseError::*)` — never panic. A fuzz-style test (random + magic-corrupt random) exercises 200 random inputs per run as a regression guard.
+
+Only GGUF version 3 is accepted; v1 / v2 / unknown-version files return `Err(UnsupportedVersion { got })` which the lm-studio plugin maps to `Err(InspectError::FormatUnreadable)`. Production GGUF emitters universally write v3 today, so this restriction is not a meaningful interop loss; it keeps the parser small.
+
+Step 03-02 part 4 (llama-cli `inspect_model`) reuses the same `parse_header` entry point. The fixture in [[tests/src/fixtures/inspect_fixtures.rs]] (`write_gguf_v3_header` + `GgufKv::string` / `GgufKv::uint32` constructors) is the canonical synthetic-header builder for both halves; the lm-studio acceptance fixture (`devon_mistral_gguf_fixture`) seeds the five standard KVs the model-detail screen surfaces.
+
 ## Ollama: env-var short-circuit
 
 `MODELTAP_OLLAMA_VERSION` env var short-circuits the HTTP call. When set, [[plugins/ollama/src/inspect.rs]] returns the env var's value as `detected_version` immediately — no network call, no timeout wait.

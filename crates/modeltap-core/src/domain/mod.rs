@@ -4,6 +4,7 @@
 
 pub mod dedup_glyph;
 pub mod dedup_summary;
+pub mod gguf;
 pub mod indicator;
 pub mod inspect;
 pub mod last_action;

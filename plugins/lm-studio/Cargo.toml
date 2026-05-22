@@ -35,6 +35,10 @@ tracing = { workspace = true }
 serde = { workspace = true }
 toml = "0.8"
 
+# JSON parsing for the model.json sidecar fallback in inspect_model
+# (older LM Studio layouts ship a model.json next to the GGUF binary).
+serde_json = { workspace = true }
+
 [dev-dependencies]
 # Re-declare modeltap-core with `test-helpers` enabled so integration tests
 # under `tests/` can import `modeltap_core::tests::plugin_contract::*`

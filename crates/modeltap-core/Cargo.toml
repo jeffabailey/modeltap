@@ -56,3 +56,6 @@ proptest = "1"
 # Async runtime for testing async trait methods (step 01-01: `Tool::delete_folder`
 # default body). Dev-only — modeltap-core itself remains I/O-free.
 tokio = { workspace = true }
+# Tempdir for the GGUF header parser's `parse_header` on-disk test
+# (`domain::gguf::tests::parse_header_from_file_reads_disk`).
+tempfile = { workspace = true }

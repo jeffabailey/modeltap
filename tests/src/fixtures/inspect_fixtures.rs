@@ -472,6 +472,158 @@ pub fn devon_hf_config_json_path(fixture: &InspectFixture) -> PathBuf {
         .join("config.json")
 }
 
+/// Canonical model_id the AC-22-3 / AC-22-4 / AC-22-5 GGUF scenario passes
+/// to the LM Studio plugin's `inspect_model`. The id follows the discovery
+/// projection `<org>/<repo>/<filename>` (see `plugins/lm-studio/src/discover.rs`).
+pub const LM_STUDIO_GGUF_FIXTURE_ID: &str =
+    "mistralai/Mistral-7B-Instruct-v0.2-GGUF/mistral.Q4_K_M.gguf";
+
+/// AC-22-3 / AC-22-4 / AC-22-5 LM Studio GGUF fixture (step 03-02 part 3/N):
+/// a tempdir tree wired so the production LM Studio plugin's `inspect_model`
+/// reads a synthetic GGUF v3 file at
+/// `<root>/mistralai/Mistral-7B-Instruct-v0.2-GGUF/mistral.Q4_K_M.gguf`.
+///
+/// The synthetic GGUF file carries the standard five header KVs the
+/// model-detail screen surfaces: `general.architecture = "llama"`,
+/// `general.quantization_version = "Q4_K_M"`, `llama.context_length = 4096`,
+/// `llama.embedding_length = 4096`, `tokenizer.ggml.model = "llama"`. The
+/// plugin's `inspect_model_impl` calls
+/// `modeltap_core::domain::gguf::parse_header`, projects the KV subset, and
+/// returns `Ok(ModelDetail)`; the detail-screen renderer paints each KV pair
+/// as an aligned `key : value` line, so the acceptance substring assertions
+/// hit against the captured frame.
+///
+/// Layout:
+/// ```
+/// <temp>/
+///   lm-studio-models/
+///     mistralai/Mistral-7B-Instruct-v0.2-GGUF/
+///       mistral.Q4_K_M.gguf   ← synthetic GGUF v3 header bytes
+///   xdg-data/modeltap/             ← cache.sqlite landing pad
+///   test-tool/models/...           ← TestTool seed (parity with siblings)
+///   logs/                          ← log dir
+///   modeltap-home/                 ← inert HOME shim
+/// ```
+///
+/// Carried on the `InspectFixture` struct via a `lm_studio_root` extension
+/// in `LmStudioGgufFixture` (a thin wrapper that owns the `InspectFixture`
+/// + exposes the lm-studio root path). The other plugins (Ollama / HF) are
+/// parked at nonexistent roots so they `discover()`-NotInstalled and
+/// contribute nothing to the inventory — only the LM Studio path is under
+/// test.
+pub struct LmStudioGgufFixture {
+    pub inner: InspectFixture,
+    pub lm_studio_root: PathBuf,
+}
+
+impl LmStudioGgufFixture {
+    /// Absolute path to the synthetic GGUF file the fixture seeds. The
+    /// cucumber driver does not dereference the file (the LM Studio plugin
+    /// reads it under `MODELTAP_LMSTUDIO_DIRS`), but the path is exposed so
+    /// the fixture's unit tests below can assert layout invariants without
+    /// re-deriving the join.
+    pub fn gguf_path(&self) -> PathBuf {
+        self.lm_studio_root
+            .join("mistralai")
+            .join("Mistral-7B-Instruct-v0.2-GGUF")
+            .join("mistral.Q4_K_M.gguf")
+    }
+}
+
+pub fn devon_mistral_gguf_fixture() -> LmStudioGgufFixture {
+    let temp = TempDir::new().expect("create devon-mistral-gguf tempdir");
+    setup_common_tree(temp.path());
+
+    let lm_studio_root = temp.path().join("lm-studio-models");
+    let model_dir = lm_studio_root
+        .join("mistralai")
+        .join("Mistral-7B-Instruct-v0.2-GGUF");
+    std::fs::create_dir_all(&model_dir).expect("create lm-studio model dir");
+    let gguf_path = model_dir.join("mistral.Q4_K_M.gguf");
+    let bytes = write_gguf_v3_header(&[
+        GgufKv::string("general.architecture", "llama"),
+        GgufKv::string("general.quantization_version", "Q4_K_M"),
+        GgufKv::uint32("llama.context_length", 4096),
+        GgufKv::uint32("llama.embedding_length", 4096),
+        GgufKv::string("tokenizer.ggml.model", "llama"),
+    ]);
+    std::fs::write(&gguf_path, &bytes).expect("write synthetic gguf header");
+
+    let ollama_dir = PathBuf::from("/nonexistent/no-such-ollama-root");
+    let config_path = PathBuf::from("/nonexistent/no-such-config.toml");
+    let hf_home = PathBuf::from("/nonexistent/no-such-hf-cache");
+
+    LmStudioGgufFixture {
+        inner: InspectFixture {
+            temp,
+            ollama_dir,
+            config_path,
+            hf_home,
+        },
+        lm_studio_root,
+    }
+}
+
+/// One GGUF v3 KV entry as the synthetic-header builder accepts. The shape
+/// mirrors the parser's `read_value_as_string` dispatch — we only emit the
+/// two value types the production lm-studio fixture needs (string + u32).
+/// Tests that need additional types can extend the enum without touching
+/// the existing constructors.
+pub enum GgufKv {
+    String { key: String, value: String },
+    Uint32 { key: String, value: u32 },
+}
+
+impl GgufKv {
+    pub fn string(key: &str, value: &str) -> Self {
+        Self::String {
+            key: key.to_string(),
+            value: value.to_string(),
+        }
+    }
+
+    pub fn uint32(key: &str, value: u32) -> Self {
+        Self::Uint32 {
+            key: key.to_string(),
+            value,
+        }
+    }
+}
+
+/// Build a synthetic GGUF v3 header byte sequence carrying `kvs` as the
+/// metadata KV table. tensor_count is always 0 (no tensor data); the
+/// header alone is enough for `modeltap_core::domain::gguf::parse_header`
+/// to extract every KV.
+///
+/// Shape mirrors the parser's expected layout (LE everywhere):
+///   magic "GGUF" | version 3u32 | tensor_count 0u64 | kv_count u64 |
+///   { key_len u64, key_bytes, value_type u32, value_bytes }*
+pub fn write_gguf_v3_header(kvs: &[GgufKv]) -> Vec<u8> {
+    let mut out = Vec::new();
+    out.extend_from_slice(b"GGUF");
+    out.extend_from_slice(&3u32.to_le_bytes()); // version
+    out.extend_from_slice(&0u64.to_le_bytes()); // tensor_count
+    out.extend_from_slice(&(kvs.len() as u64).to_le_bytes());
+    for kv in kvs {
+        match kv {
+            GgufKv::String { key, value } => {
+                out.extend_from_slice(&(key.len() as u64).to_le_bytes());
+                out.extend_from_slice(key.as_bytes());
+                out.extend_from_slice(&8u32.to_le_bytes()); // TYPE_STRING
+                out.extend_from_slice(&(value.len() as u64).to_le_bytes());
+                out.extend_from_slice(value.as_bytes());
+            }
+            GgufKv::Uint32 { key, value } => {
+                out.extend_from_slice(&(key.len() as u64).to_le_bytes());
+                out.extend_from_slice(key.as_bytes());
+                out.extend_from_slice(&4u32.to_le_bytes()); // TYPE_UINT32
+                out.extend_from_slice(&value.to_le_bytes());
+            }
+        }
+    }
+    out
+}
+
 /// AC-21-5 fixture: a real `config.toml` that adds one user-config search
 /// path under `[plugins.ollama]`. `MODELTAP_CONFIG_PATH` is pointed at it.
 /// Ollama's `inspect_tool` then emits one `Default` entry (the models root)
@@ -662,6 +814,71 @@ mod tests {
             refs_main.exists(),
             "refs/main pointer must exist at {}",
             refs_main.display()
+        );
+    }
+
+    #[test]
+    fn devon_mistral_gguf_writes_synthetic_gguf_at_expected_path() {
+        let fix = devon_mistral_gguf_fixture();
+        let path = fix.gguf_path();
+        assert!(
+            path.exists(),
+            "synthetic gguf must exist at {}",
+            path.display()
+        );
+        let raw = std::fs::read(&path).expect("read gguf");
+        assert!(
+            raw.len() > 16,
+            "gguf header must be at least magic+version+tensor_count+kv_count = 24 bytes"
+        );
+        assert_eq!(&raw[..4], b"GGUF", "magic must be GGUF");
+        // Version u32 LE = 3
+        assert_eq!(
+            u32::from_le_bytes([raw[4], raw[5], raw[6], raw[7]]),
+            3,
+            "gguf version must be 3"
+        );
+        // Header must contain the five expected KV keys (substring grep on
+        // the raw bytes — the keys are stored as length-prefixed UTF-8 so
+        // a substring match on the underlying bytes is sufficient).
+        for needle in [
+            "general.architecture",
+            "general.quantization_version",
+            "llama.context_length",
+            "llama.embedding_length",
+            "tokenizer.ggml.model",
+        ] {
+            assert!(
+                raw.windows(needle.len()).any(|w| w == needle.as_bytes()),
+                "header must carry KV key '{needle}'"
+            );
+        }
+    }
+
+    #[test]
+    fn write_gguf_v3_header_is_parseable_by_the_production_parser() {
+        // Ensure the fixture's synthetic header round-trips through the
+        // production parser the lm-studio plugin uses. Catches any drift
+        // between fixture-encoder and parser-decoder before the acceptance
+        // scenario runs.
+        let bytes = write_gguf_v3_header(&[
+            GgufKv::string("general.architecture", "llama"),
+            GgufKv::uint32("llama.context_length", 4096),
+        ]);
+        let h = modeltap_core::domain::gguf::parse_header_bytes(&bytes)
+            .expect("fixture header must round-trip through parser");
+        assert_eq!(h.version, 3);
+        assert_eq!(
+            h.metadata_kv
+                .get("general.architecture")
+                .map(|s| s.as_str()),
+            Some("llama")
+        );
+        assert_eq!(
+            h.metadata_kv
+                .get("llama.context_length")
+                .map(|s| s.as_str()),
+            Some("4096")
         );
     }
 

@@ -28,12 +28,14 @@
 pub mod config;
 pub mod delete;
 pub mod discover;
+pub mod inspect;
 pub mod link;
 pub mod paths;
 
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use modeltap_core::domain::inspect::{InspectError, ModelDetail, ModelId};
 use modeltap_core::{
     DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, Format, LinkError, LinkOutcome,
     ModelMeta, PluginFactory, Tool, ToolId,
@@ -134,6 +136,21 @@ impl Tool for LmStudioPlugin {
         Err(DeleteError::NotYetImplemented(
             "lm-studio delete_all arrives in step 03-04".to_string(),
         ))
+    }
+
+    /// Per **ADR-016** §"Implementation Guidance" + US-22 AC-22-3..AC-22-6:
+    /// override the trait-default `Unsupported` to parse the GGUF v3 header at
+    /// `<search_path>/<model_id>` and emit a small tool-relevant metadata_kv
+    /// subset (`general.architecture`, `general.quantization_version`,
+    /// `<arch>.context_length`, `<arch>.embedding_length`,
+    /// `<arch>.block_count`, `tokenizer.ggml.model`). Falls back to reading a
+    /// sibling `model.json` when the resolved path is a directory (older LM
+    /// Studio layouts). See `src/inspect.rs::inspect_model_impl` for the
+    /// locator + parser + projection pipeline and
+    /// `lat.md/plugin-inspect-overrides.md` §"lm-studio inspect_model" for
+    /// the rationale. Step 03-02 part 3/N.
+    async fn inspect_model(&self, id: &ModelId) -> Result<ModelDetail, InspectError> {
+        inspect::inspect_model_impl(self.search_paths.clone(), id.clone()).await
     }
 }
 
