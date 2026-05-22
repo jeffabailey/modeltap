@@ -24,7 +24,7 @@ pub mod manifest;
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use modeltap_core::domain::inspect::{InspectError, ToolDetail};
+use modeltap_core::domain::inspect::{InspectError, ModelDetail, ModelId, ToolDetail};
 use modeltap_core::{
     DeleteError, DeleteOutcome, DiscoverError, DiscoveredModel, Format, LinkError, LinkOutcome,
     ModelMeta, PluginFactory, Tool, ToolId,
@@ -151,6 +151,18 @@ impl Tool for OllamaPlugin {
     /// `lat.md/plugin-inspect-overrides.md` for the rationale.
     async fn inspect_tool(&self) -> Result<ToolDetail, InspectError> {
         inspect::inspect_tool_impl(self.models_root.clone()).await
+    }
+
+    /// Per **ADR-016** §"Implementation Guidance" + US-22 AC-22-3..AC-22-6:
+    /// override the trait-default `Unsupported` to read the manifest JSON
+    /// at `<models_root>/manifests/<.../id>` and emit a small tool-relevant
+    /// metadata_kv subset (`config.architecture`, `parameters`, `template`
+    /// excerpt, `system` excerpt). See `src/inspect.rs::inspect_model_impl`
+    /// for the read + parse + projection pipeline and
+    /// `lat.md/plugin-inspect-overrides.md` §"Ollama inspect_model" for the
+    /// rationale. Step 03-02 part 1/N.
+    async fn inspect_model(&self, id: &ModelId) -> Result<ModelDetail, InspectError> {
+        inspect::inspect_model_impl(self.models_root.clone(), id.clone()).await
     }
 }
 

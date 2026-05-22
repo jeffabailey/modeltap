@@ -14,6 +14,18 @@ The rationale is reconcile-loop stability: an `Err` return signals "I tried and 
 
 The same rule applies to HF when the cache dir doesn't exist: return `Ok` with empty `search_paths`, not `Err`.
 
+## Ollama inspect_model
+
+[[plugins/ollama/src/inspect.rs]]'s `inspect_model_impl` reads the manifest JSON at `<MODELTAP_OLLAMA_DIR>/manifests/<.../id>` and projects a small tool-relevant KV subset into `ModelDetail.metadata_kv` per US-22 AC-22-3..AC-22-6.
+
+The locator walks `manifests/` once and matches each candidate path via the same `<repo>:<tag>` projection that `discovery::manifest_id` uses (registry segment dropped, literal `library` segment dropped). First match wins — no full inventory build, no SHA recomputation, no blob touch.
+
+KV selection (≤ 10 keys per AC-22-6; current selection emits 4): `config.architecture`, `parameters` (from `config.parameter_size`), `template` (excerpt — newlines collapsed to spaces, truncated to ≈200 chars), `system` (same excerpt rule). The detail-screen renderer paints each as an aligned `  key : value` line; the source `.feature` substring assertions hit on the literal key names.
+
+Error mapping mirrors the `Tool::inspect_model` trait contract: manifest-file-missing → `Err(InspectError::FileReadable { path, source: NotFound })`; JSON parse failure → `Err(InspectError::FormatUnreadable { path, detail })`. Never panics — the plugin-contract harness in [[crates/modeltap-core/src/tests/inspect.rs]] verifies the panic-isolation invariant for every plugin including this one.
+
+The `Format` top-level field reads `"Ollama manifest v2"` for every Ollama model (the manifest schemaVersion is part of the envelope, not user-visible content). `parameters` is also lifted to the typed `ModelDetail.parameters: Option<f64>` field via a best-effort `<n>B` / `<n>M` suffix parse so the cache row carries a numeric value alongside the raw KV string.
+
 ## Ollama: env-var short-circuit
 
 `MODELTAP_OLLAMA_VERSION` env var short-circuits the HTTP call. When set, [[plugins/ollama/src/inspect.rs]] returns the env var's value as `detected_version` immediately — no network call, no timeout wait.

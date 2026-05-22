@@ -42,7 +42,9 @@ use std::time::Duration;
 
 use assert_cmd::Command;
 pub use modeltap_acceptance::fixtures::inspect_fixtures::{
-    devon_model_unintrospectable_fixture, devon_unintrospectable_model_path, InspectFixture,
+    devon_model_unintrospectable_fixture, devon_ollama_manifest_fixture,
+    devon_ollama_manifest_path, devon_unintrospectable_model_path, InspectFixture,
+    OLLAMA_MANIFEST_FIXTURE_ID,
 };
 
 /// Captured outcome of one `modeltap` headless launch. Mirrors
@@ -240,4 +242,93 @@ pub fn assert_process_alive(result: &LaunchResult) {
         result.output.status,
         result.stderr,
     );
+}
+
+// ---------------------------------------------------------------------------
+// AC-22-3 + AC-22-4 + AC-22-5 (step 03-02 part 1/N): Ollama manifest fields
+// surface in the Metadata section for an Ollama-only model.
+//
+// Drives the production Ollama plugin's `inspect_model` override (landed in
+// step 03-02 part 1) end to end: the fixture seeds a synthetic manifest at
+// `<ollama_dir>/manifests/registry.ollama.ai/library/llama3/8b-instruct-q4_K_M`;
+// the `MODELTAP_HEADLESS_DETAIL_REGS` payload's `id` field is
+// `OLLAMA_MANIFEST_FIXTURE_ID` so the orchestrator passes that exact id to
+// `plugin.inspect_model(&id)`; the plugin's locator walks the manifests dir,
+// finds the matching file, parses the JSON, projects the KV subset
+// (`config.architecture`, `parameters`, `template`, `system`), and returns
+// `Ok(ModelDetail)`. The detail-screen renderer paints each KV pair as an
+// aligned `key : value` line.
+//
+// The keystroke script differs by scenario:
+// - AC-22-3 (warm-path open):       `<enter><esc>q`
+// - AC-22-8 (re-introspect refresh): `<enter>r<esc>q`
+// ---------------------------------------------------------------------------
+
+/// Spawn modeltap headless against the AC-22-3 / AC-22-8 manifest fixture and
+/// script the requested keystroke sequence. Returns the captured frame so the
+/// Then-step helpers can substring-match the metadata KVs.
+///
+/// `headless_input` controls the scenario shape — `<enter><esc>q` exercises
+/// the cold-open path (AC-22-3) and `<enter>r<esc>q` exercises the re-
+/// introspect refresh path (AC-22-8). Both routes flow through the same
+/// `dispatch_open_model_detail` orchestrator, just with `RunMode::WarmIfCached`
+/// vs `RunMode::ForceReintrospect`.
+pub fn launch_modeltap_ollama_manifest(
+    fixture: &InspectFixture,
+    headless_input: &str,
+) -> LaunchResult {
+    let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
+
+    let manifest_path = devon_ollama_manifest_path(fixture);
+    // The headless synthesizer routes the `tool` field through the production
+    // Ollama plugin. `path` is the on-disk model artefact's location; the
+    // synthesizer uses it to derive inode + size, the renderer prints it
+    // verbatim in the `Registered with` panel. The plugin's `inspect_model`
+    // does NOT read this path — the inspector reads the manifest file under
+    // `<ollama_dir>/manifests/...`. Using the manifest path here gives the
+    // renderer a real on-disk file to stat (so the panel paints non-zero
+    // values) without inventing a phantom blob path.
+    let regs_payload = serde_json::json!({
+        "id": OLLAMA_MANIFEST_FIXTURE_ID,
+        "regs": [
+            {
+                "tool": "ollama",
+                "path": manifest_path.to_string_lossy(),
+            }
+        ]
+    })
+    .to_string();
+
+    cmd.env("MODELTAP_HEADLESS", "1")
+        .env("MODELTAP_TERM_COLS", "160")
+        .env("MODELTAP_TEST_PLUGINS", "test-tool")
+        .env("MODELTAP_TEST_TOOL_ROOT", fixture.test_tool_root())
+        .env(
+            "MODELTAP_OLLAMA_DIR",
+            fixture.ollama_dir.to_string_lossy().into_owned(),
+        )
+        .env("MODELTAP_HEADLESS_DETAIL_REGS", regs_payload)
+        .env("MODELTAP_DIAGNOSTICS_DIR", fixture.diagnostics_dir())
+        .env("MODELTAP_CACHE_PATH", fixture.cache_path())
+        .env("MODELTAP_LOG_DIR", fixture.log_dir())
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
+        .env(
+            "MODELTAP_CONFIG_PATH",
+            fixture.config_path.to_string_lossy().into_owned(),
+        )
+        .env("HF_HOME", "/nonexistent/no-such-hf-cache")
+        // Short-circuit the inspect_tool HTTP probe (irrelevant to the
+        // model-detail surface but keeps the launch deterministic).
+        .env("MODELTAP_OLLAMA_VERSION", "0.6.4")
+        .env("MODELTAP_HEADLESS_INPUT", headless_input)
+        .timeout(Duration::from_secs(30));
+
+    let output = cmd.output().expect("spawn modeltap process");
+    LaunchResult::from_output(output)
 }

@@ -230,6 +230,111 @@ pub fn devon_unintrospectable_model_path(fixture: &InspectFixture) -> PathBuf {
     fixture.ollama_dir.join("unintrospectable-model.bin")
 }
 
+/// Canonical model_id the AC-22-3 / AC-22-8 scenarios pass to the Ollama
+/// plugin's `inspect_model`. The id follows the discovery projection
+/// `<repo>:<tag>` (with the literal `library` segment dropped) so a real
+/// modeltap launch round-trips `model.id == OLLAMA_MANIFEST_FIXTURE_ID`
+/// through the headless DETAIL_REGS payload AND the plugin's manifest
+/// locator.
+pub const OLLAMA_MANIFEST_FIXTURE_ID: &str = "llama3:8b-instruct-q4_K_M";
+
+/// Body of the synthetic Ollama manifest the AC-22-3 / AC-22-8 scenarios
+/// read. Carries every field the plugin's `inspect_model` projects into
+/// `metadata_kv`:
+///
+/// - `config.architecture = "llama"`
+/// - `config.parameter_size = "7B"` → emitted as `parameters` KV
+/// - `config.quantization_level = "Q4_K_M"`
+/// - `template = "<jinja excerpt>"` → truncated to ≤200 chars at projection
+/// - `system = "You are a helpful assistant."`
+///
+/// The manifest is JSON-as-a-string (not a heavyweight Docker-distribution
+/// envelope) because the plugin's `inspect_model` reads the top-level
+/// `config`, `template`, and `system` keys directly. Compatibility with the
+/// existing `discovery::parse_manifest` (which reads `layers[*]` for blob
+/// resolution) is unnecessary here — `inspect_model` is decoupled from
+/// `discover` and the two read disjoint subsets of the manifest envelope.
+const OLLAMA_MANIFEST_FIXTURE_BODY: &str = r#"{
+  "schemaVersion": 2,
+  "config": {
+    "architecture": "llama",
+    "parameter_size": "7B",
+    "quantization_level": "Q4_K_M"
+  },
+  "template": "{{ .System }}\nUser: {{ .Prompt }}\nAssistant: ",
+  "system": "You are a helpful assistant."
+}"#;
+
+/// AC-22-3 / AC-22-8 fixture (step 03-02 part 1/N): a tempdir tree wired so
+/// the production Ollama plugin's `inspect_model` reads a synthetic manifest
+/// at `<ollama_dir>/manifests/registry.ollama.ai/library/llama3/8b-instruct-q4_K_M`.
+/// Combined with `MODELTAP_HEADLESS_DETAIL_REGS={"id": OLLAMA_MANIFEST_FIXTURE_ID, ...}`,
+/// the orchestrator's `dispatch_open_model_detail` resolves `model_id = OLLAMA_MANIFEST_FIXTURE_ID`,
+/// the Ollama plugin's `inspect_model_impl` matches it via the locator, reads
+/// the synthetic manifest, and projects `config.architecture`, `parameters`,
+/// `template`, `system` into `ModelDetail.metadata_kv`. The detail-screen
+/// renderer paints them as aligned `key : value` lines so the acceptance
+/// substring assertions land.
+///
+/// Layout:
+/// ```
+/// <temp>/
+///   ollama-root/
+///     manifests/
+///       registry.ollama.ai/
+///         library/
+///           llama3/
+///             8b-instruct-q4_K_M   ← synthetic manifest JSON
+///   xdg-data/modeltap/             ← cache.sqlite landing pad
+///   test-tool/models/...           ← TestTool seed (parity with siblings)
+///   logs/                          ← log dir
+///   modeltap-home/                 ← inert HOME shim
+/// ```
+///
+/// The TestTool seed is included for parity with the other inspect fixtures
+/// — the headless harness boots the modeltap composition root with the
+/// TestTool plugin registered alongside the production Ollama plugin so the
+/// left-pane invariant ("at least one tool present") holds even when the
+/// scenario's assertion targets the right pane.
+pub fn devon_ollama_manifest_fixture() -> InspectFixture {
+    let temp = TempDir::new().expect("create devon-ollama-manifest tempdir");
+    setup_common_tree(temp.path());
+
+    let ollama_dir = temp.path().join("ollama-root");
+    let manifest_dir = ollama_dir
+        .join("manifests")
+        .join("registry.ollama.ai")
+        .join("library")
+        .join("llama3");
+    std::fs::create_dir_all(&manifest_dir).expect("create manifest dir");
+    let manifest_path = manifest_dir.join("8b-instruct-q4_K_M");
+    std::fs::write(&manifest_path, OLLAMA_MANIFEST_FIXTURE_BODY)
+        .expect("write synthetic ollama manifest");
+
+    let config_path = PathBuf::from("/nonexistent/no-such-config.toml");
+
+    InspectFixture {
+        temp,
+        ollama_dir,
+        config_path,
+    }
+}
+
+/// Absolute path to the synthetic Ollama manifest under the
+/// `devon_ollama_manifest_fixture` tempdir. The cucumber driver does not
+/// dereference the file (the Ollama plugin reads it under
+/// `MODELTAP_OLLAMA_DIR`), but the path is exposed so the fixture's unit
+/// tests below can assert layout invariants without re-deriving the join.
+pub fn devon_ollama_manifest_path(fixture: &InspectFixture) -> PathBuf {
+    fixture
+        .ollama_dir
+        .join("manifests")
+        .join("registry.ollama.ai")
+        .join("library")
+        .join("llama3")
+        .join("8b-instruct-q4_K_M")
+}
+
 /// AC-21-5 fixture: a real `config.toml` that adds one user-config search
 /// path under `[plugins.ollama]`. `MODELTAP_CONFIG_PATH` is pointed at it.
 /// Ollama's `inspect_tool` then emits one `Default` entry (the models root)
@@ -349,6 +454,34 @@ mod tests {
         assert!(
             manifests.is_dir(),
             "manifests/ must be a directory (NotInstalled discover path)"
+        );
+    }
+
+    #[test]
+    fn devon_ollama_manifest_writes_synthetic_manifest_at_expected_path() {
+        let fix = devon_ollama_manifest_fixture();
+        let path = devon_ollama_manifest_path(&fix);
+        assert!(
+            path.exists(),
+            "synthetic manifest must exist at {}",
+            path.display()
+        );
+        let raw = std::fs::read_to_string(&path).expect("read manifest");
+        assert!(
+            raw.contains("\"architecture\": \"llama\""),
+            "manifest must carry config.architecture; got:\n{raw}"
+        );
+        assert!(
+            raw.contains("\"parameter_size\": \"7B\""),
+            "manifest must carry config.parameter_size; got:\n{raw}"
+        );
+        assert!(
+            raw.contains("\"template\""),
+            "manifest must carry top-level template; got:\n{raw}"
+        );
+        assert!(
+            raw.contains("\"system\""),
+            "manifest must carry top-level system; got:\n{raw}"
         );
     }
 
