@@ -230,6 +230,20 @@ impl Tool for TestTool {
     }
 
     async fn inspect_model(&self, id: &ModelId) -> Result<ModelDetail, InspectError> {
+        // Step 03-03 (US-22 / AC-22-7 / INT-INFO-8) panic-isolation seam:
+        // when `MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC=1` is set, panic
+        // deliberately from inspect_model() so the acceptance suite can drive
+        // the orchestrator's panic-catch boundary end-to-end for the
+        // model-detail path (mirrors the inspect_tool seam landed in step
+        // 02-03). Placed at the TOP of the function so the panic precedes
+        // any normal logic. Distinct env var from
+        // MODELTAP_TEST_TOOL_INSPECT_PANIC so fixtures can target the two
+        // boundaries independently.
+        if std::env::var("MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC").as_deref() == Ok("1") {
+            panic!(
+                "MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC=1 -- deliberate test panic in inspect_model"
+            );
+        }
         // The TestTool reports only `TEST_MODEL_ID`. Inspect for any other
         // id is a FileReadable error -- matches the production contract that
         // unknown models surface an error rather than an all-empty

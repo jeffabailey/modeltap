@@ -7,17 +7,21 @@
 //! plain `#[test]` driving via `assert_cmd::Command::cargo_bin("modeltap")`
 //! against a fixture-populated tempdir; no cucumber-rs runtime.
 //!
-//! Current scope: INT-INFO-8 (plugin panic during inspect_tool / inspect_model
-//! caught at the orchestrator boundary). Future INT-INFO-* scenarios extend
-//! this module rather than spawning sibling files so the cross-cutting
-//! invariants stay co-located.
+//! Current scope: INT-INFO-8 (plugin panic during inspect_tool AND
+//! inspect_model caught at the orchestrator boundary — both routes
+//! exercised in this module). Future INT-INFO-* scenarios extend this module
+//! rather than spawning sibling files so the cross-cutting invariants stay
+//! co-located.
 //!
 //! Plugin route: the harness drives the panic through the in-process TestTool
-//! (`MODELTAP_TEST_PLUGINS=test-tool` + `MODELTAP_TEST_TOOL_INSPECT_PANIC=1`).
-//! The orchestrator's `AssertUnwindSafe(plugin.inspect_tool()).catch_unwind()`
-//! wrap in `crates/modeltap-app/src/orchestration/open_tool_detail.rs` is
-//! plugin-agnostic, so this routing decision exercises the SAME boundary the
-//! production Ollama/HF/lm-studio plugins would hit.
+//! (`MODELTAP_TEST_PLUGINS=test-tool` + `MODELTAP_TEST_TOOL_INSPECT_PANIC=1`
+//! for the tool-detail path, and `MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC=1`
+//! for the model-detail path landed in step 03-03). The orchestrators'
+//! `AssertUnwindSafe(plugin.inspect_*()).catch_unwind()` wraps in
+//! `crates/modeltap-app/src/orchestration/open_tool_detail.rs` and
+//! `open_model_detail.rs` are plugin-agnostic, so this routing decision
+//! exercises the SAME boundaries the production Ollama/HF/lm-studio plugins
+//! would hit.
 
 #![allow(dead_code)] // Helpers may be referenced by future INT-INFO-* scenarios.
 
@@ -115,6 +119,89 @@ pub fn launch_modeltap_and_navigate_to_test_tool_detail(fixture: &InspectFixture
         // Short-circuit Ollama's `inspect_tool` HTTP probe to keep the
         // inspect path deterministic (ADR-016 §D12 / R5). Irrelevant to
         // this scenario's assertions but matches the rest of the suite.
+        .env("MODELTAP_OLLAMA_VERSION", "0.6.4")
+        .env("MODELTAP_HEADLESS_INPUT", "<enter><esc>q")
+        .timeout(Duration::from_secs(30));
+
+    let output = cmd.output().expect("spawn modeltap process");
+    LaunchResult::from_output(output)
+}
+
+/// `When Devon opens the test-tool model detail screen`
+///
+/// Sibling of `launch_modeltap_and_navigate_to_test_tool_detail` for the
+/// inspect_model panic path landed in step 03-03 (US-22 / AC-22-7 /
+/// INT-INFO-8). Spawns modeltap headless and scripts an `<enter><esc>q`
+/// sequence so `Msg::OpenDetail(_)` runs against the TestTool, the
+/// orchestrator awaits `plugin.inspect_model(id)` under `catch_unwind`, the
+/// TestTool panics via `MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC=1`, the
+/// orchestrator surfaces `INSPECT_PANIC_SENTINEL` in `metadata_kv["_status"]`
+/// and writes `inspect_panic tool=test-tool model=<id> ...` to
+/// `<diagnostics_dir>/diagnostics.log`.
+///
+/// Differs from the inspect_tool variant on three axes:
+///   1. Env-var seam: `MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC=1` (NOT
+///      `MODELTAP_TEST_TOOL_INSPECT_PANIC=1` — these are deliberately distinct
+///      so fixtures can target the two orchestrator boundaries independently).
+///   2. Enter-lift: `MODELTAP_HEADLESS_DETAIL_REGS` (the model-detail JSON
+///      payload) instead of `MODELTAP_HEADLESS_TOOL_DETAIL=1` (the tool-detail
+///      flag). The synthesize_detail_from_env helper consumes the JSON and
+///      returns a DetailScreenState pointing at the test-tool seed model.
+///   3. Diagnostics line shape: `inspect_panic tool=test-tool model=<mid> ...`
+///      (the model-detail orchestrator's write_diagnostics_panic_line adds
+///      the `model=<id>` field).
+pub fn launch_modeltap_and_navigate_to_test_tool_model_detail(
+    fixture: &InspectFixture,
+) -> LaunchResult {
+    // Build the MODELTAP_HEADLESS_DETAIL_REGS JSON. `synthesize_detail_from_env`
+    // requires `id` + at least one `regs[]` entry whose `tool` is one of the
+    // accepted routes ("test-tool" was added in step 03-03 specifically for
+    // this scenario). The TestTool's seed model file lives under
+    // `<fixture>/test-tool/models/test-model-7b.gguf` per `setup_common_tree`.
+    let model_id = modeltap_acceptance::test_tool::TEST_MODEL_ID;
+    let model_path = fixture
+        .test_tool_root()
+        .join(modeltap_acceptance::test_tool::TEST_MODEL_FILENAME);
+    let detail_regs = serde_json::json!({
+        "id": model_id,
+        "regs": [
+            { "tool": "test-tool", "path": model_path.to_string_lossy() }
+        ]
+    })
+    .to_string();
+
+    let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
+    cmd.env("MODELTAP_HEADLESS", "1")
+        .env("MODELTAP_TERM_COLS", "120")
+        .env("MODELTAP_TEST_PLUGINS", "test-tool")
+        .env("MODELTAP_TEST_TOOL_ROOT", fixture.test_tool_root())
+        // Panic seam landed in step 03-03 on the TestTool's `inspect_model`
+        // body (PARALLEL to MODELTAP_TEST_TOOL_INSPECT_PANIC, NOT a rename).
+        .env("MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC", "1")
+        // Lift the production Enter handler from `Msg::ToggleFolderExpansion`
+        // to `Msg::OpenDetail(_)` so the headless scripted `<enter>` reaches
+        // the model-detail orchestrator. Mutually exclusive with the
+        // tool-detail variant's MODELTAP_HEADLESS_TOOL_DETAIL=1.
+        .env("MODELTAP_HEADLESS_DETAIL_REGS", &detail_regs)
+        .env("MODELTAP_DIAGNOSTICS_DIR", fixture.diagnostics_dir())
+        .env("MODELTAP_CACHE_PATH", fixture.cache_path())
+        .env("MODELTAP_LOG_DIR", fixture.log_dir())
+        .env(
+            "MODELTAP_OLLAMA_DIR",
+            fixture.ollama_dir.to_string_lossy().into_owned(),
+        )
+        .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
+        .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
+        .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
+        .env(
+            "MODELTAP_CONFIG_PATH",
+            fixture.config_path.to_string_lossy().into_owned(),
+        )
+        .env("HF_HOME", "/nonexistent/no-such-hf-cache")
         .env("MODELTAP_OLLAMA_VERSION", "0.6.4")
         .env("MODELTAP_HEADLESS_INPUT", "<enter><esc>q")
         .timeout(Duration::from_secs(30));

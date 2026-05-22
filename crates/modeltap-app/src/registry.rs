@@ -252,6 +252,20 @@ mod test_harness {
         }
         async fn inspect_model(&self, id: &ModelId) -> Result<ModelDetail, InspectError> {
             use std::collections::BTreeMap;
+            // Step 03-03 (US-22 / AC-22-7 / INT-INFO-8) panic-isolation seam:
+            // when `MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC=1` is set, panic
+            // deliberately. Mirrors the canonical TestTool seam in
+            // `modeltap-acceptance::test_tool::TestTool::inspect_model` so a
+            // fixture that sets the env var sees the same panic regardless of
+            // which TestTool implementation the modeltap binary routes to
+            // (the in-binary TestToolRegistration is the path the acceptance
+            // crate's headless harness drives). Placed BEFORE any normal
+            // logic so the panic precedes the FileReadable seam.
+            if std::env::var("MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC").as_deref() == Ok("1") {
+                panic!(
+                    "MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC=1 -- deliberate test panic in inspect_model"
+                );
+            }
             if id.as_str() != TEST_MODEL_ID {
                 return Err(InspectError::FileReadable {
                     path: self.root.join(format!("{}.gguf", id.as_str())),

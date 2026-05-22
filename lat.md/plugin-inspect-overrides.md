@@ -108,6 +108,25 @@ The plugin-side test files (`plugins/<id>/tests/inspect_tool_contract.rs`) are t
 
 The orchestrator-side panic boundary lives in [[crates/modeltap-app/src/orchestration/open_tool_detail.rs]]: a panic in a plugin's `inspect_tool` returns `Err(InspectError::PluginPanic)` to the orchestration, which renders "(inspection failed -- see diagnostics.log)" in the detail view and writes `inspect_panic tool=<id>` to the diagnostics log. That cross-cutting behavior is asserted end-to-end by INT-INFO-8 in `tests/acceptance/integration_checkpoints.rs`.
 
+Step 03-03 adds a sibling harness for the model-detail path: `run_inspect_model_contract<T: Tool + ?Sized>` mirrors the `inspect_tool` shape against `Tool::inspect_model`. Same `InspectCapability` enum, same orchestration on the `Unsupported` arm (must return `Err(InspectError::Unsupported { tool })`). The `Supported` arm runs six test cases per the plugin-contract spec §3.13:
+
+1. **happy-path**: a known model id returns `Ok(ModelDetail)` whose `model_id` matches the input.
+2. **unknown-id**: an unknown model id returns `Err(InspectError::FileReadable { path: <plausible>, source: NotFound })` — distinguishing "model genuinely absent" from "model present but corrupt".
+3. **corrupt-input**: a malformed artefact at a known id returns `Err(InspectError::FormatUnreadable { path, detail })` — distinguishing the corrupt path from the missing-file path.
+4. **determinism**: two consecutive calls with the same id return equal results modulo `introspected_at` (matches the `inspect_tool` determinism check).
+5. **field-schema**: when `Ok`, `metadata_kv` is a `BTreeMap<String, String>` with ≤ 10 keys per AC-22-6 — the upper-bound projection contract.
+6. **panic-isolation**: the same `catch_unwind` wrapper from the `inspect_tool` contract is re-exercised against `inspect_model` so a panicking plugin surfaces as `Err(InspectError::PluginPanic)` rather than tearing down the test process.
+
+Plugin-side files invoking the harness:
+- [[plugins/ollama/tests/inspect_model_contract.rs]], [[plugins/hf/tests/inspect_model_contract.rs]], [[plugins/lm-studio/tests/inspect_model_contract.rs]] — `Supported` arms using the same fixtures the lm-studio / Ollama / HF acceptance suites build (step 03-02 parts 1-3).
+- [[plugins/atomic-chat/tests/inspect_model_contract.rs]] and [[plugins/gpt4all/tests/inspect_model_contract.rs]] — `Unsupported` arms proving default-body inheritance.
+
+llama-cli is not a separate plugin crate; its `inspect_model` lives inside [[plugins/lm-studio/src/inspect.rs]] sharing the GGUF parser. The lm-studio contract test covers both surfaces by construction.
+
+The orchestrator-side panic boundary for `inspect_model` lives in [[crates/modeltap-app/src/orchestration/open_model_detail.rs]]. A panic returns `Err(InspectError::PluginPanic { tool, message })` which the orchestrator's `merge()` surfaces as `metadata_kv["_status"] = INSPECT_PANIC_SENTINEL`. The render layer paints "(inspection failed -- see diagnostics.log)" in the Metadata section while preserving cache-sourced file-shape fields (format, quantisation, size, architecture, parameters, context_length) so the other panels still render — same UX contract as the tool-detail variant. The diagnostics line carries `inspect_panic tool=<id> model=<mid> message=<sanitised>` (the `model=<id>` field is unique to the model-detail orchestrator — `open_tool_detail` does not emit it because there's no model context at the tool-detail boundary).
+
+The end-to-end INT-INFO-8 scenario for the model-detail boundary drives this via the parallel `MODELTAP_TEST_TOOL_INSPECT_MODEL_PANIC=1` env-var seam (see [[test-plugin-seam]]) and asserts: TUI does not crash, sentinel appears in the rendered frame, diagnostics.log gains the `inspect_panic tool=test-tool model=test-model-7b` line, process stays alive. Lives alongside the inspect_tool scenario in [[tests/acceptance/integration_checkpoints.rs]] as the second `#[test]` (`plugin_panic_during_inspect_model_is_caught_at_the_orchestrator_boundary`).
+
 ## Panic isolation at the orchestrator boundary
 
 [[crates/modeltap-app/src/orchestration/open_tool_detail.rs]] wraps each `plugin.inspect_tool()` future in `AssertUnwindSafe(...).catch_unwind()` (from the `futures` crate). A plugin panic in `inspect_tool` becomes `Err(InspectError::PluginPanic { tool, message })` — the orchestrator never unwinds.

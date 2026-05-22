@@ -1488,6 +1488,12 @@ fn synthesize_detail_from_env(_state: &AppState) -> Option<DetailScreenState> {
             "ollama" => ToolId("ollama"),
             "hf" => ToolId("hf"),
             "lm-studio" => ToolId("lm-studio"),
+            // Step 03-03 (US-22 / AC-22-7 / INT-INFO-8): route through the
+            // in-process TestTool plugin so the INT-INFO-8 cucumber test can
+            // exercise the inspect_model panic-isolation boundary without
+            // touching any production plugin. Mirror of the routing decision
+            // in `lift_enter_in_left_pane_to_tool_detail` (step 02-01).
+            "test-tool" => ToolId("test-tool"),
             _ => continue,
         };
         let path = PathBuf::from(path_str);
