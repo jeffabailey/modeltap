@@ -426,6 +426,20 @@ pub enum Msg {
     /// prefix are no-ops at the resolver level.
     ToggleFolderExpansion,
 
+    // -----------------------------------------------------------------------
+    // Step 04-01 — cache recovery banner (US-23, AC-23-7 / AC-23-11).
+    //
+    // The composition root populates `AppState.recovery_reason` when
+    // `Cache::open` returns `OpenedAfterRecovery`. The banner paints at row
+    // 0 of the main view; `[Esc]` dismisses it by setting the field back to
+    // `None` via this Msg.
+    // -----------------------------------------------------------------------
+    /// User pressed `[Esc]` while the recovery banner is visible (no other
+    /// dialog open). `update()` clears `state.recovery_reason` so the banner
+    /// stops rendering on the next frame. Per AC-23-11 the inventory below
+    /// the banner is unaffected.
+    DismissRecoveryBanner,
+
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,
 }

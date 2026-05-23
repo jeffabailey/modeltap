@@ -11,8 +11,8 @@ use ratatui::Frame;
 
 use crate::app_state::{AppState, Screen};
 use crate::render::{
-    bottom_bar, delete_one_dialog, left_pane, right_pane, running_tool_dialog, summary_bar,
-    unify_dialog, zap_dialog,
+    bottom_bar, delete_one_dialog, left_pane, recovery_banner, right_pane, running_tool_dialog,
+    summary_bar, unify_dialog, zap_dialog,
 };
 use crate::screens::detail::render_detail;
 use crate::screens::help_overlay;
@@ -205,10 +205,32 @@ fn render_tool_detail_loading(
 }
 
 fn view_main(state: &AppState, frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
+    // Step 04-01: paint the recovery banner at row 0 BEFORE laying out the
+    // panes. When `state.recovery_reason` is Some, the banner consumes one
+    // row and the remaining area shrinks by 1; when None, the renderer is a
+    // no-op and the full area is available for the panes (zero visual cost).
+    let recovery_rows = recovery_banner::render(
+        frame,
+        area,
+        state
+            .recovery_reason
+            .as_ref()
+            .map(|(reason, path)| (reason, path.as_path())),
+    );
+    let pane_area = if recovery_rows > 0 && area.height > recovery_rows {
+        ratatui::layout::Rect {
+            x: area.x,
+            y: area.y + recovery_rows,
+            width: area.width,
+            height: area.height - recovery_rows,
+        }
+    } else {
+        area
+    };
     // Vertical split: main panes (Min 1) | summary bar (1 row) | shortcut bar (1 row).
     // Identical rects as `outer_chunks` — the helper exists so the production
     // event loop can compute pane heights without re-rendering.
-    let [left, right, summary, bottom] = outer_chunks(area);
+    let [left, right, summary, bottom] = outer_chunks(pane_area);
 
     left_pane::render(frame, left, state);
     right_pane::render(frame, right, state);

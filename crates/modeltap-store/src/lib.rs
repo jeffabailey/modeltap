@@ -20,10 +20,12 @@
 mod error;
 mod migrate;
 mod open;
+pub mod recovery;
 mod repo;
 
 pub mod types;
 
 pub use error::CacheError;
 pub use migrate::EXPECTED_SCHEMA_VERSION;
-pub use open::{Cache, CacheOpenResult, RecoveryReason};
+pub use open::{Cache, CacheOpenResult};
+pub use recovery::RecoveryReason;

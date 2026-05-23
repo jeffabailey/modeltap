@@ -106,6 +106,145 @@ impl DevonCacheEmptyFixture {
 }
 
 // ---------------------------------------------------------------------------
+// Step 04-01 — broken-cache fixtures for the recovery path (AC-23-7 /
+// AC-23-10 / AC-23-11). Each fixture pre-installs a broken cache.sqlite at
+// the same xdg-data/modeltap/ location DevonCacheEmptyFixture uses, then
+// exposes the same env-var triad (MODELTAP_CACHE_PATH, MODELTAP_DIAGNOSTICS_DIR,
+// MODELTAP_LOG_DIR) so the existing M1 walking-skeleton scenarios can swap
+// the fixture without touching the acceptance step definitions.
+// ---------------------------------------------------------------------------
+
+/// Pre-installed corrupt cache fixture: writes 16 KB of deterministic
+/// non-SQLite bytes at `<temp>/xdg-data/modeltap/cache.sqlite`. SQLite
+/// returns `SQLITE_NOTADB` on first `Connection::open` because the header
+/// is not "SQLite format 3\0". `Cache::open` routes to recovery, renames
+/// the file to `cache.sqlite.corrupt-<ts>`, and opens a fresh empty cache.
+///
+/// The deterministic byte pattern (`Knuth multiplicative hash` of the
+/// position) avoids pulling in the `rand` crate as a new workspace
+/// dependency — the recovery routine doesn't care WHAT the bytes are, only
+/// that the header is invalid.
+pub struct DevonCacheCorruptFixture {
+    pub temp: TempDir,
+}
+
+impl DevonCacheCorruptFixture {
+    /// Build a fresh fixture with a corrupt cache.sqlite pre-installed.
+    pub fn build() -> Self {
+        let temp = TempDir::new().expect("create devon-cache-corrupt tempdir");
+        let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
+        std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
+        // Pre-create the test-tool model dir so cold-start discovery has
+        // something to find — matches the M1 fixture's invariant that the
+        // fresh recovered cache still finds the TestTool's model.
+        let model_dir = temp.path().join("test-tool").join("models");
+        std::fs::create_dir_all(&model_dir).expect("create test-tool/models");
+        let model_path = model_dir.join(TEST_MODEL_FILENAME);
+        std::fs::write(&model_path, b"synthetic-walking-skeleton-gguf-bytes")
+            .expect("seed synthetic gguf");
+        // logs/, modeltap-home/, and the corrupt cache itself.
+        std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home"))
+            .expect("create modeltap-home/");
+
+        // 16 KB of deterministic non-SQLite bytes. The first 16 bytes alone
+        // are enough to fail the SQLite header check; 16 KB is the size the
+        // step 04-01 spec calls out so the fixture matches the acceptance
+        // test expectations.
+        let bytes: Vec<u8> = (0..16_384u32)
+            .map(|i| ((i.wrapping_mul(2654435761)) >> 24) as u8)
+            .collect();
+        let cache_path = xdg_modeltap.join("cache.sqlite");
+        std::fs::write(&cache_path, bytes).expect("write corrupt cache.sqlite");
+        Self { temp }
+    }
+
+    /// Absolute path to the corrupt `cache.sqlite` (pre-existing on disk).
+    pub fn cache_path(&self) -> PathBuf {
+        self.temp
+            .path()
+            .join("xdg-data")
+            .join("modeltap")
+            .join("cache.sqlite")
+    }
+
+    /// Diagnostics dir for `MODELTAP_DIAGNOSTICS_DIR`.
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.temp.path().join("modeltap-home")
+    }
+
+    /// Log dir for `MODELTAP_LOG_DIR`.
+    pub fn log_dir(&self) -> PathBuf {
+        self.temp.path().join("logs")
+    }
+
+    /// Test-tool model root (matches DevonCacheEmptyFixture).
+    pub fn test_tool_root(&self) -> PathBuf {
+        self.temp.path().join("test-tool").join("models")
+    }
+}
+
+/// Pre-installed future-version cache fixture: writes a valid SQLite at
+/// `<temp>/xdg-data/modeltap/cache.sqlite` and sets `PRAGMA user_version = 99`.
+/// `Cache::open` reads `user_version > EXPECTED_SCHEMA_VERSION`, routes to
+/// recovery, renames the file to `cache.sqlite.future-version-99`, and opens
+/// a fresh empty cache.
+pub struct DevonCacheFutureVersionFixture {
+    pub temp: TempDir,
+}
+
+impl DevonCacheFutureVersionFixture {
+    /// Build a fresh fixture with a future-version cache.sqlite pre-installed.
+    pub fn build() -> Self {
+        let temp = TempDir::new().expect("create devon-cache-future-v tempdir");
+        let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
+        std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
+        let model_dir = temp.path().join("test-tool").join("models");
+        std::fs::create_dir_all(&model_dir).expect("create test-tool/models");
+        let model_path = model_dir.join(TEST_MODEL_FILENAME);
+        std::fs::write(&model_path, b"synthetic-walking-skeleton-gguf-bytes")
+            .expect("seed synthetic gguf");
+        std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home"))
+            .expect("create modeltap-home/");
+
+        // Seed a valid SQLite with PRAGMA user_version = 99.
+        let cache_path = xdg_modeltap.join("cache.sqlite");
+        let conn = Connection::open(&cache_path).expect("seed future-version sqlite");
+        conn.pragma_update(None, "user_version", 99_i64)
+            .expect("set user_version=99");
+        conn.close()
+            .map_err(|(_, e)| e)
+            .expect("close future-version seed");
+        Self { temp }
+    }
+
+    /// Absolute path to the future-version `cache.sqlite`.
+    pub fn cache_path(&self) -> PathBuf {
+        self.temp
+            .path()
+            .join("xdg-data")
+            .join("modeltap")
+            .join("cache.sqlite")
+    }
+
+    /// Diagnostics dir for `MODELTAP_DIAGNOSTICS_DIR`.
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.temp.path().join("modeltap-home")
+    }
+
+    /// Log dir for `MODELTAP_LOG_DIR`.
+    pub fn log_dir(&self) -> PathBuf {
+        self.temp.path().join("logs")
+    }
+
+    /// Test-tool model root (matches DevonCacheEmptyFixture).
+    pub fn test_tool_root(&self) -> PathBuf {
+        self.temp.path().join("test-tool").join("models")
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CACHE seam helper — acceptance-test-plan.md §1 CM-A.
 // ---------------------------------------------------------------------------
 
@@ -300,6 +439,44 @@ mod tests {
             verifier.model_count_for("missing-tool").expect("query"),
             None,
             "missing tool returns None"
+        );
+    }
+
+    #[test]
+    fn devon_cache_corrupt_fixture_pre_installs_invalid_sqlite_bytes() {
+        let fix = DevonCacheCorruptFixture::build();
+        let cache_path = fix.cache_path();
+        assert!(
+            cache_path.exists(),
+            "fixture must pre-install corrupt cache.sqlite"
+        );
+        let bytes = std::fs::read(&cache_path).expect("read corrupt cache");
+        assert_eq!(bytes.len(), 16_384, "must be exactly 16 KB");
+        // The SQLite file header is "SQLite format 3\0" — verify the fixture
+        // does NOT have this header so Cache::open reliably routes to
+        // recovery.
+        assert!(
+            !bytes.starts_with(b"SQLite format 3\0"),
+            "corrupt fixture must NOT have a valid SQLite header"
+        );
+    }
+
+    #[test]
+    fn devon_cache_future_version_fixture_seeds_user_version_99() {
+        let fix = DevonCacheFutureVersionFixture::build();
+        let cache_path = fix.cache_path();
+        assert!(
+            cache_path.exists(),
+            "fixture must pre-install future-version cache.sqlite"
+        );
+        // Confirm PRAGMA user_version = 99 round-trips. Use the read-only
+        // CacheVerifier so we exercise the same path the recovery scenarios
+        // will use.
+        let verifier = CacheVerifier::open(&cache_path).expect("open verifier");
+        assert_eq!(
+            verifier.pragma_user_version().expect("pragma"),
+            99,
+            "future-version fixture must have user_version = 99"
         );
     }
 

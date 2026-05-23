@@ -24,7 +24,7 @@ pub mod render;
 pub mod screens;
 pub mod update;
 
-pub use app_state::{AppState, FocusPane, Screen, ToolView};
+pub use app_state::{AppState, FocusPane, RecoveryReason, Screen, ToolView};
 pub use layout::{
     check_terminal_width, left_pane_body_rows, right_pane_body_rows, view, TerminalSizeError,
 };

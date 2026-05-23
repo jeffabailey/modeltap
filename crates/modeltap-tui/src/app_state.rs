@@ -70,6 +70,28 @@ pub enum FocusPane {
     Right,
 }
 
+/// Why the previous cache was reset (Step 04-01, AC-23-7 / AC-23-11).
+///
+/// TUI-local mirror of `modeltap_store::RecoveryReason`. Architecture rule R7
+/// keeps `modeltap-tui` from depending on `modeltap-store` directly — the
+/// composition root in `modeltap-app` translates the store's variant into
+/// this TUI-local one when wiring `OpenedAfterRecovery` into `AppState`.
+///
+/// Carried by `AppState.recovery_reason` together with the renamed path; the
+/// banner renderer reads both to produce the user-visible message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecoveryReason {
+    /// SQLITE_CORRUPT / NotADatabase — the on-disk file did not parse as a
+    /// valid SQLite database. Renamed to `cache.sqlite.corrupt-<ts>`.
+    Corrupted,
+    /// `PRAGMA user_version` exceeded the binary's `EXPECTED_SCHEMA_VERSION`.
+    /// Renamed to `cache.sqlite.future-version-<found>`.
+    Downgrade { found: u32, expected: u32 },
+    /// `rusqlite_migration::Migrations::to_latest` returned an error. Renamed
+    /// with the same `.corrupt-<ts>` suffix used for `Corrupted`.
+    MigrationFailed { from: u32, to: u32 },
+}
+
 /// One tool's view-projection: what the left pane displays and what the right
 /// pane uses to render rows when the tool is selected. Step 01-03 keeps the
 /// shape minimal — id strings + size bytes — because the row-detail rendering
@@ -317,6 +339,16 @@ pub struct AppState {
     /// `BTreeSet` for deterministic iteration order and stable serialization
     /// shape under PartialEq.
     pub expanded_folders: std::collections::BTreeSet<String>,
+
+    /// Step 04-01: when `Some((reason, renamed_to))`, the top of the main
+    /// view paints a single-line yellow recovery banner explaining that the
+    /// previous cache was reset. Set by the composition root when
+    /// `Cache::open` returns `OpenedAfterRecovery`. Dismissed by
+    /// `Msg::DismissRecoveryBanner` (`[Esc]`).
+    ///
+    /// AC-23-11: the banner NEVER blocks the launch — the cold-start
+    /// inventory view paints below it regardless.
+    pub recovery_reason: Option<(RecoveryReason, std::path::PathBuf)>,
 }
 
 impl Default for AppState {
@@ -346,6 +378,7 @@ impl Default for AppState {
             unify_highlight: None,
             status_line: None,
             expanded_folders: BTreeSet::new(),
+            recovery_reason: None,
         }
     }
 }
@@ -390,6 +423,7 @@ impl AppState {
             unify_highlight: None,
             status_line: None,
             expanded_folders: BTreeSet::new(),
+            recovery_reason: None,
         }
     }
 

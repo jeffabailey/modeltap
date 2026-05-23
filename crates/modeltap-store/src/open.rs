@@ -6,11 +6,19 @@
 //! migrator (`migrate.rs`) which forwards `user_version` from 0 to
 //! `EXPECTED_SCHEMA_VERSION`.
 //!
-//! Step 01-02 minimum: the four "happy path" `CacheOpenResult` variants are
-//! declared (`OpenedFresh`, `OpenedExisting`, `OpenedAfterMigration`,
-//! `OpenedAfterRecovery`). Only `OpenedFresh` and `OpenedExisting` are
-//! produced today; the migration and recovery branches land in step 01-03
-//! when the corruption/downgrade tests join the suite.
+//! Step 04-01 closes the recovery loop. On open, three recoverable failure
+//! modes route to `recovery::recover_and_reopen` which renames the broken
+//! file aside, appends a `cache_recovery` line to diagnostics.log, and
+//! re-opens a fresh empty cache at the original path:
+//!
+//! 1. `SQLITE_CORRUPT` / `SQLITE_NOTADB` from any opening rusqlite call.
+//! 2. `PRAGMA user_version > EXPECTED_SCHEMA_VERSION` (downgrade).
+//! 3. `rusqlite_migration::Migrations::to_latest` returning an error.
+//!
+//! AC-23-11 invariant: cache failure NEVER prevents inventory view from
+//! rendering — the composition root surfaces this as a dismissable banner
+//! and the inventory view paints normally below it via the cold-start
+//! fallback.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -19,6 +27,7 @@ use rusqlite::Connection;
 
 use crate::error::CacheError;
 use crate::migrate::{migrate_to_latest, EXPECTED_SCHEMA_VERSION};
+use crate::recovery::{recover_and_reopen, RecoveryReason};
 
 /// The cache handle. Owns the SQLite connection behind a `Mutex` so the
 /// public API can present `&self` methods to callers (matching the surface
@@ -30,36 +39,29 @@ pub struct Cache {
 
 /// Result of opening a cache. Step 01-02 produces `OpenedFresh` for a
 /// non-existent path and `OpenedExisting` when the schema is already at
-/// `EXPECTED_SCHEMA_VERSION`. The remaining variants are declared for
-/// downstream steps so the public enum is stable.
+/// `EXPECTED_SCHEMA_VERSION`. Step 04-01 wires the `OpenedAfterRecovery`
+/// branch (SQLITE_CORRUPT / downgrade / migration-failure).
 #[derive(Debug)]
 pub enum CacheOpenResult {
     /// File existed and schema already matched `EXPECTED_SCHEMA_VERSION`.
     OpenedExisting(Cache),
 
     /// File existed at a lower schema version; the migrator ran forward.
-    /// Produced by step 01-03 onward; included for surface stability.
     OpenedAfterMigration { from: u32, to: u32, cache: Cache },
 
     /// File did not exist (or was empty); fresh schema applied.
     OpenedFresh(Cache),
 
     /// File was renamed away (corrupt / downgrade / migration-failure) and a
-    /// fresh cache was opened in its place. Produced by step 01-03 onward.
-    #[allow(dead_code)]
+    /// fresh cache was opened in its place. Carries the `RecoveryReason` so
+    /// the composition root can surface the cause in the recovery banner.
+    /// `renamed_to` is the absolute path the broken file was renamed to so
+    /// support / triage can find it on disk.
     OpenedAfterRecovery {
         reason: RecoveryReason,
         renamed_to: PathBuf,
         cache: Cache,
     },
-}
-
-#[derive(Debug, Clone)]
-#[allow(dead_code)]
-pub enum RecoveryReason {
-    Corrupted,
-    Downgrade { found: u32, expected: u32 },
-    MigrationFailed { from: u32, to: u32 },
 }
 
 impl Cache {
@@ -68,12 +70,17 @@ impl Cache {
     /// - Creates the parent directory if missing.
     /// - Sets `PRAGMA journal_mode = WAL` and `PRAGMA busy_timeout = 5000`.
     /// - Runs migrations forward to `EXPECTED_SCHEMA_VERSION` if needed.
+    /// - On `SQLITE_CORRUPT`, future-version, or migration failure: renames
+    ///   the broken file aside, writes a `cache_recovery` diagnostics line,
+    ///   and re-opens a fresh empty cache at the original path.
     ///
-    /// Returns `OpenedFresh` when the file did not exist before this call,
-    /// and `OpenedExisting` when it did and is already at the expected
-    /// schema version. The `OpenedAfterMigration` and `OpenedAfterRecovery`
-    /// variants are produced by future steps when migration-from-older and
-    /// recovery paths land.
+    /// Returns one of:
+    /// - `OpenedFresh` — file did not exist before this call.
+    /// - `OpenedExisting` — file existed and is already at the expected schema.
+    /// - `OpenedAfterMigration { from, to }` — file existed at a lower
+    ///   version and the migrator rolled it forward.
+    /// - `OpenedAfterRecovery { reason, renamed_to }` — the file was broken
+    ///   and was renamed aside; the returned `cache` is a fresh empty DB.
     pub fn open(path: &Path) -> Result<CacheOpenResult, CacheError> {
         let file_existed_before = path.exists();
 
@@ -86,11 +93,75 @@ impl Cache {
             }
         }
 
-        let mut conn = Connection::open(path).map_err(CacheError::Sqlite)?;
-        Self::apply_open_pragmas(&conn)?;
+        // First attempt: standard open. If the file is corrupt or not a
+        // database we route to recovery; everything else propagates.
+        let conn_result = Connection::open(path).map_err(CacheError::Sqlite);
+        let mut conn = match conn_result {
+            Ok(c) => c,
+            Err(err) => {
+                if is_corruption_error(&err) {
+                    return Self::run_recovery(path, &RecoveryReason::Corrupted);
+                }
+                return Err(err);
+            }
+        };
 
-        let before_version = read_user_version(&conn)?;
-        migrate_to_latest(&mut conn)?;
+        if let Err(err) = Self::apply_open_pragmas(&conn) {
+            if is_corruption_error(&err) {
+                drop(conn);
+                return Self::run_recovery(path, &RecoveryReason::Corrupted);
+            }
+            return Err(err);
+        }
+
+        // Read the on-disk schema version BEFORE running migrations so we can
+        // distinguish (a) downgrade from (b) normal forward-migration.
+        let before_version = match read_user_version(&conn) {
+            Ok(v) => v,
+            Err(err) => {
+                if is_corruption_error(&err) {
+                    drop(conn);
+                    return Self::run_recovery(path, &RecoveryReason::Corrupted);
+                }
+                return Err(err);
+            }
+        };
+
+        // Downgrade check: if the on-disk schema is newer than what this
+        // binary supports, recover (rename aside + fresh cache). Only applies
+        // to pre-existing files — a fresh file has user_version=0 and is
+        // never a downgrade case.
+        if file_existed_before && before_version > EXPECTED_SCHEMA_VERSION {
+            drop(conn);
+            return Self::run_recovery(
+                path,
+                &RecoveryReason::Downgrade {
+                    found: before_version,
+                    expected: EXPECTED_SCHEMA_VERSION,
+                },
+            );
+        }
+
+        // Run migrations. On failure, rename and recover.
+        if let Err(err) = migrate_to_latest(&mut conn) {
+            drop(conn);
+            return Self::run_recovery(
+                path,
+                &RecoveryReason::MigrationFailed {
+                    from: before_version,
+                    to: EXPECTED_SCHEMA_VERSION,
+                },
+            )
+            .map_err(|recovery_err| {
+                // If recovery itself failed, surface the recovery error rather
+                // than the original migration error: the user's actionable
+                // path is to investigate the I/O failure that prevented
+                // recovery, not the migration that triggered it.
+                let _ = err;
+                recovery_err
+            });
+        }
+
         let after_version = read_user_version(&conn)?;
 
         let cache = Cache {
@@ -109,6 +180,23 @@ impl Cache {
             }
         };
         Ok(result)
+    }
+
+    /// Common tail for the three recovery-triggering paths. Renames the
+    /// broken file aside via `recovery::recover_and_reopen`, wraps the fresh
+    /// connection in a `Cache`, and returns the `OpenedAfterRecovery` variant.
+    fn run_recovery(
+        path: &Path,
+        reason: &RecoveryReason,
+    ) -> Result<CacheOpenResult, CacheError> {
+        let (conn, renamed_to) = recover_and_reopen(path, reason)?;
+        Ok(CacheOpenResult::OpenedAfterRecovery {
+            reason: reason.clone(),
+            renamed_to,
+            cache: Cache {
+                conn: Mutex::new(conn),
+            },
+        })
     }
 
     /// Open a fresh in-memory cache (`:memory:`). Intended for unit tests.
@@ -200,6 +288,27 @@ fn read_user_version(conn: &Connection) -> Result<u32, CacheError> {
         });
     }
     Ok(v as u32)
+}
+
+/// True iff the underlying SQLite error indicates the file is not a valid
+/// database. Two error codes route to recovery:
+///
+/// - `SQLITE_CORRUPT` (`DatabaseCorrupt`) — valid header, body damaged.
+/// - `SQLITE_NOTADB` (`NotADatabase`) — header is not a valid SQLite file.
+///
+/// Both are handled identically: rename the broken file aside and open a
+/// fresh empty cache at the original path.
+fn is_corruption_error(err: &CacheError) -> bool {
+    let CacheError::Sqlite(sqlite_err) = err else {
+        return false;
+    };
+    let Some(code) = sqlite_err.sqlite_error_code() else {
+        return false;
+    };
+    matches!(
+        code,
+        rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase
+    )
 }
 
 // Compile-time sanity: keep `EXPECTED_SCHEMA_VERSION` non-zero. Step 01-02

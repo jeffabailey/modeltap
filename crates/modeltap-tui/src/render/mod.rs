@@ -16,6 +16,7 @@ pub mod icons;
 pub mod indicator;
 pub mod last_action;
 pub mod left_pane;
+pub mod recovery_banner;
 pub mod right_pane;
 pub mod row;
 pub mod running_tool_dialog;

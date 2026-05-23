@@ -416,6 +416,15 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             apply_toggle_folder_expansion(state),
             UpdateEffect::default(),
         ),
+        // Step 04-01 — clear the cache-recovery banner (US-23 AC-23-7).
+        // Pure state mutation: `recovery_reason` → None. The banner renderer
+        // is a no-op when the field is None so the next paint omits it. Per
+        // AC-23-11 the inventory view below the banner is unaffected.
+        Msg::DismissRecoveryBanner => {
+            let mut next = state;
+            next.recovery_reason = None;
+            (next, UpdateEffect::default())
+        }
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
 }
