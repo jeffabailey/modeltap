@@ -55,6 +55,11 @@ rusqlite = { workspace = true }
 # scenario time. Test-only — never imported by the walking-skeleton driver
 # itself (which talks only to the modeltap binary + the CACHE seam).
 modeltap-store = { path = "../crates/modeltap-store" }
+# tool-model-info-sqlite-cache step 04-02: recursive directory snapshot for
+# the cache-opt-out acceptance suite. `walkdir = "2"` already lives in the
+# workspace (modeltap-app and the inspect plugins pull it in), so this is a
+# resolver-unified entry, not a new crate.
+walkdir = "2"
 
 [dev-dependencies]
 assert_cmd = { workspace = true }
@@ -83,6 +88,15 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # One acceptance scenario per [[test]] block. Each block points at the file
 # under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
 # Cargo prints in test output.
+
+# tool-model-info-sqlite-cache step 04-02 — Cache opt-out paths (US-23
+# Scenario 6 + AC-23-8 / AC-23-9 + INT-INFO-6). Four scenarios proving the
+# `--no-cache` CLI flag, the `[cache] enabled = false` config file setting,
+# and the `--version` short-circuit all reach the "zero cache bytes written"
+# invariant via a DirManifest snapshot before/after each launch.
+[[test]]
+name = "cache_opt_out"
+path = "acceptance/cache_opt_out.rs"
 
 # tool-model-info-sqlite-cache step 01-05 — Walking Skeleton M1 (US-23 / US-25).
 # PHASE 01 WALKING-SKELETON EXIT GATE: Devon's second launch shows yesterday's

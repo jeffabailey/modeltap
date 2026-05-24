@@ -24,6 +24,16 @@ The resolver returns `CachePathError::NoDataDir` only when `dirs::data_dir()` it
 
 `cache_enabled = false` (driven by `--no-cache` and `[cache] enabled = false`) short-circuits to `WarmStartSource::Disabled` with an empty inventory — cold-start then owns the launch entirely.
 
+## Opt-out
+
+Step 04-02 wires two user-facing opt-out levers to a single composition-root boolean: the [[crates/modeltap-app/src/main.rs|`--no-cache` flag]] and the file-based [[crates/modeltap-app/src/config.rs|`AppConfig.cache.enabled`]]. The flag wins when both are set.
+
+The TOML lives at `~/.modeltap/config.toml` (or `MODELTAP_CONFIG_PATH` for tests) under `[cache] enabled = false`. A user with `cache.enabled = true` can still bypass for one launch via `--no-cache`. When the combined boolean is false, `Cache::open` is NEVER called downstream: the warm-start orchestrator, the tool-detail cache path, and the reconcile-writeback all short-circuit on the same gate.
+
+The byte-precise invariant is asserted by [[tests/src/fixtures/dir_manifest.rs|`DirManifest`]] — a recursive `(relative_path, size, mtime)` snapshot over `xdg-data/modeltap/`. The cache-opt-out acceptance suite ([[tests/acceptance/cache_opt_out.rs|`cache_opt_out.rs`]]) snapshots the directory before each launch, runs the modeltap binary, re-snapshots, and asserts `before.assert_equal(&after)`. AC-23-8 + AC-23-9 are proven this way: zero new bytes means no `cache.sqlite`, no `-wal`, no `-shm`.
+
+INT-INFO-6 (`modeltap --version` exits 0 with a corrupt cache) is satisfied by clap's auto-version handler — `#[command(version)]` on the `Cli` struct exits before `main()`'s body runs, so the cache resolution path is never reached. The fourth opt-out scenario seeds a 16 KB non-SQLite blob at `MODELTAP_CACHE_PATH` to prove this directly: if the version path ever regressed to opening the cache, the test would fail.
+
 `Cache::open(_)` is wrapped in `spawn_blocking`. Branching on `CacheOpenResult` distinguishes `OpenedFresh` (empty schema → cold-start will populate), `OpenedExisting` (paint), and `OpenedAfterMigration { from, to }` (paint, but the composition root may surface a banner).
 
 When the path proceeds to paint, a single `spawn_blocking` reads `cache.tools()` + `cache.models_for_tool(tool_id)` per tool inside one blocking hop — single round-trip per architecture-design.md §8.1.

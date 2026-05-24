@@ -136,6 +136,12 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 # (`dirs::data_dir().join("modeltap/cache.sqlite")`).
 dirs = "5"
 
+# tool-model-info-sqlite-cache step 04-02: parse `[cache] enabled` out of
+# `~/.modeltap/config.toml`. Plugin crates already pin `toml = "0.8"`; we
+# do the same here to keep cargo's resolver unified.
+toml = "0.8"
+serde = { workspace = true }
+
 # async_trait is needed when the `test-harness` feature compiles the
 # `TestToolRegistration` impl in registry.rs into the library target (e.g.
 # `cargo test --test plugin_registry_test_harness --features test-harness`,

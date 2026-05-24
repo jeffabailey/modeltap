@@ -15,6 +15,11 @@
 // warm-start orchestrator. Both are exposed via the library half so
 // integration tests can drive them without spawning the binary.
 pub mod adapters;
+// tool-model-info-sqlite-cache step 04-02: app-level configuration loader
+// reads `[cache] enabled` from `~/.modeltap/config.toml` (or the
+// `MODELTAP_CONFIG_PATH` test override). The composition root resolves the
+// CLI `--no-cache` flag against this config — flag wins when both set.
+pub mod config;
 pub mod orchestration;
 
 pub mod hash_pool;

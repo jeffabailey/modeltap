@@ -12,6 +12,11 @@ mod interactive;
 mod observability;
 
 use modeltap_app::adapters::cache_path;
+// tool-model-info-sqlite-cache step 04-02 (AC-23-8 / AC-23-9): the app-level
+// config loader exposes `[cache] enabled` from `~/.modeltap/config.toml`. The
+// CLI `--no-cache` flag and `cache.enabled = false` combine here at the
+// composition root — flag wins when both set.
+use modeltap_app::config;
 use modeltap_app::inventory_build;
 use modeltap_app::orchestration::warm_start::{self, WarmStartConfig};
 use modeltap_app::platform::{current_platform, Platform};
@@ -157,8 +162,16 @@ fn main() -> ExitCode {
     // `$XDG_DATA_HOME/modeltap/cache.sqlite` until the walking-skeleton
     // scenario (step 01-05) wires the full opt-in. `--no-cache` skips the
     // warm-start regardless.
+    //
+    // Step 04-02 (US-23 AC-23-8 / AC-23-9): the opt-out has two paths —
+    // the CLI `--no-cache` flag (already present on `Cli`) AND the
+    // `[cache] enabled = false` setting in `~/.modeltap/config.toml`. We
+    // load the config here and combine: cache is enabled iff BOTH the
+    // flag is absent AND the config says enabled (the flag dominates).
+    let app_config = config::load_from_env();
+    let cache_enabled = !cli.no_cache && app_config.cache.enabled;
     let cache_env_override = std::env::var_os("MODELTAP_CACHE_PATH");
-    let warm_start_outcome = if cli.no_cache || cache_env_override.is_none() {
+    let warm_start_outcome = if !cache_enabled || cache_env_override.is_none() {
         // Cache disabled or no test override — skip warm-start (cold-start
         // owns the launch). Honors AC-23-8 / AC-23-9 (zero cache bytes
         // written) and preserves existing-acceptance-test behavior.
@@ -265,11 +278,15 @@ fn main() -> ExitCode {
 
     // Step 02-01 (US-21): resolve the tool-detail orchestrator's cache
     // path the same way warm-start does. When `--no-cache` was passed OR
-    // `MODELTAP_CACHE_PATH` is unset, we skip the cache half of the merge
-    // (the orchestrator falls back to `inspect_tool()` alone). When set,
-    // we hand the resolved absolute path to the event loop so the
-    // composition root can pass it into `orchestration::open_tool_detail`.
-    let tool_detail_cache_path: Option<PathBuf> = if cli.no_cache || cache_env_override.is_none() {
+    // `cache.enabled = false` OR `MODELTAP_CACHE_PATH` is unset, we skip
+    // the cache half of the merge (the orchestrator falls back to
+    // `inspect_tool()` alone). When set, we hand the resolved absolute
+    // path to the event loop so the composition root can pass it into
+    // `orchestration::open_tool_detail`. Step 04-02 extends the bypass
+    // condition to also honour `cache.enabled = false` from the config
+    // file via the combined `cache_enabled` boolean computed above.
+    let tool_detail_cache_path: Option<PathBuf> = if !cache_enabled || cache_env_override.is_none()
+    {
         None
     } else {
         cache_path::resolve(None, cache_env_override.as_deref()).ok()

@@ -1400,6 +1400,7 @@ dependencies = [
  "serde_yaml",
  "tempfile",
  "tokio",
+ "walkdir",
 ]
 
 [[package]]
@@ -1427,6 +1428,7 @@ dependencies = [
  "num_cpus",
  "predicates",
  "ratatui",
+ "serde",
  "serde_json",
  "sha2",
  "tempfile",
@@ -1434,6 +1436,7 @@ dependencies = [
  "time",
  "tokio",
  "tokio-util",
+ "toml",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
