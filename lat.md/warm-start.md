@@ -65,3 +65,23 @@ The fallback covers two seams: the `ttl_eligible` per-tool probe AND the `models
 The `dirs::data_dir()` crate resolves to `$HOME/Library/Application Support` on macOS and `$XDG_DATA_HOME` (or `$HOME/.local/share` when unset) on Linux. Acceptance tests pin both `HOME` and `XDG_DATA_HOME` to a tempdir so the resolver result is deterministic on every supported host.
 
 The 24h default keeps the warm-paint window forgiving for the common case (Devon's daily TUI launch sees a near-empty stale list); operators with rapidly changing tool inventories can shorten it via `~/.modeltap/config.toml`'s `[cache] tool_ttl_seconds`.
+
+## Launch metrics instrumentation
+
+Step 04-05 (closes Phase 04) introduces [[crates/modeltap-app/src/instrumentation/launch_metrics.rs|`LaunchMetrics`]], a single JSONL facade for the four `launch.*` duration events the cache-state-model and integration-checkpoints acceptance suites read out of `<log_dir>/launch.log`.
+
+Four events, four budgets per outcome-kpis.md §K-INFO-1 / K-INFO-7 / K3a / K3b. `launch.cache_open_ms` ≤ 100 ms (K-INFO-7) measures `Cache::open` + `tools()` + per-tool `models_for_tool(_)` round-trip; emitted from the warm-start orchestrator after the partition `spawn_blocking` joins.
+
+`launch.warm_paint_ms` ≤ 150 ms (K-INFO-1 / K3a, debug envelope; release-build target ≤ 100 ms) measures cache-painted inventory first hitting the TUI buffer; emitted from the warm-start orchestrator on the `Existing` / `AfterMigration` paths only — `Fresh` and `Disabled` short-circuit before the emission so cold-start owns the paint metric.
+
+`launch.first_paint_ms` ≤ 150 ms (K3b) is the cold-start skeleton-paint window; emitted from the composition root only when warm-start did NOT paint cached inventory (`source == None` OR `Disabled` / `Fresh`). `launch.full_inventory_paint_ms` ≤ 1150 ms (K3b) is emitted on every launch after discovery completes — both paths converge into a full inventory eventually, and the budget applies to both.
+
+The facade replaces the per-boundary `emit_*_event` helpers previously inlined in `warm_start.rs` + `main.rs`. Each `record_*` method writes one line of shape `{"schema":"modeltap.launch.v1","event":...,"duration_ms":N}\n` and silently swallows I/O errors so an unwritable log dir never blocks the launch (C-INFO-2 + AC-23-11). `cache.write_wait_ms` from step 04-04 stays in `main.rs` because its `wait_ms` field name diverges from the `duration_ms` contract of the four paint events.
+
+## @perf scenario gating
+
+The K-INFO budgets (≤ 150 ms warm paint, ≤ 100 ms cache open) are calibrated against release builds; the three `cache_kpi` scenarios in [[tests/acceptance/cache_kpi.rs|`cache_kpi.rs`]] early-return on `cfg!(debug_assertions)` to prevent false reds on developer laptops.
+
+outcome-kpis.md §K-INFO-1 explicitly notes the debug-build envelope is 1.5× the release ceiling, which is why the gating exists.
+
+The early-return is a `return;` at function head — not a `#[cfg]` attribute on the test itself — so `cargo check -p modeltap-acceptance --tests` still type-checks the facade wiring and the fixture round-trip. CI exercises the K-INFO assertions via `cargo test --release --test cache_kpi`, and the local development loop stays fast.

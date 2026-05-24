@@ -17,8 +17,13 @@ use modeltap_app::adapters::cache_path;
 // CLI `--no-cache` flag and `cache.enabled = false` combine here at the
 // composition root — flag wins when both set.
 use modeltap_app::config;
+// tool-model-info-sqlite-cache step 04-05 (closes Phase 04): launch-metrics
+// JSONL facade for the four launch.* duration events. Cold-start emits
+// `first_paint_ms` + `full_inventory_paint_ms` here at the composition root;
+// warm-start emits `cache_open_ms` + `warm_paint_ms` from the orchestrator.
+use modeltap_app::instrumentation::launch_metrics::LaunchMetrics;
 use modeltap_app::inventory_build;
-use modeltap_app::orchestration::warm_start::{self, WarmStartConfig};
+use modeltap_app::orchestration::warm_start::{self, WarmStartConfig, WarmStartSource};
 use modeltap_app::platform::{current_platform, Platform};
 // `registry` moved from `mod registry;` (private to the bin) to
 // `pub mod registry` in lib.rs so integration tests can exercise the
@@ -104,6 +109,15 @@ fn main() -> ExitCode {
     let log_dir = std::env::var_os("MODELTAP_LOG_DIR").map(PathBuf::from);
     let mut logger = LaunchLogger::open(log_dir.clone());
     logger.record(RecordKind::LaunchStarted);
+
+    // Step 04-05: launch-metrics facade + reference instant for K3b
+    // (cold-start first_paint_ms + full_inventory_paint_ms). Warm-start
+    // emits its own cache_open_ms + warm_paint_ms from inside the
+    // orchestrator. Pulling `launch_start` here means the cold-start
+    // timings count CLI parsing + logger setup as part of the user-
+    // perceived "launch -> paint" latency, matching what Devon observes.
+    let launch_metrics = LaunchMetrics::new(log_dir.clone());
+    let launch_start = Instant::now();
 
     let cols = resolve_terminal_cols(headless);
     if let Err(err) = check_terminal_width(cols) {
@@ -210,9 +224,37 @@ fn main() -> ExitCode {
     // initial paint and dispatches the cold path as a background reconcile.
     let warm_start_source = warm_start_outcome.as_ref().map(|r| r.source);
 
+    // Step 04-05 (K3b cold-start preservation): emit `launch.first_paint_ms`
+    // ONLY when warm-start did NOT paint cached inventory. The Existing /
+    // AfterMigration paths already emitted `launch.warm_paint_ms` (K3a);
+    // Disabled / Fresh / None mean cold-start owns the user-visible paint
+    // and the skeleton-paint window is what K3b measures.
+    //
+    // `first_paint_ms` is the boundary at which an empty/skeleton AppState
+    // would be ready to render — in the current synchronous arch this is
+    // the same Instant the discovery work begins. Future async-paint work
+    // (background reconcile) will widen the gap; the event-name contract
+    // stays stable.
+    let warm_painted_inventory = matches!(
+        warm_start_source,
+        Some(WarmStartSource::Existing) | Some(WarmStartSource::AfterMigration { .. })
+    );
+    if !warm_painted_inventory {
+        let first_paint_ms = launch_start.elapsed().as_millis() as u64;
+        launch_metrics.record_first_paint(first_paint_ms);
+    }
+
     let inventory_start = Instant::now();
     let summary: InventorySummary = runtime.block_on(run_discovery(plugins_for_discovery));
     let full_inventory_ms = inventory_start.elapsed().as_millis() as u64;
+
+    // Step 04-05 (K3b cold-start preservation): emit
+    // `launch.full_inventory_paint_ms` from launch_start to the moment
+    // discovery completes. Emitted unconditionally because every launch
+    // (warm OR cold) eventually completes a full inventory pass; the
+    // budget (≤ 1150 ms p90) applies to both paths.
+    let full_inventory_paint_ms = launch_start.elapsed().as_millis() as u64;
+    launch_metrics.record_full_inventory_paint(full_inventory_paint_ms);
 
     // Step 01-04: post-cold-start, write the discovered tools/models back to
     // the cache so the next launch's warm-start has fresh data. Stub-level —

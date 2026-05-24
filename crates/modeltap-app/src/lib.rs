@@ -24,6 +24,12 @@ pub mod orchestration;
 
 pub mod hash_pool;
 pub mod hash_pool_wiring;
+// tool-model-info-sqlite-cache step 04-05 (closes Phase 04): launch-metrics
+// JSONL facade. Single point of emission for the four launch.* duration
+// events the cache-state-model + integration-checkpoints suites read out of
+// `<log_dir>/launch.log`. Replaces the per-boundary `emit_*_event` helpers
+// previously inlined in warm_start.rs + main.rs.
+pub mod instrumentation;
 pub mod inventory_build;
 pub mod lsof_adapter;
 pub mod platform;

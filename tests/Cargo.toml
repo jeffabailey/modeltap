@@ -124,6 +124,18 @@ path = "acceptance/cache_ttl.rs"
 name = "cache_walking_skeleton"
 path = "acceptance/cache_walking_skeleton.rs"
 
+# tool-model-info-sqlite-cache step 04-05 — Phase 04 EXIT GATE: K-INFO budget
+# verification (US-23 K-INFO-1, K-INFO-7; INT-INFO-1; K3a / K3b parents).
+# Three @perf scenarios that drive the warm-start orchestrator + the launch-
+# metrics facade against the devon-cache-warm / devon-cache-empty fixtures
+# and assert the four launch.* duration events land within budget. Each
+# scenario early-returns on `cfg!(debug_assertions)` because the 150 ms /
+# 100 ms K-INFO numbers are calibrated against release builds; CI runs the
+# scenarios via `cargo test --release --test cache_kpi`.
+[[test]]
+name = "cache_kpi"
+path = "acceptance/cache_kpi.rs"
+
 # tool-model-info-sqlite-cache step 04-04 — Concurrent-process cache safety
 # (US-23 Scenarios 4-5 / AC-23-10). Two scenarios proving the WAL +
 # busy_timeout PRAGMAs set at Cache::open (step 01-02) work end-to-end

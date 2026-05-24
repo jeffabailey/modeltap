@@ -19,8 +19,6 @@
 //! Full TTL eligibility, per-tool warm-vs-cold mix, and recovery banner are
 //! deferred to phase 04. Step 01-04 wires only the happy paths.
 
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
@@ -28,10 +26,10 @@ use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
 use modeltap_core::types::{ContentHash, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId};
 use modeltap_store::types::CachedModel;
 use modeltap_store::{Cache, CacheError, CacheOpenResult};
-use serde_json::json;
 use thiserror::Error;
 
 use crate::config::DEFAULT_TOOL_TTL_SECONDS;
+use crate::instrumentation::launch_metrics::LaunchMetrics;
 
 /// Inputs into the warm-start path.
 #[derive(Debug, Clone)]
@@ -124,6 +122,9 @@ pub async fn run(
     cache_path: &Path,
 ) -> Result<WarmStartResult, WarmStartError> {
     let run_start = Instant::now();
+    // Step 04-05: single facade for all four launch.* events. `log_dir =
+    // None` makes every emit a no-op (existing semantics).
+    let metrics = LaunchMetrics::new(config.log_dir.clone());
 
     if !config.cache_enabled {
         return Ok(WarmStartResult {
@@ -132,6 +133,14 @@ pub async fn run(
             stale_tool_ids: Vec::new(),
         });
     }
+
+    // Step 04-05: time the Cache::open + per-tool read round-trip
+    // independently of the full warm-paint window so K-INFO-7 (≤ 100 ms p90
+    // cache-open overhead) can be asserted without the inventory-build cost
+    // dominating the number. The cache_open span starts here and closes
+    // after the spawn_blocking that reads `cache.tools()` +
+    // `models_for_tool(_)` per tool completes (the partition closure below).
+    let cache_open_start = Instant::now();
 
     let path_for_open = cache_path.to_path_buf();
     let open_result = tokio::task::spawn_blocking(move || Cache::open(&path_for_open)).await??;
@@ -215,8 +224,15 @@ pub async fn run(
         })
         .await??;
 
+    // Step 04-05: cache_open_ms closes when the cache.tools() +
+    // models_for_tool(_) round-trip completes (the partition spawn_blocking
+    // joined above). warm_paint_ms is the same boundary as the pre-04-05
+    // emission — run_start to inventory-ready.
+    let cache_open_ms = cache_open_start.elapsed().as_millis() as u64;
+    metrics.record_cache_open(cache_open_ms);
+
     let elapsed_ms = run_start.elapsed().as_millis() as u64;
-    emit_warm_paint_event(config.log_dir.as_deref(), elapsed_ms);
+    metrics.record_warm_paint(elapsed_ms);
 
     Ok(WarmStartResult {
         inventory: partition.inventory,
@@ -280,24 +296,8 @@ fn parse_content_hash(hex: String) -> Option<ContentHash> {
     None
 }
 
-/// Append a single `launch.warm_paint_ms` JSONL line to `<log_dir>/launch.log`.
-/// Best-effort; failures are swallowed so an unwritable log dir never blocks
-/// the launch.
-fn emit_warm_paint_event(log_dir: Option<&Path>, duration_ms: u64) {
-    let Some(dir) = log_dir else {
-        return;
-    };
-    let path = dir.join("launch.log");
-    let envelope = json!({
-        "schema": "modeltap.launch.v1",
-        "event": "launch.warm_paint_ms",
-        "duration_ms": duration_ms,
-    });
-    let mut serialized = envelope.to_string();
-    serialized.push('\n');
-    let _ = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .and_then(|mut f| f.write_all(serialized.as_bytes()));
-}
+// `launch.warm_paint_ms` emission moved to
+// `crate::instrumentation::launch_metrics::LaunchMetrics::record_warm_paint`
+// in step 04-05 so the four launch.* duration events share one line shape.
+// `cache_open_ms` joined warm_paint_ms in the same facade because they are
+// both timed inside `run` above.

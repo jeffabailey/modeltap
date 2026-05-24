@@ -317,6 +317,171 @@ impl DevonCacheStaleToolFixture {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Step 04-05 — fully-populated warm-cache fixture (K-INFO-1 / K-INFO-7 /
+// K3a). Pre-installs a populated cache.sqlite with 4 tools × ~15 models each
+// (58 total — Devon's typical inventory size per outcome-kpis.md). Every
+// tool's `last_scan_at` is recent (within the 24h default TTL → fresh) so
+// the warm-start orchestrator paints the full inventory from cache and the
+// K-INFO-1 (≤ 150 ms p90 warm paint) and K-INFO-7 (≤ 100 ms p90 cache-open
+// overhead) budgets can be asserted against a realistic workload.
+// ---------------------------------------------------------------------------
+
+/// Pre-installed warm-cache fixture: writes a valid SQLite with 4
+/// `cache_tools` rows (ollama, hf, lm-studio, atomic-chat) plus 15
+/// `cache_models` rows for the first three tools and 13 for atomic-chat —
+/// total 58 models. All `last_scan_at` values are recent (within the 24h
+/// default TTL → fresh) so warm-start paints every tool from cache.
+///
+/// Model bytes are deterministic: per-tool slugs + a 1-based index ensure
+/// the seed is reproducible across CI runs. `size_bytes` is randomised
+/// within `[100 MB, 8 GB]` via a Knuth-multiplicative hash of the model
+/// index (avoids a `rand` workspace-dep) so the fixture mimics Devon's
+/// realistic per-model byte spread (a few small adapters + several large
+/// quantised checkpoints).
+pub struct DevonCacheWarmFixture {
+    pub temp: TempDir,
+}
+
+impl DevonCacheWarmFixture {
+    /// Total model count seeded across all four tools. Acceptance tests
+    /// assert `inventory.entries.len() == TOTAL_MODELS` after warm-start.
+    pub const TOTAL_MODELS: usize = 58;
+    /// Number of seeded tools. Acceptance tests assert each tool's row
+    /// is TTL-fresh and contributes to the warm-paint inventory.
+    pub const TOTAL_TOOLS: usize = 4;
+
+    /// Stable tool_ids the fixture seeds. Exposed so step-definitions can
+    /// pass them to `CacheVerifier::model_count_for` without re-stringing.
+    pub const TOOL_ID_OLLAMA: &'static str = "ollama";
+    pub const TOOL_ID_HF: &'static str = "hf";
+    pub const TOOL_ID_LM_STUDIO: &'static str = "lm-studio";
+    pub const TOOL_ID_ATOMIC_CHAT: &'static str = "atomic-chat";
+
+    /// Build the fixture: seeds the cache with 58 models across 4 tools
+    /// (all TTL-fresh) and pre-creates the `logs/` + `modeltap-home/`
+    /// subdirs used by acceptance scenarios.
+    pub fn build() -> Self {
+        use modeltap_core::types::ToolId as RealToolId;
+        use modeltap_store::types::{CachedModel, CachedTool};
+        use modeltap_store::{Cache, CacheOpenResult};
+        use std::collections::BTreeMap;
+        use std::time::{Duration, SystemTime};
+
+        let temp = TempDir::new().expect("create devon-cache-warm tempdir");
+        let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
+        std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
+        std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home"))
+            .expect("create modeltap-home/");
+
+        let cache_path = xdg_modeltap.join("cache.sqlite");
+        let cache = match Cache::open(&cache_path).expect("seed open") {
+            CacheOpenResult::OpenedFresh(c) => c,
+            other => panic!("expected OpenedFresh on warm-cache seed, got {:?}", other),
+        };
+
+        // Per-tool model counts: 15 / 15 / 15 / 13 = 58. The first three
+        // tools share the canonical 15-model shape; atomic-chat ships fewer
+        // models in Devon's real install so the fixture matches that
+        // empirical skew.
+        let per_tool: [(&'static str, usize, &'static str); 4] = [
+            (Self::TOOL_ID_OLLAMA, 15, "Ollama"),
+            (Self::TOOL_ID_HF, 15, "Hugging Face"),
+            (Self::TOOL_ID_LM_STUDIO, 15, "LM Studio"),
+            (Self::TOOL_ID_ATOMIC_CHAT, 13, "Atomic Chat"),
+        ];
+
+        // Recent-but-different timestamps so the launches see a realistic
+        // spread of freshness. All ≤ 2h old → well within the 24h default
+        // TTL gate.
+        let now = SystemTime::now();
+        let per_tool_age_secs: [u64; 4] = [60, 30 * 60, 60 * 60, 2 * 3600];
+
+        for (idx, (tool_str, model_count, label)) in per_tool.iter().enumerate() {
+            let tool: RealToolId =
+                RealToolId(Box::leak(tool_str.to_string().into_boxed_str()));
+            let last_scan_at = now - Duration::from_secs(per_tool_age_secs[idx]);
+
+            cache
+                .write_tool(&CachedTool {
+                    tool_id: tool,
+                    install_path: PathBuf::from(format!("/opt/{tool_str}")),
+                    detected_version: Some("1.0.0".to_string()),
+                    plugin_version: "0.0.0".to_string(),
+                    model_count: *model_count as u64,
+                    disk_usage_bytes: 0,
+                    largest_model_id: None,
+                    last_scan_at,
+                    last_scan_duration_ms: 0,
+                    last_error: None,
+                    last_error_at: None,
+                    search_paths: Vec::new(),
+                })
+                .expect("write_tool warm-cache fixture");
+
+            // Build the per-tool model batch. Deterministic shape so any
+            // future debugging can re-derive the byte counts from the model
+            // index.
+            let models: Vec<CachedModel> = (0..*model_count)
+                .map(|i| {
+                    let one_based = (i + 1) as u32;
+                    // Knuth multiplicative hash of (tool_idx, model_idx) so
+                    // the size spread covers ~100 MB .. ~8 GB without a
+                    // `rand` dep. The +1 avoids size_bytes = 0 which the
+                    // compatibility engine would treat as a malformed row.
+                    let mix = (idx as u32)
+                        .wrapping_mul(0x9E37_79B1)
+                        .wrapping_add(one_based.wrapping_mul(2_654_435_761));
+                    let scaled = (mix as u64) % (8_000_000_000u64 - 100_000_000u64);
+                    let size_bytes = 100_000_000u64 + scaled + 1;
+                    CachedModel {
+                        model_id: format!("{tool_str}-model-{one_based:02}"),
+                        tool_id: tool,
+                        display_name: format!("{label} Model #{one_based:02}"),
+                        format: Some("gguf".to_string()),
+                        quantisation: Some("Q4_K_M".to_string()),
+                        size_bytes,
+                        sha256: None,
+                        architecture: None,
+                        parameters_billions: None,
+                        context_length: None,
+                        dedup_group_id: None,
+                        metadata_kv: BTreeMap::new(),
+                        metadata_introspected_at: None,
+                        last_seen_at: now,
+                        last_validated_at: None,
+                    }
+                })
+                .collect();
+            cache
+                .write_models(&tool, &models)
+                .expect("write_models warm-cache fixture");
+        }
+
+        Self { temp }
+    }
+
+    /// Absolute path to the seeded `cache.sqlite`.
+    pub fn cache_path(&self) -> PathBuf {
+        self.temp
+            .path()
+            .join("xdg-data")
+            .join("modeltap")
+            .join("cache.sqlite")
+    }
+
+    /// Diagnostics dir for `MODELTAP_DIAGNOSTICS_DIR`.
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.temp.path().join("modeltap-home")
+    }
+
+    /// Log dir for `MODELTAP_LOG_DIR`.
+    pub fn log_dir(&self) -> PathBuf {
+        self.temp.path().join("logs")
+    }
+}
+
 /// Pre-installed future-version cache fixture: writes a valid SQLite at
 /// `<temp>/xdg-data/modeltap/cache.sqlite` and sets `PRAGMA user_version = 99`.
 /// `Cache::open` reads `user_version > EXPECTED_SCHEMA_VERSION`, routes to
