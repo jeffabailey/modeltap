@@ -39,3 +39,29 @@ INT-INFO-6 (`modeltap --version` exits 0 with a corrupt cache) is satisfied by c
 When the path proceeds to paint, a single `spawn_blocking` reads `cache.tools()` + `cache.models_for_tool(tool_id)` per tool inside one blocking hop — single round-trip per architecture-design.md §8.1.
 
 The `launch.warm_paint_ms` JSONL event is emitted only on the `OpenedExisting` / `OpenedAfterMigration` paths (the warm path). Fresh and disabled paths emit no warm-paint event; cold-start logs its own `launch.first_paint_ms` later. Writes are best-effort — an unwritable log dir never blocks the launch (C-INFO-2 again).
+
+## Per-tool TTL eligibility
+
+Step 04-03 partitions the painted tools by per-tool freshness (US-25 AC-25-2 / AC-25-4). `WarmStartConfig.tool_ttl_seconds` (default 86_400 = 24h, loaded from `[cache] tool_ttl_seconds`) gates each row.
+
+[[crates/modeltap-store/src/repo/tools.rs|`Cache::ttl_eligible(tool_id, ttl_seconds, now)`]] returns true iff the cached row's `last_scan_at >= now - ttl_seconds`. `now` is taken as a parameter (not from the wall clock) so the orchestrator stays deterministic under test. An absent row returns false — no cached evidence means cold-start owns the tool.
+
+The partition runs inside the same `spawn_blocking` as the paint read. For every tool in `cache.tools()`: TTL-eligible rows feed `models_for_tool(_)` and their model rows append to the inventory; ineligible rows return their `tool_id` into `WarmStartResult.stale_tool_ids` for the downstream cold-scan dispatcher. Fresh and stale tools coexist in a single launch.
+
+`WarmStartResult.stale_tool_ids` is always empty on the `Disabled` / `Fresh` paths (no cache to age out from). On `Existing` / `AfterMigration`, the field is the cold-scan worklist.
+
+## Transient I/O fallback
+
+A per-tool read error inside the partition loop does NOT abort warm-start (AC-25-7). The affected tool joins `stale_tool_ids` and the partition continues — surviving tools still paint.
+
+The covered error variants are `CacheError::Io { .. }` and `CacheError::Sqlite(_)`. The launch always proceeds; the outer call site at the composition root falls through to cold-start whether warm-start returned partial data or `Err(_)` (C-INFO-2).
+
+The fallback covers two seams: the `ttl_eligible` per-tool probe AND the `models_for_tool` per-tool read. A consistent table-level failure (e.g., `cache_models` mid-launch DROP) routes every tool to the stale list and yields an empty inventory — no panic. `MalformedRow` is intentionally NOT caught: a non-parseable column is a row-shape bug, not a transient I/O event, and should surface to the outer C-INFO-2 fallback at the call site.
+
+## Production cache path resolution
+
+[[crates/modeltap-app/src/adapters/cache_path.rs|`cache_path::resolve(None, None)`]] is the production path when no `--cache-path` flag (future) and no `MODELTAP_CACHE_PATH` env override are set. It returns `dirs::data_dir().join("modeltap").join("cache.sqlite")` (AC-23-1 / OQ-1).
+
+The `dirs::data_dir()` crate resolves to `$HOME/Library/Application Support` on macOS and `$XDG_DATA_HOME` (or `$HOME/.local/share` when unset) on Linux. Acceptance tests pin both `HOME` and `XDG_DATA_HOME` to a tempdir so the resolver result is deterministic on every supported host.
+
+The 24h default keeps the warm-paint window forgiving for the common case (Devon's daily TUI launch sees a near-empty stale list); operators with rapidly changing tool inventories can shorten it via `~/.modeltap/config.toml`'s `[cache] tool_ttl_seconds`.

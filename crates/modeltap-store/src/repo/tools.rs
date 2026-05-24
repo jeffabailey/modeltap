@@ -71,6 +71,43 @@ impl Cache {
         })
     }
 
+    /// Per-tool TTL eligibility check (Phase 04 step 04-03 / AC-25-2 +
+    /// AC-25-4). Returns `true` iff the cache has a `cache_tools` row for
+    /// `tool_id` AND that row's `last_scan_at` is recent enough — i.e.
+    /// `last_scan_at >= now - ttl_seconds`. An absent row returns `false`
+    /// (no cached evidence → cold-start owns the tool).
+    ///
+    /// The freshness window is inclusive at the lower bound: a row whose
+    /// `last_scan_at` is exactly `now - ttl_seconds` is still eligible.
+    /// `ttl_seconds = 0` therefore reports `true` only for rows whose
+    /// `last_scan_at >= now` (i.e. ≤ this very instant — essentially "just
+    /// scanned"), and `ttl_seconds = u64::MAX` keeps every row eligible.
+    ///
+    /// `now` is taken as a parameter rather than read from the wall clock
+    /// so the warm-start orchestrator (and tests) can pin the reference
+    /// instant. The store crate stays free of `SystemTime::now()` calls in
+    /// query paths — that responsibility lives at the composition root.
+    pub fn ttl_eligible(
+        &self,
+        tool_id: &ToolId,
+        ttl_seconds: u64,
+        now: SystemTime,
+    ) -> Result<bool, CacheError> {
+        let threshold = now
+            .checked_sub(Duration::from_secs(ttl_seconds))
+            .unwrap_or(UNIX_EPOCH);
+        let threshold_iso = format_iso8601_utc(&threshold)?;
+        self.with_conn(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT 1 FROM cache_tools \
+                 WHERE tool_id = ?1 AND last_scan_at >= ?2 \
+                 LIMIT 1",
+            )?;
+            let mut rows = stmt.query(params![tool_id.0, threshold_iso])?;
+            Ok(rows.next()?.is_some())
+        })
+    }
+
     /// Read all `cache_tools` rows. Order is unspecified (callers sort).
     pub fn tools(&self) -> Result<Vec<CachedTool>, CacheError> {
         self.with_conn(|conn| {
@@ -305,4 +342,101 @@ pub(crate) fn parse_iso8601_utc(s: &str, column: &'static str) -> Result<SystemT
 /// the path against the live filesystem.
 fn path_to_db_text(p: &std::path::Path) -> String {
     p.to_string_lossy().into_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::open::Cache;
+    use crate::types::CachedTool;
+    use std::time::Duration;
+
+    fn cached_tool(id: ToolId, last_scan_at: SystemTime) -> CachedTool {
+        CachedTool {
+            tool_id: id,
+            install_path: std::path::PathBuf::from("/test/install"),
+            detected_version: Some("v1.0.0".into()),
+            plugin_version: "0.0.0".into(),
+            model_count: 0,
+            disk_usage_bytes: 0,
+            largest_model_id: None,
+            last_scan_at,
+            last_scan_duration_ms: 0,
+            last_error: None,
+            last_error_at: None,
+            search_paths: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn ttl_eligible_returns_false_when_row_older_than_window() {
+        // 25h-old row with a 24h TTL is stale: expect false.
+        let cache = Cache::open_in_memory().expect("open in-memory cache");
+        let now = SystemTime::now();
+        let stale_at = now - Duration::from_secs(25 * 3600);
+        let tool = ToolId("stale-tool");
+        cache
+            .write_tool(&cached_tool(tool, stale_at))
+            .expect("write_tool stale");
+
+        let eligible = cache
+            .ttl_eligible(&tool, 24 * 3600, now)
+            .expect("ttl_eligible query");
+        assert!(!eligible, "25h-old row must not satisfy a 24h TTL");
+    }
+
+    #[test]
+    fn ttl_eligible_returns_true_when_row_within_window() {
+        // 2h-old row with a 24h TTL is fresh: expect true.
+        let cache = Cache::open_in_memory().expect("open in-memory cache");
+        let now = SystemTime::now();
+        let fresh_at = now - Duration::from_secs(2 * 3600);
+        let tool = ToolId("fresh-tool");
+        cache
+            .write_tool(&cached_tool(tool, fresh_at))
+            .expect("write_tool fresh");
+
+        let eligible = cache
+            .ttl_eligible(&tool, 24 * 3600, now)
+            .expect("ttl_eligible query");
+        assert!(eligible, "2h-old row must satisfy a 24h TTL");
+    }
+
+    #[test]
+    fn ttl_eligible_returns_false_when_tool_row_absent() {
+        // No row exists for tool — caller should treat as cold-start signal.
+        let cache = Cache::open_in_memory().expect("open in-memory cache");
+        let now = SystemTime::now();
+        let eligible = cache
+            .ttl_eligible(&ToolId("never-cached"), 24 * 3600, now)
+            .expect("ttl_eligible query");
+        assert!(!eligible, "absent row must not be reported as eligible");
+    }
+
+    #[test]
+    fn ttl_eligible_handles_zero_ttl_as_only_now_or_future() {
+        // ttl_seconds = 0 means threshold == now. A row written "just now"
+        // is eligible; a row from 1s ago is not.
+        let cache = Cache::open_in_memory().expect("open in-memory cache");
+        let now = SystemTime::now();
+        let tool = ToolId("zero-ttl-tool");
+        cache
+            .write_tool(&cached_tool(tool, now))
+            .expect("write_tool now");
+
+        let eligible = cache
+            .ttl_eligible(&tool, 0, now)
+            .expect("ttl_eligible query");
+        // Row's last_scan_at == now, threshold == now, comparison is >=.
+        assert!(eligible, "row exactly at now must be >= threshold==now");
+
+        let later = now + Duration::from_secs(1);
+        let stale_eligible = cache
+            .ttl_eligible(&tool, 0, later)
+            .expect("ttl_eligible query later");
+        assert!(
+            !stale_eligible,
+            "1s after the scan, a 0-ttl window has already closed"
+        );
+    }
 }

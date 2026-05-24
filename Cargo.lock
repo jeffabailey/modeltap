@@ -1390,6 +1390,7 @@ version = "0.0.0"
 dependencies = [
  "assert_cmd",
  "async-trait",
+ "modeltap-app",
  "modeltap-core",
  "modeltap-store",
  "predicates",

@@ -22,14 +22,16 @@
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
-use modeltap_core::types::{ContentHash, DiscoveredModel, DisplayLabel, Format, ModelStatus};
+use modeltap_core::types::{ContentHash, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId};
 use modeltap_store::types::CachedModel;
 use modeltap_store::{Cache, CacheError, CacheOpenResult};
 use serde_json::json;
 use thiserror::Error;
+
+use crate::config::DEFAULT_TOOL_TTL_SECONDS;
 
 /// Inputs into the warm-start path.
 #[derive(Debug, Clone)]
@@ -45,6 +47,31 @@ pub struct WarmStartConfig {
     /// emission (the warm-start path remains functional — tests assert no
     /// event is written when the dir is absent).
     pub log_dir: Option<PathBuf>,
+
+    /// Per-tool TTL eligibility window in seconds (step 04-03 / US-25
+    /// AC-25-2 + AC-25-4). A cached tool row whose `last_scan_at >= now -
+    /// tool_ttl_seconds` paints from cache; older rows are returned as
+    /// `stale_tool_ids` for the downstream cold-scan dispatcher. Defaults to
+    /// `DEFAULT_TOOL_TTL_SECONDS` (24h) so step-01-04 callers that never
+    /// set it inherit the documented value.
+    pub tool_ttl_seconds: u64,
+
+    /// Reference instant for the TTL comparison. Taken as a parameter
+    /// instead of `SystemTime::now()` so the orchestrator stays
+    /// deterministic under test. Production callers pass
+    /// `SystemTime::now()`.
+    pub now: SystemTime,
+}
+
+impl Default for WarmStartConfig {
+    fn default() -> Self {
+        Self {
+            cache_enabled: false,
+            log_dir: None,
+            tool_ttl_seconds: DEFAULT_TOOL_TTL_SECONDS,
+            now: SystemTime::now(),
+        }
+    }
 }
 
 /// Where the inventory came from. The composition root branches on this:
@@ -69,6 +96,12 @@ pub enum WarmStartSource {
 pub struct WarmStartResult {
     pub inventory: Inventory,
     pub source: WarmStartSource,
+    /// Step 04-03: tool_ids whose cached row failed the per-tool TTL gate
+    /// (or returned a transient I/O error during read). The caller
+    /// dispatches a per-tool cold-scan for each; tools whose models DID
+    /// paint from cache are absent from this list. Always empty on the
+    /// `Disabled` / `Fresh` paths (no cache to age out from).
+    pub stale_tool_ids: Vec<ToolId>,
 }
 
 #[derive(Debug, Error)]
@@ -96,6 +129,7 @@ pub async fn run(
         return Ok(WarmStartResult {
             inventory: Inventory::default(),
             source: WarmStartSource::Disabled,
+            stale_tool_ids: Vec::new(),
         });
     }
 
@@ -108,6 +142,7 @@ pub async fn run(
             return Ok(WarmStartResult {
                 inventory: Inventory::default(),
                 source: WarmStartSource::Fresh,
+                stale_tool_ids: Vec::new(),
             });
         }
         CacheOpenResult::OpenedExisting(c) => (c, WarmStartSource::Existing),
@@ -120,29 +155,82 @@ pub async fn run(
             return Ok(WarmStartResult {
                 inventory: Inventory::default(),
                 source: WarmStartSource::Fresh,
+                stale_tool_ids: Vec::new(),
             });
         }
     };
 
-    // Move the cache into a blocking task once and read every row group there;
-    // single round-trip per architecture-design.md §8.1.
-    let inventory = tokio::task::spawn_blocking(move || -> Result<Inventory, CacheError> {
-        let tools = cache.tools()?;
-        let mut entries: Vec<InventoryEntry> = Vec::new();
-        for tool in &tools {
-            let models = cache.models_for_tool(&tool.tool_id)?;
-            for m in models {
-                entries.push(inventory_entry_from_cached(m));
+    // Per-tool TTL eligibility partition (step 04-03 / AC-25-2 / AC-25-4):
+    // fresh tools paint from cache; stale tools fall through to cold-start.
+    //
+    // Transient I/O fallback (AC-25-7): a per-tool read error (CacheError::Io
+    // / CacheError::Sqlite mid-read) does NOT abort warm-start — that tool
+    // is treated as stale so cold-start picks it up. Only a `cache.tools()`
+    // failure (cannot enumerate at all) bubbles up; cache_enabled=true with
+    // an unreadable top-level tools list is what the C-INFO-2 outer
+    // fallback at the call site handles.
+    let ttl_seconds = config.tool_ttl_seconds;
+    let now = config.now;
+    let partition =
+        tokio::task::spawn_blocking(move || -> Result<WarmPartition, CacheError> {
+            let tools = cache.tools()?;
+            let mut entries: Vec<InventoryEntry> = Vec::new();
+            let mut stale: Vec<ToolId> = Vec::new();
+            for tool in &tools {
+                let eligible = match cache.ttl_eligible(&tool.tool_id, ttl_seconds, now) {
+                    Ok(b) => b,
+                    Err(CacheError::Io { .. }) | Err(CacheError::Sqlite(_)) => {
+                        // Transient read failure for this tool — treat as
+                        // stale; cold-start will own the row.
+                        stale.push(tool.tool_id);
+                        continue;
+                    }
+                    Err(other) => return Err(other),
+                };
+                if !eligible {
+                    stale.push(tool.tool_id);
+                    continue;
+                }
+                match cache.models_for_tool(&tool.tool_id) {
+                    Ok(models) => {
+                        for m in models {
+                            entries.push(inventory_entry_from_cached(m));
+                        }
+                    }
+                    Err(CacheError::Io { .. }) | Err(CacheError::Sqlite(_)) => {
+                        // Tool was TTL-fresh but the model rows could not
+                        // be read — fall through to cold-start for this
+                        // tool. Drop any entries already accumulated for
+                        // the tool (none yet, because the inner loop only
+                        // appends on `Ok`).
+                        stale.push(tool.tool_id);
+                    }
+                    Err(other) => return Err(other),
+                }
             }
-        }
-        Ok(Inventory { entries })
-    })
-    .await??;
+            Ok(WarmPartition {
+                inventory: Inventory { entries },
+                stale_tool_ids: stale,
+            })
+        })
+        .await??;
 
     let elapsed_ms = run_start.elapsed().as_millis() as u64;
     emit_warm_paint_event(config.log_dir.as_deref(), elapsed_ms);
 
-    Ok(WarmStartResult { inventory, source })
+    Ok(WarmStartResult {
+        inventory: partition.inventory,
+        source,
+        stale_tool_ids: partition.stale_tool_ids,
+    })
+}
+
+/// Internal carrier for the `spawn_blocking` closure — keeps the
+/// (inventory, stale-list) pair together so the outer task does not need
+/// to thread two values out by hand.
+struct WarmPartition {
+    inventory: Inventory,
+    stale_tool_ids: Vec<ToolId>,
 }
 
 /// Project a `CachedModel` row back into the cross-plugin `InventoryEntry`

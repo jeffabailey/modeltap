@@ -83,6 +83,7 @@ fn warm_start_with_disabled_cache_returns_empty_inventory_and_no_warm_paint_even
     let config = WarmStartConfig {
         cache_enabled: false,
         log_dir: Some(log_dir.clone()),
+        ..WarmStartConfig::default()
     };
 
     let rt = new_runtime();
@@ -107,6 +108,7 @@ fn warm_start_on_fresh_cache_returns_empty_inventory_and_no_warm_paint_event() {
     let config = WarmStartConfig {
         cache_enabled: true,
         log_dir: Some(log_dir.clone()),
+        ..WarmStartConfig::default()
     };
 
     let rt = new_runtime();
@@ -141,6 +143,10 @@ fn warm_start_on_existing_cache_returns_built_inventory_and_emits_warm_paint_eve
     let config = WarmStartConfig {
         cache_enabled: true,
         log_dir: Some(log_dir.clone()),
+        // Generous TTL so the freshly-seeded row paints — the previous
+        // step-01-04 assertion shape is preserved.
+        tool_ttl_seconds: 86_400,
+        now: SystemTime::now(),
     };
 
     let rt = new_runtime();
@@ -155,6 +161,10 @@ fn warm_start_on_existing_cache_returns_built_inventory_and_emits_warm_paint_eve
         "exactly one inventory entry from one cached model"
     );
     assert_eq!(result.inventory.entries[0].tool, TEST_TOOL);
+    assert!(
+        result.stale_tool_ids.is_empty(),
+        "fresh row must not appear in stale_tool_ids"
+    );
     assert!(log_contains_warm_paint(&log_dir.join("launch.log")));
 }
 

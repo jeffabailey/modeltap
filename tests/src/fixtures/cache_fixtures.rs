@@ -184,6 +184,139 @@ impl DevonCacheCorruptFixture {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Step 04-03 — per-tool TTL stale fixture (US-25 AC-25-2 / AC-25-4).
+// Pre-installs a populated cache.sqlite where one tool's `last_scan_at` is
+// 25h old (stale w.r.t. the 24h default TTL) and the others are 2h / 1h fresh.
+// The fixture also seeds at least one model row per tool so the warm-start
+// orchestrator's `models_for_tool` returns a non-empty list for the fresh
+// tools and the partition step can observe (a) the fresh tools' models
+// painted from cache and (b) the stale tool's id returned as cold-scan work.
+// ---------------------------------------------------------------------------
+
+/// Pre-installed stale-tool cache fixture: writes a valid SQLite with three
+/// `cache_tools` rows (one stale, two fresh) plus one `cache_models` row per
+/// tool. The scenario points `MODELTAP_CACHE_PATH` at the seeded file.
+///
+/// Timeline (relative to `SystemTime::now()` at construction):
+///   - `ollama`     → `last_scan_at = now - 25h` (stale; > 24h TTL)
+///   - `llama-cli`  → `last_scan_at = now - 2h`  (fresh)
+///   - `hf`         → `last_scan_at = now - 1h`  (fresh)
+pub struct DevonCacheStaleToolFixture {
+    pub temp: TempDir,
+}
+
+impl DevonCacheStaleToolFixture {
+    /// Stable tool_id strings the fixture seeds. Exposed so step-definitions
+    /// can assert on the warm-start orchestrator's `stale_tool_ids` output.
+    pub const STALE_TOOL_ID: &'static str = "ollama";
+    pub const FRESH_TOOL_ID_LLAMA_CLI: &'static str = "llama-cli";
+    pub const FRESH_TOOL_ID_HF: &'static str = "hf";
+
+    /// Build a fresh fixture with a populated cache.sqlite. Per-tool
+    /// timestamps follow the structdoc above.
+    pub fn build() -> Self {
+        use modeltap_core::types::ToolId as RealToolId;
+        use modeltap_store::types::{CachedModel, CachedTool};
+        use modeltap_store::{Cache, CacheOpenResult};
+        use std::collections::BTreeMap;
+        use std::time::{Duration, SystemTime};
+
+        let temp = TempDir::new().expect("create devon-cache-stale-tool tempdir");
+        let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
+        std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
+        std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home"))
+            .expect("create modeltap-home/");
+
+        // Open a fresh cache and seed it. `Cache::open` runs the v1
+        // migration on the first call so the schema is valid.
+        let cache_path = xdg_modeltap.join("cache.sqlite");
+        let cache = match Cache::open(&cache_path).expect("seed open") {
+            CacheOpenResult::OpenedFresh(c) => c,
+            other => panic!("expected OpenedFresh on seed, got {:?}", other),
+        };
+
+        // Leak each tool_id string once so we have a stable `'static`
+        // reference (the `RealToolId` API requires `&'static str`).
+        let stale: RealToolId = RealToolId(Box::leak(Self::STALE_TOOL_ID.to_string().into_boxed_str()));
+        let llama: RealToolId = RealToolId(Box::leak(Self::FRESH_TOOL_ID_LLAMA_CLI.to_string().into_boxed_str()));
+        let hf: RealToolId = RealToolId(Box::leak(Self::FRESH_TOOL_ID_HF.to_string().into_boxed_str()));
+
+        let now = SystemTime::now();
+        // 25h: stale w.r.t. the 24h default tool_ttl_seconds.
+        let stale_at = now - Duration::from_secs(25 * 3600);
+        let fresh_2h_at = now - Duration::from_secs(2 * 3600);
+        let fresh_1h_at = now - Duration::from_secs(3600);
+
+        for (tool, last_scan_at, label) in [
+            (stale, stale_at, "Ollama"),
+            (llama, fresh_2h_at, "llama-cli"),
+            (hf, fresh_1h_at, "Hugging Face"),
+        ] {
+            cache
+                .write_tool(&CachedTool {
+                    tool_id: tool,
+                    install_path: PathBuf::from(format!("/tmp/{}-install", tool.0)),
+                    detected_version: Some("1.0.0".to_string()),
+                    plugin_version: "0.0.0".to_string(),
+                    model_count: 1,
+                    disk_usage_bytes: 1024,
+                    largest_model_id: Some(format!("{}-model", tool.0)),
+                    last_scan_at,
+                    last_scan_duration_ms: 0,
+                    last_error: None,
+                    last_error_at: None,
+                    search_paths: Vec::new(),
+                })
+                .expect("write_tool stale-tool fixture");
+            cache
+                .write_models(
+                    &tool,
+                    &[CachedModel {
+                        model_id: format!("{}-model", tool.0),
+                        tool_id: tool,
+                        display_name: format!("{label} cached model"),
+                        format: Some("gguf".to_string()),
+                        quantisation: Some("Q4_K_M".to_string()),
+                        size_bytes: 1024,
+                        sha256: None,
+                        architecture: None,
+                        parameters_billions: None,
+                        context_length: None,
+                        dedup_group_id: None,
+                        metadata_kv: BTreeMap::new(),
+                        metadata_introspected_at: None,
+                        last_seen_at: now,
+                        last_validated_at: None,
+                    }],
+                )
+                .expect("write_models stale-tool fixture");
+        }
+
+        Self { temp }
+    }
+
+    /// Absolute path to the seeded `cache.sqlite`.
+    pub fn cache_path(&self) -> PathBuf {
+        self.temp
+            .path()
+            .join("xdg-data")
+            .join("modeltap")
+            .join("cache.sqlite")
+    }
+
+    /// Diagnostics dir for `MODELTAP_DIAGNOSTICS_DIR`.
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.temp.path().join("modeltap-home")
+    }
+
+    /// Log dir for `MODELTAP_LOG_DIR`.
+    pub fn log_dir(&self) -> PathBuf {
+        self.temp.path().join("logs")
+    }
+}
+
 /// Pre-installed future-version cache fixture: writes a valid SQLite at
 /// `<temp>/xdg-data/modeltap/cache.sqlite` and sets `PRAGMA user_version = 99`.
 /// `Cache::open` reads `user_version > EXPECTED_SCHEMA_VERSION`, routes to

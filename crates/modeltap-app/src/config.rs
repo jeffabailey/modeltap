@@ -49,11 +49,30 @@ pub struct CacheConfig {
     /// `true` — cache is opt-out. Setting `false` here is equivalent to
     /// passing `--no-cache` on every launch (AC-23-9).
     pub enabled: bool,
+
+    /// `[cache] tool_ttl_seconds = <u64>` in `~/.modeltap/config.toml`.
+    /// Defaults to 86400 (24h). Per-tool TTL eligibility window the
+    /// warm-start orchestrator uses to decide whether a cached row paints
+    /// from cache or falls through to cold-start (US-25 AC-25-2 / AC-25-4,
+    /// step 04-03).
+    ///
+    /// A row whose `last_scan_at >= now - tool_ttl_seconds` is fresh; older
+    /// rows are stale and the tool is dispatched to cold-scan. Setting `0`
+    /// effectively disables warm-paint (every tool is stale on each launch).
+    pub tool_ttl_seconds: u64,
 }
+
+/// Documented default TTL window: 24 hours. Exposed as a constant so
+/// downstream tests and the warm-start orchestrator can refer to the same
+/// value rather than re-typing the literal.
+pub const DEFAULT_TOOL_TTL_SECONDS: u64 = 86_400;
 
 impl Default for CacheConfig {
     fn default() -> Self {
-        Self { enabled: true }
+        Self {
+            enabled: true,
+            tool_ttl_seconds: DEFAULT_TOOL_TTL_SECONDS,
+        }
     }
 }
 
@@ -101,9 +120,17 @@ fn parse_str(raw: &str, path: &Path) -> AppConfig {
             return AppConfig::default();
         }
     };
+    let cache_section = doc.cache;
     AppConfig {
         cache: CacheConfig {
-            enabled: doc.cache.and_then(|c| c.enabled).unwrap_or(true),
+            enabled: cache_section
+                .as_ref()
+                .and_then(|c| c.enabled)
+                .unwrap_or(true),
+            tool_ttl_seconds: cache_section
+                .as_ref()
+                .and_then(|c| c.tool_ttl_seconds)
+                .unwrap_or(DEFAULT_TOOL_TTL_SECONDS),
         },
     }
 }
@@ -121,6 +148,10 @@ struct ConfigDoc {
 struct CacheSection {
     #[serde(default)]
     enabled: Option<bool>,
+    /// `[cache] tool_ttl_seconds = <u64>`. Optional; defaults to 86400 (24h)
+    /// when absent or malformed. Step 04-03.
+    #[serde(default)]
+    tool_ttl_seconds: Option<u64>,
 }
 
 #[cfg(test)]
@@ -188,5 +219,35 @@ mod tests {
         let f = write_config("this is not = valid = toml [");
         let cfg = load_from_path(f.path());
         assert_eq!(cfg, AppConfig::default());
+    }
+
+    #[test]
+    fn default_tool_ttl_is_24_hours() {
+        // 04-03: the documented default is 24h (86_400s). A fresh install
+        // with no config file must inherit that value.
+        assert_eq!(
+            AppConfig::default().cache.tool_ttl_seconds,
+            DEFAULT_TOOL_TTL_SECONDS
+        );
+        assert_eq!(DEFAULT_TOOL_TTL_SECONDS, 86_400);
+    }
+
+    #[test]
+    fn cache_tool_ttl_seconds_parsed_from_toml() {
+        // Explicit `tool_ttl_seconds = 3600` (1h) propagates through the
+        // loader.
+        let f = write_config("[cache]\ntool_ttl_seconds = 3600\n");
+        let cfg = load_from_path(f.path());
+        assert_eq!(cfg.cache.tool_ttl_seconds, 3600);
+        // The other field's default is preserved.
+        assert!(cfg.cache.enabled, "enabled stays at its default = true");
+    }
+
+    #[test]
+    fn cache_tool_ttl_seconds_absent_keeps_default() {
+        // `[cache]` present but `tool_ttl_seconds` key missing → default 86_400.
+        let f = write_config("[cache]\nenabled = true\n");
+        let cfg = load_from_path(f.path());
+        assert_eq!(cfg.cache.tool_ttl_seconds, DEFAULT_TOOL_TTL_SECONDS);
     }
 }

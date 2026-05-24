@@ -183,6 +183,8 @@ fn main() -> ExitCode {
                 let config = WarmStartConfig {
                     cache_enabled: true,
                     log_dir: log_dir.clone(),
+                    tool_ttl_seconds: app_config.cache.tool_ttl_seconds,
+                    now: std::time::SystemTime::now(),
                 };
                 match runtime.block_on(warm_start::run(&config, &cache_file)) {
                     Ok(result) => Some(result),
