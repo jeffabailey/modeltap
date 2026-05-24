@@ -444,6 +444,27 @@ impl CacheVerifier {
             Ok(None)
         }
     }
+
+    /// Read the `last_scan_at` ISO-8601 column from the single `cache_tools`
+    /// row matching `tool_id`. Returns `Ok(None)` if no row matches.
+    ///
+    /// Added in step 04-04 (US-23 Scenarios 4-5 / AC-23-10): the concurrent-
+    /// writers scenario captures this value after process A's commit, then
+    /// re-reads after process B's commit and asserts the string advanced —
+    /// proving last-writer-wins semantics on `ON CONFLICT(tool_id) DO UPDATE`.
+    /// The column convention writes ISO-8601 UTC strings which are
+    /// lexicographically orderable, so a plain `>` comparison works.
+    pub fn last_scan_at_for(&self, tool_id: &str) -> rusqlite::Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT last_scan_at FROM cache_tools WHERE tool_id = ?1")?;
+        let mut rows = stmt.query([tool_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(row.get(0)?))
+        } else {
+            Ok(None)
+        }
+    }
 }
 
 /// Returns the stable `tool_id` string the TestTool registers under. Exposed

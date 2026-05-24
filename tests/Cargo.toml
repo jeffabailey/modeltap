@@ -124,6 +124,23 @@ path = "acceptance/cache_ttl.rs"
 name = "cache_walking_skeleton"
 path = "acceptance/cache_walking_skeleton.rs"
 
+# tool-model-info-sqlite-cache step 04-04 — Concurrent-process cache safety
+# (US-23 Scenarios 4-5 / AC-23-10). Two scenarios proving the WAL +
+# busy_timeout PRAGMAs set at Cache::open (step 01-02) work end-to-end
+# against concurrent `modeltap` processes:
+#   1. Two modeltap processes can read the cache concurrently via SQLite WAL
+#      — process A seeds one row, then B and C launch in parallel and both
+#      paint cleanly with no SQLITE_BUSY surfaced.
+#   2. Concurrent cache writes serialise via busy_timeout — process A holds
+#      the write lock for 2 s via the `MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS=2000`
+#      cfg-gated test seam (modeltap-store/src/repo/tools.rs); process B
+#      launches 100 ms later and busy-waits at `BEGIN IMMEDIATE` until A
+#      commits. Both exit 0, B emits a `cache.write_wait_ms` JSONL event,
+#      and `cache_tools.last_scan_at` advances to B's later write.
+[[test]]
+name = "cache_concurrent"
+path = "acceptance/cache_concurrent.rs"
+
 # tool-model-info-sqlite-cache step 02-01 — US-21 tool-detail screen (closes
 # the Msg::OpenToolDetail dispatch wiring). Four scenarios covering AC-21-1
 # (Enter -> detail screen within 100 ms via the tool_detail.open_ms JSONL

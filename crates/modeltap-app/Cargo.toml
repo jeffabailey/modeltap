@@ -49,7 +49,16 @@ test-fixtures = [
 # macro on `TestToolRegistration` resolves when the lib is compiled outside
 # `cfg(test)` (e.g. `cargo test --test plugin_registry_test_harness
 # --features test-harness`).
-test-harness = ["dep:async-trait"]
+test-harness = [
+    "dep:async-trait",
+    # tool-model-info-sqlite-cache step 04-04 (US-23 Scenarios 4-5 /
+    # AC-23-10): forwards to modeltap-store so the
+    # `MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS` seam in `reconcile_tool` is
+    # compiled into the binary that the concurrent-writers acceptance
+    # scenario spawns. Release builds (`--no-default-features`) strip
+    # both features in lockstep.
+    "modeltap-store/test-harness",
+]
 
 [[bin]]
 name = "modeltap"

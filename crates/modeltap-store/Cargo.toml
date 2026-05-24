@@ -34,3 +34,15 @@ time = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+
+[features]
+# tool-model-info-sqlite-cache step 04-04 (US-23 Scenarios 4-5 / AC-23-10):
+# enables the `MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS=N` env-var seam inside
+# `Cache::reconcile_tool`. The seam sleeps N ms BEFORE COMMIT so the
+# concurrent-writers acceptance scenario can deterministically force a
+# `BEGIN IMMEDIATE` busy_timeout wait on the second process. Release
+# builds compiled without this feature NEVER read the env var (R3 / OQ-3
+# invariant in acceptance-test-plan.md). `#[cfg(test)]` covers this crate's
+# own integration tests; `feature = "test-harness"` is the lever the
+# modeltap-acceptance crate flips on the modeltap binary it spawns.
+test-harness = []

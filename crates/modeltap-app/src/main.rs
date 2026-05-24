@@ -222,7 +222,11 @@ fn main() -> ExitCode {
     if warm_start_source.is_some() {
         if let Some(env) = cache_env_override.as_deref() {
             if let Ok(cache_file) = cache_path::resolve(None, Some(env)) {
-                runtime.block_on(reconcile_writeback(cache_file, &summary));
+                runtime.block_on(reconcile_writeback(
+                    cache_file,
+                    &summary,
+                    log_dir.clone(),
+                ));
             }
         }
     }
@@ -408,16 +412,29 @@ fn status_label(s: &modeltap_core::ModelStatus) -> &'static str {
     }
 }
 
-/// Stub background-reconcile writeback (tool-model-info-sqlite-cache step
-/// 01-04). After cold-start completes, write each per-tool discovery result
-/// back to the cache so the next launch's warm-start has fresh data. Every
-/// rusqlite call is wrapped in `tokio::task::spawn_blocking`
+/// Background-reconcile writeback (tool-model-info-sqlite-cache step 01-04;
+/// extended in step 04-04 for per-tool transactional writes + concurrent-
+/// process safety). After cold-start completes, write each per-tool discovery
+/// result back to the cache so the next launch's warm-start has fresh data.
+/// Every rusqlite call is wrapped in `tokio::task::spawn_blocking`
 /// (architecture-design.md §7.1). Errors are swallowed (logged to stderr) —
 /// cache failure must never prevent the inventory view (C-INFO-2).
 ///
+/// Step 04-04 (US-23 Scenarios 4-5 / AC-23-10): each per-tool write goes
+/// through `Cache::reconcile_tool` which wraps the row plus its models in a
+/// single `BEGIN IMMEDIATE` transaction. The returned wait duration is
+/// emitted as `cache.write_wait_ms` to `<log_dir>/launch.log` so the
+/// concurrent-writers acceptance scenario can verify the busy_timeout path
+/// fired. Writes from process A and process B serialize via SQLite's own
+/// busy-wait — no advisory locking, no PID detection (ADR-015 §"Concurrency").
+///
 /// Full background-reconcile semantics (TTL eligibility, partial refresh,
 /// drift detection) land in phase 04.
-async fn reconcile_writeback(cache_file: std::path::PathBuf, summary: &InventorySummary) {
+async fn reconcile_writeback(
+    cache_file: std::path::PathBuf,
+    summary: &InventorySummary,
+    log_dir: Option<PathBuf>,
+) {
     use modeltap_store::types::{CachedModel, CachedTool};
     use modeltap_store::{Cache, CacheOpenResult};
     use std::collections::BTreeMap;
@@ -519,20 +536,71 @@ async fn reconcile_writeback(cache_file: std::path::PathBuf, summary: &Inventory
         models_per_tool.push((outcome.tool, cached_models));
     }
 
-    // Write back via spawn_blocking — one task for all rows.
+    // Pair each tool row with its models for a single transactional write
+    // per tool (step 04-04). Tools that ended in `last_error` carry an empty
+    // model slice — the row still lands so the detail screen can surface
+    // the error message (AC-21-4).
+    let models_lookup: BTreeMap<ToolId, Vec<CachedModel>> = models_per_tool.into_iter().collect();
+    let mut work: Vec<(CachedTool, Vec<CachedModel>)> = Vec::with_capacity(tools.len());
+    for t in tools {
+        let models = models_lookup.get(&t.tool_id).cloned().unwrap_or_default();
+        work.push((t, models));
+    }
+
+    // Write back via spawn_blocking — one task drives every per-tool
+    // transaction in sequence. The maximum observed wait at BEGIN IMMEDIATE
+    // is returned so the composition root can emit `cache.write_wait_ms`.
     let join = tokio::task::spawn_blocking(move || {
-        for t in &tools {
-            cache.write_tool(t)?;
+        let mut max_wait_ms: u64 = 0;
+        for (tool, models) in &work {
+            let wait = cache.reconcile_tool(tool, models)?;
+            let wait_ms = wait.as_millis().min(u128::from(u64::MAX)) as u64;
+            if wait_ms > max_wait_ms {
+                max_wait_ms = wait_ms;
+            }
         }
-        for (tool_id, models) in &models_per_tool {
-            cache.write_models(tool_id, models)?;
-        }
-        Ok::<(), modeltap_store::CacheError>(())
+        Ok::<u64, modeltap_store::CacheError>(max_wait_ms)
     })
     .await;
-    if let Ok(Err(e)) = join {
-        eprintln!("modeltap: reconcile-writeback row write failed: {e}");
+    match join {
+        Ok(Ok(max_wait_ms)) => {
+            emit_cache_write_wait_event(log_dir.as_deref(), max_wait_ms);
+        }
+        Ok(Err(e)) => {
+            eprintln!("modeltap: reconcile-writeback row write failed: {e}");
+        }
+        Err(e) => {
+            eprintln!("modeltap: reconcile-writeback join failed: {e}");
+        }
     }
+}
+
+/// Append a single `cache.write_wait_ms` JSONL line to `<log_dir>/launch.log`.
+/// Mirrors `warm_start::emit_warm_paint_event`. Best-effort — failures are
+/// swallowed so an unwritable log dir never blocks the launch (C-INFO-2 +
+/// AC-23-11). Per acceptance-test-plan.md §A: emitted on every reconcile
+/// write so the concurrent-writers scenario can assert `>= 0` and `<= 5000`
+/// — the busy_timeout PRAGMA caps the wait at 5 seconds.
+fn emit_cache_write_wait_event(log_dir: Option<&std::path::Path>, wait_ms: u64) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let Some(dir) = log_dir else {
+        return;
+    };
+    let path = dir.join("launch.log");
+    let envelope = serde_json::json!({
+        "schema": "modeltap.launch.v1",
+        "event": "cache.write_wait_ms",
+        "wait_ms": wait_ms,
+    });
+    let mut serialized = envelope.to_string();
+    serialized.push('\n');
+    let _ = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|mut f| f.write_all(serialized.as_bytes()));
 }
 
 fn plugin_outcome_to_view(outcome: &PluginOutcome) -> ToolView {

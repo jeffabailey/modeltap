@@ -53,3 +53,19 @@ The routine itself is the same in all three cases. The bad file is renamed via `
 The TUI surface for the recovery event is [[crates/modeltap-tui/src/render/recovery_banner.rs]]. The banner reads `AppState.recovery_reason: Option<RecoveryReason>` and renders a single-line dismissable strip across the top of the main view when populated. Esc clears the field. Per AC-23-7 the banner never blocks the content below it — the inventory list, footer, and status bar render at their normal positions and respond to input as usual; the banner only consumes one row of vertical space.
 
 The acceptance contract is that a launch against a corrupt cache file, a future-version cache file, or a cache file whose migration fails on the way to the current schema version, all three reach the same end-state: the broken file sits renamed next to its replacement, the diagnostics log carries one new line, and the user lands at the normal inventory view with a one-line banner explaining what happened. Cache failure is never user-blocking.
+
+## Concurrent process safety
+
+Two `modeltap` processes share one `cache.sqlite` without blocking, crashing, or surfacing `SQLITE_BUSY` to the user. The contract is AC-23-10; the mechanism is two PRAGMAs and a tiny test seam.
+
+`journal_mode=WAL` (set at [[crates/modeltap-store/src/open.rs|Cache::open]]) lets concurrent readers proceed without contending for the write lock. Two `Cache::open(path)` handles on different threads can call `tools()` simultaneously and both observe the same row set — the unit test `concurrent_reads_succeed_under_wal` in [[crates/modeltap-store/tests/concurrent.rs]] pins this against a real tempfile, and the acceptance scenario "Two modeltap processes can read the cache concurrently via SQLite WAL" extends the same invariant to two separate binaries.
+
+`busy_timeout=5000` (also set at open) is the only concurrency mechanism the writer side uses. When two transactions race for the write lock on `BEGIN IMMEDIATE`, the loser busy-waits up to 5 seconds for the winner to commit, then proceeds. No advisory locks, no PID detection, no application-level retry loop.
+
+`Cache::reconcile_tool` is the per-tool write API the warm-start orchestrator drives ([[crates/modeltap-app/src/main.rs|modeltap-app::reconcile_writeback]]). It opens a `BEGIN IMMEDIATE` transaction, UPSERTs the `cache_tools` row, UPSERTs every `cache_models` row, and commits — all atomic per tool. The function returns the wall-clock `Duration` spent waiting at `BEGIN IMMEDIATE` so the caller can emit a `cache.write_wait_ms` JSONL event. Zero on an uncontested write; up to `busy_timeout` when a peer process held the lock.
+
+`MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS=N` is the cfg-gated test seam that drives the concurrent-writers acceptance scenario. When set AND the build was compiled with `cfg(any(test, feature = "test-harness"))`, `reconcile_tool` sleeps N ms BEFORE COMMIT. Release builds (`cargo build --release` without the `test-harness` feature) NEVER read this env var — the seam is compiled out entirely. This is the R3 / OQ-3 invariant: production binaries cannot be tricked into slow-writing by a hostile env var.
+
+The `cache.write_wait_ms` JSONL line in `<MODELTAP_LOG_DIR>/launch.log` carries the schema `modeltap.launch.v1` and one field, `wait_ms: u64`. The concurrent-writers acceptance scenario asserts process B's emitted value falls in `[0, 5000]` — exceeding the upper bound would mean SQLite returned `SQLITE_BUSY` to the writer, which the contract forbids.
+
+The acceptance contract is that concurrent processes never crash, never surface `SQLITE_BUSY`, and the last writer wins via `ON CONFLICT(tool_id) DO UPDATE`. The two `#[test]`s in [[crates/modeltap-store/tests/concurrent.rs]] cover the store-internals path; the two acceptance scenarios in [[tests/acceptance/cache_concurrent.rs]] cover the modeltap-binary boundary.
