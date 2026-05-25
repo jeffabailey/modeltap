@@ -244,6 +244,20 @@ path = "acceptance/manual_refresh.rs"
 name = "cache_revalidate"
 path = "acceptance/cache_revalidate.rs"
 
+# tool-model-info-sqlite-cache step 06-01 — OQ-3 release-build absence
+# checks. Two #[ignore]-marked tests that build the modeltap binary with
+# `cargo build --release --no-default-features -p modeltap-app --bin
+# modeltap` and `strings`-grep it for the two test-only env-var literals
+# (`MODELTAP_TEST_PLUGINS`, `MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS`). Both must
+# yield zero matches, proving the `#[cfg(any(test, feature = "test-harness"))]`
+# gates strip the seams when the upstream features are disabled. Marked
+# `#[ignore]` because `cargo build --release` is slow (~60-180 s clean);
+# CI's release-prep job runs them via `cargo test --test release_build_check
+# -- --ignored`.
+[[test]]
+name = "release_build_check"
+path = "acceptance/release_build_check.rs"
+
 [[test]]
 name = "release_process_validate_tag"
 path = "acceptance/release_process/validate_tag.rs"

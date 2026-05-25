@@ -167,3 +167,13 @@ tempfile = { workspace = true }
 insta = { workspace = true }
 # Mock plugins in tests need async_trait to satisfy the `Tool` trait.
 async-trait = "0.1"
+# tool-model-info-sqlite-cache step 06-01: the R9 architecture lint
+# (tests/architecture.rs::r9_pre_mutate_guard) parses every .rs file under
+# `src/orchestration/` and `src/actions/` and walks the AST asserting that
+# every destructive trait-call expression (`tool.link(...)`,
+# `tool.delete_one(...)`, etc.) is preceded by a `revalidate::pre_mutate`
+# call in the same fn body. This is the K5-extension safety lint per
+# component-boundaries.md §R9 — a future contributor adding a new mutation
+# call site without a guard fails the build. `syn` is dev-only; release
+# binaries do not link it.
+syn = { version = "2", features = ["full", "visit", "parsing"] }
