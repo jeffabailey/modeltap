@@ -219,10 +219,7 @@ pub fn then_modeltap_exits_successfully(world: &CacheOptOutWorld) {
 /// cache directory must contain zero new bytes — cache.sqlite, the -wal,
 /// and the -shm files must all be absent (or unchanged if they were
 /// pre-existing).
-pub fn then_cache_directory_is_byte_identical(
-    world: &CacheOptOutWorld,
-    before: &DirManifest,
-) {
+pub fn then_cache_directory_is_byte_identical(world: &CacheOptOutWorld, before: &DirManifest) {
     let cache_dir = cache_dir_for(world);
     let after = DirManifest::snapshot(&cache_dir);
     before.assert_equal(&after);

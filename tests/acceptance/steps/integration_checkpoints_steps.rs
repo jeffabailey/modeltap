@@ -52,7 +52,11 @@ impl LaunchResult {
     fn from_output(output: Output) -> Self {
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        Self { output, stdout, stderr }
+        Self {
+            output,
+            stdout,
+            stderr,
+        }
     }
 }
 

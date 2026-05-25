@@ -148,11 +148,7 @@ pub fn when_two_modeltap_processes_launch_concurrently(world: &mut ConcurrentWor
     let log_dir_b = world.fixture.log_dir();
     truncate_launch_log(&log_dir_b);
 
-    let log_dir_c = world
-        .fixture
-        .temp
-        .path()
-        .join("logs-c");
+    let log_dir_c = world.fixture.temp.path().join("logs-c");
     std::fs::create_dir_all(&log_dir_c).expect("create logs-c");
 
     // Spawn both processes. `Child` is held across the join so neither is
@@ -192,12 +188,8 @@ pub fn when_process_a_holds_write_lock_then_b_contests(world: &mut ConcurrentWor
     // log if needed, but the cache.write_wait_ms event we assert is
     // process B's.
     let log_dir_a = world.fixture.log_dir();
-    let mut child_a = spawn_modeltap_child(
-        &cache_path,
-        &test_tool_root,
-        &log_dir_a,
-        Some(HOLD_LOCK_MS),
-    );
+    let mut child_a =
+        spawn_modeltap_child(&cache_path, &test_tool_root, &log_dir_a, Some(HOLD_LOCK_MS));
 
     // Stagger so A is reliably inside the BEGIN..COMMIT window when B
     // fires its own BEGIN IMMEDIATE.
@@ -205,11 +197,7 @@ pub fn when_process_a_holds_write_lock_then_b_contests(world: &mut ConcurrentWor
 
     // Process B uses a sibling log dir so its cache.write_wait_ms event
     // is in a file we can read in isolation from A's.
-    let log_dir_b = world
-        .fixture
-        .temp
-        .path()
-        .join("logs-b");
+    let log_dir_b = world.fixture.temp.path().join("logs-b");
     std::fs::create_dir_all(&log_dir_b).expect("create logs-b");
     let mut child_b = spawn_modeltap_child(&cache_path, &test_tool_root, &log_dir_b, None);
 
@@ -411,8 +399,8 @@ fn modeltap_binary_path() -> PathBuf {
     }
     // Walk up from CARGO_MANIFEST_DIR to the workspace root, then into
     // target/debug/.
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .expect("CARGO_MANIFEST_DIR must be set by cargo test");
+    let manifest_dir =
+        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR must be set by cargo test");
     let mut workspace_root = PathBuf::from(&manifest_dir);
     // `manifest_dir` ends at `<root>/tests`; pop once.
     workspace_root.pop();

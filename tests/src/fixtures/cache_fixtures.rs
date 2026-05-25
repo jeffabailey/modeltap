@@ -144,8 +144,7 @@ impl DevonCacheCorruptFixture {
             .expect("seed synthetic gguf");
         // logs/, modeltap-home/, and the corrupt cache itself.
         std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
-        std::fs::create_dir_all(temp.path().join("modeltap-home"))
-            .expect("create modeltap-home/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home")).expect("create modeltap-home/");
 
         // 16 KB of deterministic non-SQLite bytes. The first 16 bytes alone
         // are enough to fail the SQLite header check; 16 KB is the size the
@@ -226,8 +225,7 @@ impl DevonCacheStaleToolFixture {
         let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
         std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
         std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
-        std::fs::create_dir_all(temp.path().join("modeltap-home"))
-            .expect("create modeltap-home/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home")).expect("create modeltap-home/");
 
         // Open a fresh cache and seed it. `Cache::open` runs the v1
         // migration on the first call so the schema is valid.
@@ -239,9 +237,14 @@ impl DevonCacheStaleToolFixture {
 
         // Leak each tool_id string once so we have a stable `'static`
         // reference (the `RealToolId` API requires `&'static str`).
-        let stale: RealToolId = RealToolId(Box::leak(Self::STALE_TOOL_ID.to_string().into_boxed_str()));
-        let llama: RealToolId = RealToolId(Box::leak(Self::FRESH_TOOL_ID_LLAMA_CLI.to_string().into_boxed_str()));
-        let hf: RealToolId = RealToolId(Box::leak(Self::FRESH_TOOL_ID_HF.to_string().into_boxed_str()));
+        let stale: RealToolId =
+            RealToolId(Box::leak(Self::STALE_TOOL_ID.to_string().into_boxed_str()));
+        let llama: RealToolId = RealToolId(Box::leak(
+            Self::FRESH_TOOL_ID_LLAMA_CLI.to_string().into_boxed_str(),
+        ));
+        let hf: RealToolId = RealToolId(Box::leak(
+            Self::FRESH_TOOL_ID_HF.to_string().into_boxed_str(),
+        ));
 
         let now = SystemTime::now();
         // 25h: stale w.r.t. the 24h default tool_ttl_seconds.
@@ -372,8 +375,7 @@ impl DevonCacheWarmFixture {
         let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
         std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
         std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
-        std::fs::create_dir_all(temp.path().join("modeltap-home"))
-            .expect("create modeltap-home/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home")).expect("create modeltap-home/");
 
         let cache_path = xdg_modeltap.join("cache.sqlite");
         let cache = match Cache::open(&cache_path).expect("seed open") {
@@ -399,8 +401,7 @@ impl DevonCacheWarmFixture {
         let per_tool_age_secs: [u64; 4] = [60, 30 * 60, 60 * 60, 2 * 3600];
 
         for (idx, (tool_str, model_count, label)) in per_tool.iter().enumerate() {
-            let tool: RealToolId =
-                RealToolId(Box::leak(tool_str.to_string().into_boxed_str()));
+            let tool: RealToolId = RealToolId(Box::leak(tool_str.to_string().into_boxed_str()));
             let last_scan_at = now - Duration::from_secs(per_tool_age_secs[idx]);
 
             cache
@@ -503,8 +504,7 @@ impl DevonCacheFutureVersionFixture {
         std::fs::write(&model_path, b"synthetic-walking-skeleton-gguf-bytes")
             .expect("seed synthetic gguf");
         std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
-        std::fs::create_dir_all(temp.path().join("modeltap-home"))
-            .expect("create modeltap-home/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home")).expect("create modeltap-home/");
 
         // Seed a valid SQLite with PRAGMA user_version = 99.
         let cache_path = xdg_modeltap.join("cache.sqlite");
@@ -582,7 +582,7 @@ impl DevonCacheMtimeDriftFixture {
 
     /// Build the fixture.
     pub fn build() -> Self {
-        use modeltap_store::types::{CachedFile, CachedModel};
+        use modeltap_store::types::{CachedFile, CachedModel, CachedTool};
         use modeltap_store::{Cache, CacheOpenResult};
         use std::collections::BTreeMap;
         use std::os::unix::fs::MetadataExt;
@@ -592,13 +592,11 @@ impl DevonCacheMtimeDriftFixture {
         let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
         std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
         std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
-        std::fs::create_dir_all(temp.path().join("modeltap-home"))
-            .expect("create modeltap-home/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home")).expect("create modeltap-home/");
         let model_dir = temp.path().join("test-tool").join("models");
         std::fs::create_dir_all(&model_dir).expect("create test-tool/models");
         let model_file = model_dir.join(TEST_MODEL_FILENAME);
-        std::fs::write(&model_file, b"initial-bytes-for-mtime-drift")
-            .expect("seed initial gguf");
+        std::fs::write(&model_file, b"initial-bytes-for-mtime-drift").expect("seed initial gguf");
 
         // Snapshot the just-written file's quad — this is what we'll seed
         // into `cache_model_files` so the row matches BEFORE the touch.
@@ -615,6 +613,24 @@ impl DevonCacheMtimeDriftFixture {
             other => panic!("expected OpenedFresh on mtime-drift seed, got {:?}", other),
         };
         let now = SystemTime::now();
+        // Seed cache_tools first — cache_models has a FK on tool_id →
+        // cache_tools, so the parent row must exist before any model row.
+        cache
+            .write_tool(&CachedTool {
+                tool_id: TEST_TOOL_NAME,
+                install_path: temp.path().join("test-tool"),
+                detected_version: Some("1.0.0".to_string()),
+                plugin_version: "0.0.0".to_string(),
+                model_count: 1,
+                disk_usage_bytes: initial_size,
+                largest_model_id: Some(Self::MODEL_ID.to_string()),
+                last_scan_at: now,
+                last_scan_duration_ms: 0,
+                last_error: None,
+                last_error_at: None,
+                search_paths: Vec::new(),
+            })
+            .expect("seed cache_tools row for mtime-drift");
         // Seed the model row first — cache_model_files has a FK on
         // (model_id, tool_id) → cache_models, so the parent must exist.
         cache
@@ -702,7 +718,7 @@ impl DevonCacheFileGoneFixture {
     pub const MODEL_ID: &'static str = "gone-model";
 
     pub fn build() -> Self {
-        use modeltap_store::types::{CachedFile, CachedModel};
+        use modeltap_store::types::{CachedFile, CachedModel, CachedTool};
         use modeltap_store::{Cache, CacheOpenResult};
         use std::collections::BTreeMap;
         use std::os::unix::fs::MetadataExt;
@@ -712,8 +728,7 @@ impl DevonCacheFileGoneFixture {
         let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
         std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
         std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
-        std::fs::create_dir_all(temp.path().join("modeltap-home"))
-            .expect("create modeltap-home/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home")).expect("create modeltap-home/");
         let model_dir = temp.path().join("test-tool").join("models");
         std::fs::create_dir_all(&model_dir).expect("create test-tool/models");
         let model_file = model_dir.join(TEST_MODEL_FILENAME);
@@ -731,6 +746,24 @@ impl DevonCacheFileGoneFixture {
             other => panic!("expected OpenedFresh on file-gone seed, got {:?}", other),
         };
         let now = SystemTime::now();
+        // Seed cache_tools first — cache_models has a FK on tool_id →
+        // cache_tools, so the parent row must exist before any model row.
+        cache
+            .write_tool(&CachedTool {
+                tool_id: TEST_TOOL_NAME,
+                install_path: temp.path().join("test-tool"),
+                detected_version: Some("1.0.0".to_string()),
+                plugin_version: "0.0.0".to_string(),
+                model_count: 1,
+                disk_usage_bytes: size,
+                largest_model_id: Some(Self::MODEL_ID.to_string()),
+                last_scan_at: now,
+                last_scan_duration_ms: 0,
+                last_error: None,
+                last_error_at: None,
+                search_paths: Vec::new(),
+            })
+            .expect("seed cache_tools row for file-gone");
         cache
             .write_models(
                 &TEST_TOOL_NAME,

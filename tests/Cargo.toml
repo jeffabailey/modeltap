@@ -90,6 +90,14 @@ pulldown-cmark = { version = "0.13", default-features = false }
 # it via a path-dep so the integration test exercises the production
 # orchestrator without spawning a child binary.
 modeltap-app = { path = "../crates/modeltap-app" }
+# tool-model-info-sqlite-cache step 05-04: pre-mutate drift / gone acceptance
+# scenarios need to bump an on-disk file's mtime AFTER the cache row has been
+# seeded so the next `verify_against_fs` observes the (mtime, size, inode, dev)
+# quad disagreeing with the cache. `filetime` is the maintained, tiny crate
+# that exposes platform-portable `utime`-style atime / mtime mutation
+# (Unix `utimensat`, macOS `utimes`, Linux `utimensat`). Test-only dependency
+# — never reaches a production binary.
+filetime = "0.2"
 
 # One acceptance scenario per [[test]] block. Each block points at the file
 # under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
@@ -208,6 +216,33 @@ path = "acceptance/model_detail.rs"
 [[test]]
 name = "manual_refresh"
 path = "acceptance/manual_refresh.rs"
+
+# tool-model-info-sqlite-cache step 05-04 — Pre-mutate revalidation drift &
+# gone end-to-end (US-26 AC-26-5 / AC-26-6 / AC-26-7). Two scenarios from
+# cache-state-model.feature lines 211-237:
+#   1. Drift — when verify_against_fs reports Drift before a destructive
+#      action, the orchestrator MUST re-introspect the drifted file via the
+#      plugin's inspect_model, write the recomputed size/metadata back to
+#      cache_models, and emit `inspect.invoked source=pre_mutate_drift` to
+#      launch.log. The pre/post UnifyOutcome reflects CacheStale so the
+#      caller short-circuits without filesystem mutation.
+#   2. Gone — when verify_against_fs reports Gone, the orchestrator MUST
+#      enqueue a per-tool refresh for the affected tool, emit
+#      `refresh.tool source=pre_mutate_gone` to launch.log, surface
+#      "file no longer exists; refreshing inventory" through the action
+#      outcome, and leave the fixture filesystem byte-identical (DirManifest
+#      equality pre/post).
+# Strategy A — in-process drives of `actions::unify::run` + the new
+# `orchestration::revalidate::re_introspect_after_drift` /
+# `auto_refresh_after_gone` orchestrator helpers. The full visible TUI dialog
+# UX ("Re-introspecting before proceeding..." progress indicator, dialog
+# re-confirm flow, right-pane "file no longer exists" line) is gated on the
+# launch.log timing seam from manual_refresh.rs and lands via the TUI's
+# dialog renderer in a follow-up step — see acceptance/cache_revalidate.rs
+# file-level note.
+[[test]]
+name = "cache_revalidate"
+path = "acceptance/cache_revalidate.rs"
 
 [[test]]
 name = "release_process_validate_tag"

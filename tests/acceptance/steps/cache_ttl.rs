@@ -18,7 +18,9 @@ use std::time::{Duration, SystemTime};
 
 use modeltap_acceptance::fixtures::cache_fixtures::DevonCacheStaleToolFixture;
 use modeltap_app::adapters::cache_path;
-use modeltap_app::orchestration::warm_start::{self, WarmStartConfig, WarmStartResult, WarmStartSource};
+use modeltap_app::orchestration::warm_start::{
+    self, WarmStartConfig, WarmStartResult, WarmStartSource,
+};
 use modeltap_core::types::ToolId;
 use rusqlite::Connection;
 
@@ -203,12 +205,7 @@ pub fn then_warm_start_returns_existing_source(world: &CacheTtlWorld) {
 /// row; the inventory must contain exactly those two entries.
 pub fn then_inventory_contains_fresh_tools_models(world: &CacheTtlWorld) {
     let result = world.result();
-    let painted_tools: Vec<&str> = result
-        .inventory
-        .entries
-        .iter()
-        .map(|e| e.tool.0)
-        .collect();
+    let painted_tools: Vec<&str> = result.inventory.entries.iter().map(|e| e.tool.0).collect();
     assert!(
         painted_tools
             .iter()

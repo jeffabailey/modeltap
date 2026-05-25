@@ -42,11 +42,11 @@ use std::time::Duration;
 
 use assert_cmd::Command;
 pub use modeltap_acceptance::fixtures::inspect_fixtures::{
-    devon_hf_config_json_path, devon_hf_with_config_json_fixture,
-    devon_mistral_gguf_fixture, devon_model_unintrospectable_fixture,
-    devon_ollama_manifest_fixture, devon_ollama_manifest_path,
-    devon_unintrospectable_model_path, InspectFixture, LmStudioGgufFixture,
-    HF_CONFIG_JSON_FIXTURE_ID, LM_STUDIO_GGUF_FIXTURE_ID, OLLAMA_MANIFEST_FIXTURE_ID,
+    devon_hf_config_json_path, devon_hf_with_config_json_fixture, devon_mistral_gguf_fixture,
+    devon_model_unintrospectable_fixture, devon_ollama_manifest_fixture,
+    devon_ollama_manifest_path, devon_unintrospectable_model_path, InspectFixture,
+    LmStudioGgufFixture, HF_CONFIG_JSON_FIXTURE_ID, LM_STUDIO_GGUF_FIXTURE_ID,
+    OLLAMA_MANIFEST_FIXTURE_ID,
 };
 
 /// Captured outcome of one `modeltap` headless launch. Mirrors
@@ -476,10 +476,7 @@ pub fn launch_modeltap_lm_studio_gguf(
             fixture.lm_studio_root.to_string_lossy().into_owned(),
         )
         .env("MODELTAP_HEADLESS_DETAIL_REGS", regs_payload)
-        .env(
-            "MODELTAP_DIAGNOSTICS_DIR",
-            fixture.inner.diagnostics_dir(),
-        )
+        .env("MODELTAP_DIAGNOSTICS_DIR", fixture.inner.diagnostics_dir())
         .env("MODELTAP_CACHE_PATH", fixture.inner.cache_path())
         .env("MODELTAP_LOG_DIR", fixture.inner.log_dir())
         // Park every OTHER plugin at a nonexistent root so they

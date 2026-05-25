@@ -211,8 +211,7 @@ pub fn devon_model_unintrospectable_fixture() -> InspectFixture {
     // screen's `Registered with` panel paints from the regs payload, the
     // Metadata section paints `METADATA_UNSUPPORTED_SENTINEL`.
     let ollama_dir = temp.path().join("ollama-root");
-    std::fs::create_dir_all(ollama_dir.join("manifests"))
-        .expect("create ollama-root/manifests");
+    std::fs::create_dir_all(ollama_dir.join("manifests")).expect("create ollama-root/manifests");
 
     // Place the un-introspectable model file under the Ollama tree. The
     // `MODELTAP_HEADLESS_DETAIL_REGS` payload points at this path so the
@@ -357,8 +356,7 @@ pub fn devon_ollama_manifest_path(fixture: &InspectFixture) -> PathBuf {
 /// modeltap launch round-trips `model.id == HF_CONFIG_JSON_FIXTURE_ID`
 /// through the headless DETAIL_REGS payload AND the plugin's `model_id`
 /// → snapshot-dir locator.
-pub const HF_CONFIG_JSON_FIXTURE_ID: &str =
-    "mistralai/Mistral-7B-v0.1/model.safetensors";
+pub const HF_CONFIG_JSON_FIXTURE_ID: &str = "mistralai/Mistral-7B-v0.1/model.safetensors";
 
 /// Body of the synthetic HF `config.json` the AC-22-3 / AC-22-5 HF scenario
 /// reads. Carries every field the plugin's `inspect_model` projects into
@@ -437,8 +435,11 @@ pub fn devon_hf_with_config_json_fixture() -> InspectFixture {
         .join("snapshots")
         .join(HF_CONFIG_JSON_FIXTURE_SNAPSHOT_REV);
     std::fs::create_dir_all(&snapshot_dir).expect("create hf snapshot dir");
-    std::fs::write(snapshot_dir.join("config.json"), HF_CONFIG_JSON_FIXTURE_BODY)
-        .expect("write synthetic hf config.json");
+    std::fs::write(
+        snapshot_dir.join("config.json"),
+        HF_CONFIG_JSON_FIXTURE_BODY,
+    )
+    .expect("write synthetic hf config.json");
     // refs/main pointer so the plugin's `resolve_snapshot_dir` takes the
     // priority-1 path (deterministic across multiple snapshot dirs).
     let refs_dir = model_dir.join("refs");
@@ -736,7 +737,10 @@ mod tests {
             meta.is_file(),
             "unintrospectable model must be a regular file (so Size on disk renders)"
         );
-        assert!(meta.len() > 0, "fixture file must be non-empty so byte count renders");
+        assert!(
+            meta.len() > 0,
+            "fixture file must be non-empty so byte count renders"
+        );
         // The manifests/ directory must exist as a directory (not a file like
         // devon_tool_error_ollama) so the Ollama plugin's discover()
         // surfaces NotInstalled rather than DiscoverError::Io — only

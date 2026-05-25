@@ -147,7 +147,12 @@ mod tests {
 
         let m = DirManifest::snapshot(td.path());
         // a.txt, sub/, sub/b.txt = 3 entries (root itself excluded).
-        assert_eq!(m.entries.len(), 3, "{:?}", m.entries.keys().collect::<Vec<_>>());
+        assert_eq!(
+            m.entries.len(),
+            3,
+            "{:?}",
+            m.entries.keys().collect::<Vec<_>>()
+        );
         assert_eq!(m.entries.get(Path::new("a.txt")).map(|(s, _)| *s), Some(5));
         assert_eq!(
             m.entries

@@ -284,7 +284,9 @@ fn parents_k3_is_satisfied_via_k3a_or_k3b_on_every_launch() {
         let k3b_full = read_jsonl_event(&log_dir, "launch.full_inventory_paint_ms");
 
         let k3a_satisfied = k3a.map(|v| v <= WARM_PAINT_BUDGET_MS).unwrap_or(false);
-        let k3b_satisfied = k3b_first.map(|v| v <= FIRST_PAINT_BUDGET_MS).unwrap_or(false)
+        let k3b_satisfied = k3b_first
+            .map(|v| v <= FIRST_PAINT_BUDGET_MS)
+            .unwrap_or(false)
             && k3b_full
                 .map(|v| v <= FULL_INVENTORY_PAINT_BUDGET_MS)
                 .unwrap_or(false);
@@ -324,7 +326,9 @@ fn parents_k3_is_satisfied_via_k3a_or_k3b_on_every_launch() {
         let k3b_full = read_jsonl_event(&log_dir, "launch.full_inventory_paint_ms");
 
         let k3a_satisfied = k3a.map(|v| v <= WARM_PAINT_BUDGET_MS).unwrap_or(false);
-        let k3b_satisfied = k3b_first.map(|v| v <= FIRST_PAINT_BUDGET_MS).unwrap_or(false)
+        let k3b_satisfied = k3b_first
+            .map(|v| v <= FIRST_PAINT_BUDGET_MS)
+            .unwrap_or(false)
             && k3b_full
                 .map(|v| v <= FULL_INVENTORY_PAINT_BUDGET_MS)
                 .unwrap_or(false);

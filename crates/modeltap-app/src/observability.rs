@@ -171,6 +171,33 @@ pub enum RecordKind {
         outcome: &'static str,
         duration_ms: u64,
     },
+    /// Plugin `inspect_model` invocation initiated by the pre-mutate
+    /// revalidator (Step 05-04 — US-26 AC-26-6). Emitted once per call to
+    /// `orchestration::revalidate::re_introspect_after_drift` so observability
+    /// can correlate `revalidate.invoked outcome=drift` with the downstream
+    /// re-introspect that recomputes `cache_models.size_bytes` and
+    /// `metadata_kv_json` for the drifted file. `source` is always
+    /// `"pre_mutate_drift"` in v1 — the schema reserves the field for future
+    /// inspect-trigger sources (interactive Refresh, scheduled rescan, etc.).
+    /// Per the privacy rule: `tool` is the registered plugin id, `model` is
+    /// the plugin-supplied id_in_tool — no paths, no hashes.
+    InspectInvoked {
+        tool: String,
+        model: String,
+        source: &'static str,
+        duration_ms: u64,
+    },
+    /// Auto-refresh trigger issued by the pre-mutate revalidator on a
+    /// `Gone` outcome (Step 05-04 — US-26 AC-26-7). Emitted by
+    /// `orchestration::revalidate::auto_refresh_after_gone` immediately
+    /// before the per-tool reconcile is enqueued. `source` is always
+    /// `"pre_mutate_gone"` in v1 — the schema reserves the field for future
+    /// auto-refresh triggers. Per the privacy rule: only the registered
+    /// plugin id leaks; no model name, no path of the vanished file.
+    RefreshTool {
+        tool: String,
+        source: &'static str,
+    },
 }
 
 pub struct LaunchLogger {
@@ -381,6 +408,25 @@ impl LaunchLogger {
                 env["model"] = json!(model);
                 env["outcome"] = json!(outcome);
                 env["duration_ms"] = json!(duration_ms);
+                env
+            }
+            RecordKind::InspectInvoked {
+                tool,
+                model,
+                source,
+                duration_ms,
+            } => {
+                let mut env = self.base_envelope("inspect.invoked");
+                env["tool"] = json!(tool);
+                env["model"] = json!(model);
+                env["source"] = json!(source);
+                env["duration_ms"] = json!(duration_ms);
+                env
+            }
+            RecordKind::RefreshTool { tool, source } => {
+                let mut env = self.base_envelope("refresh.tool");
+                env["tool"] = json!(tool);
+                env["source"] = json!(source);
                 env
             }
             RecordKind::DiscoveredModel { .. } => unreachable!("handled above"),
