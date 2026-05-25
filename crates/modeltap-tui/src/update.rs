@@ -425,6 +425,41 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             next.recovery_reason = None;
             (next, UpdateEffect::default())
         }
+        // Step 05-01 — background reconcile completion (US-26 AC-26-4).
+        // Insert the tool into `silent_ack_until` only when the diff was
+        // non-empty; the renderer paints a blue `*` for any tool present
+        // in this map. The expiry instant is fixed at `now + 3s` per
+        // AC-26-4 — `Instant::now()` is acceptable inside the pure update
+        // because the only observable outcome is the map insertion (the
+        // tick timer dispatches `DismissSilentAck` when wall-clock has
+        // crossed the stored instant).
+        Msg::ReconcileCompleted { tool, has_diff } => {
+            if !has_diff {
+                (state, UpdateEffect::default())
+            } else {
+                let mut next = state;
+                next.silent_ack_until
+                    .insert(tool, Instant::now() + Duration::from_secs(3));
+                (next, UpdateEffect::default())
+            }
+        }
+        // Step 05-01 — reconcile failure (AC-26-3): pure update is a
+        // state-noop. The cache stays at last-known-good (the rollback is
+        // automatic via rusqlite's `Drop`) and the diagnostics.log line is
+        // appended by the orchestrator before this Msg is dispatched. The
+        // variant exists so a future per-tool error indicator can plug in
+        // without a Msg-shape change.
+        Msg::ReconcileFailed { tool: _ } => (state, UpdateEffect::default()),
+        // Step 05-01 — silent-ack timer expiry (US-26 AC-26-4). Remove the
+        // tool from `silent_ack_until` so the next render frame omits the
+        // blue `*`. Per-tool granularity matches the AC: simultaneous
+        // reconciles surface independent indicators with independent
+        // expiries; one expiring does not dismiss any other.
+        Msg::DismissSilentAck { tool } => {
+            let mut next = state;
+            next.silent_ack_until.remove(&tool);
+            (next, UpdateEffect::default())
+        }
         Msg::UnboundKey => (state, UpdateEffect::default()),
     }
 }

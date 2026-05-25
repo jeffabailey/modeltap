@@ -440,6 +440,55 @@ pub enum Msg {
     /// the banner is unaffected.
     DismissRecoveryBanner,
 
+    // -----------------------------------------------------------------------
+    // Step 05-01 — background reconcile orchestrator (US-24 / US-26).
+    //
+    // The composition root dispatches `orchestration::reconcile::run` after
+    // warm-paint (automatic All-scope reconcile) and — in 05-03 — on [r] /
+    // [Shift+R] manual-refresh hotkeys. The orchestrator emits one of the
+    // following two Msgs per tool: `ReconcileCompleted { tool, has_diff }`
+    // (cache written successfully, optionally surfacing the silent-ack
+    // indicator) or `ReconcileFailed { tool }` (per-tool write transaction
+    // rolled back; cache stays at last-known-good per AC-26-3, a
+    // `reconcile_failed` line is appended to diagnostics.log by the
+    // orchestrator).
+    //
+    // The silent-ack indicator surfaces a 3-second blue `*` next to the
+    // affected tool row when the diff is non-empty (AC-26-4); state is
+    // carried in `AppState.silent_ack_until` as
+    // `BTreeMap<ToolId, Instant>`. `Msg::DismissSilentAck { tool }` is
+    // dispatched by the tick timer (lands fully in 05-03) — pure update
+    // removes the entry.
+    // -----------------------------------------------------------------------
+    /// Composition root dispatches this when the per-tool reconcile write
+    /// succeeded. `has_diff = true` means the orchestrator's
+    /// `compute_inventory_diff` returned a non-empty drift — `update()`
+    /// inserts the tool into `state.silent_ack_until` with the 3-second
+    /// expiry instant (AC-26-4). `has_diff = false` is a state-noop (no
+    /// indicator).
+    ReconcileCompleted {
+        tool: ToolId,
+        has_diff: bool,
+    },
+    /// Composition root dispatches this when the per-tool reconcile write
+    /// transaction failed (CacheError or plugin discover panic). Pure
+    /// `update()` is a state-noop — the cache stays at last-known-good
+    /// (AC-26-3) and the diagnostics.log line is appended by the
+    /// orchestrator before this Msg is sent. The variant exists so a
+    /// future per-tool error indicator can plug in without a Msg-shape
+    /// change.
+    ReconcileFailed {
+        tool: ToolId,
+    },
+    /// Composition root dispatches this when the 3-second silent-ack timer
+    /// expires for a specific tool. `update()` removes that tool from
+    /// `state.silent_ack_until` so the blue `*` indicator disappears on the
+    /// next frame. Per-tool granularity matches AC-26-4: simultaneous
+    /// reconciles surface independent indicators with independent expiries.
+    DismissSilentAck {
+        tool: ToolId,
+    },
+
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,
 }

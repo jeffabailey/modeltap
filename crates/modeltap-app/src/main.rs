@@ -23,6 +23,12 @@ use modeltap_app::config;
 // warm-start emits `cache_open_ms` + `warm_paint_ms` from the orchestrator.
 use modeltap_app::instrumentation::launch_metrics::LaunchMetrics;
 use modeltap_app::inventory_build;
+// Step 05-01: orchestration::reconcile module is wired and compilable; per-loop
+// Msg dispatch lands in step 05-03 (manual-refresh keymaps). The composition
+// root references the module path here so any future regression in the orchestrator
+// surfaces at the same call site that will dispatch it.
+#[allow(unused_imports)]
+use modeltap_app::orchestration::reconcile;
 use modeltap_app::orchestration::warm_start::{self, WarmStartConfig, WarmStartSource};
 use modeltap_app::platform::{current_platform, Platform};
 // `registry` moved from `mod registry;` (private to the bin) to

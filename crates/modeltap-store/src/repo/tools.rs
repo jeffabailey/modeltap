@@ -261,6 +261,205 @@ impl Cache {
         })
     }
 
+    /// Atomic full per-tool reconcile write (Phase 05 step 05-01 / US-26
+    /// AC-26-2). Same transactional contract as `reconcile_tool` PLUS a
+    /// `DELETE FROM cache_models WHERE tool_id=?1 AND model_id NOT IN (...)`
+    /// step so the post-commit set of `cache_models` rows for `tool.tool_id`
+    /// matches `models` exactly — extra cached rows that were not returned
+    /// by the fresh `discover()` are dropped inside the same BEGIN IMMEDIATE
+    /// transaction as the UPSERT.
+    ///
+    /// Last-known-good preservation (AC-26-3) is the caller's job: if any
+    /// step inside the closure returns `Err(_)`, the transaction is rolled
+    /// back by rusqlite's `Drop` and the on-disk cache stays at its prior
+    /// state. The orchestrator at
+    /// `modeltap-app::orchestration::reconcile` MUST treat the `Err(_)`
+    /// return as "do not surface success" + "append `reconcile_failed` line
+    /// to diagnostics.log" — the rollback itself is automatic.
+    ///
+    /// `models` must all carry `tool_id == tool.tool_id`. Mirrors the
+    /// `write_models` / `reconcile_tool` invariant: mismatched tool_id is
+    /// rejected as `MalformedRow` BEFORE the SQLite round-trip so a bad
+    /// caller cannot leak a half-applied transaction.
+    ///
+    /// Returns the wall-clock duration spent waiting for the write lock on
+    /// `BEGIN IMMEDIATE`. The orchestrator forwards this to the
+    /// `cache.write_wait_ms` JSONL event so the concurrent-writers
+    /// acceptance scenario can verify the busy_timeout path actually fired.
+    pub fn atomic_reconcile_write(
+        &self,
+        tool: &CachedTool,
+        models: &[CachedModel],
+    ) -> Result<Duration, CacheError> {
+        // Pre-serialize every value outside the lock so the write transaction
+        // only holds the SQLite mutex for the database round-trip itself —
+        // identical hot-path to `reconcile_tool`.
+        let install_path = path_to_db_text(&tool.install_path);
+        let last_scan_at = format_iso8601_utc(&tool.last_scan_at)?;
+        let last_error_at = tool
+            .last_error_at
+            .as_ref()
+            .map(format_iso8601_utc)
+            .transpose()?;
+        let search_paths_json =
+            serde_json::to_string(&tool.search_paths).map_err(|e| CacheError::MalformedRow {
+                table: "cache_tools",
+                detail: format!("serialize search_paths_json: {e}"),
+            })?;
+
+        for model in models {
+            if model.tool_id != tool.tool_id {
+                return Err(CacheError::MalformedRow {
+                    table: "cache_models",
+                    detail: format!(
+                        "model.tool_id {} does not match atomic_reconcile_write target {}",
+                        model.tool_id, tool.tool_id
+                    ),
+                });
+            }
+        }
+
+        self.with_conn_mut(|conn| {
+            let begin_at = Instant::now();
+            let tx = conn.transaction_with_behavior(
+                rusqlite::TransactionBehavior::Immediate,
+            )?;
+            let write_wait = begin_at.elapsed();
+
+            // 1. UPSERT cache_tools row.
+            tx.execute(
+                "INSERT INTO cache_tools (
+                    tool_id, install_path, detected_version, plugin_version,
+                    model_count, disk_usage_bytes, largest_model_id,
+                    last_scan_at, last_scan_duration_ms,
+                    last_error, last_error_at, search_paths_json
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                ON CONFLICT(tool_id) DO UPDATE SET
+                    install_path = excluded.install_path,
+                    detected_version = excluded.detected_version,
+                    plugin_version = excluded.plugin_version,
+                    model_count = excluded.model_count,
+                    disk_usage_bytes = excluded.disk_usage_bytes,
+                    largest_model_id = excluded.largest_model_id,
+                    last_scan_at = excluded.last_scan_at,
+                    last_scan_duration_ms = excluded.last_scan_duration_ms,
+                    last_error = excluded.last_error,
+                    last_error_at = excluded.last_error_at,
+                    search_paths_json = excluded.search_paths_json",
+                params![
+                    tool.tool_id.0,
+                    install_path,
+                    tool.detected_version,
+                    tool.plugin_version,
+                    tool.model_count as i64,
+                    tool.disk_usage_bytes as i64,
+                    tool.largest_model_id,
+                    last_scan_at,
+                    tool.last_scan_duration_ms as i64,
+                    tool.last_error,
+                    last_error_at,
+                    search_paths_json,
+                ],
+            )?;
+
+            // 2. DELETE cache_models rows whose model_id is NOT in the fresh
+            // set. SQLite does not accept slice binding for `NOT IN (?)`, so
+            // we build a parameterised placeholder list at runtime. Empty
+            // `models` slice -> DELETE every row for this tool_id (caller
+            // semantics: a tool reporting zero discovered models on reconcile
+            // means its cache_models table should be empty).
+            if models.is_empty() {
+                tx.execute(
+                    "DELETE FROM cache_models WHERE tool_id = ?1",
+                    params![tool.tool_id.0],
+                )?;
+            } else {
+                let placeholders: String = (0..models.len())
+                    .map(|i| format!("?{}", i + 2))
+                    .collect::<Vec<_>>()
+                    .join(",");
+                let sql = format!(
+                    "DELETE FROM cache_models WHERE tool_id = ?1 AND model_id NOT IN ({})",
+                    placeholders
+                );
+                let mut delete_params: Vec<&dyn rusqlite::ToSql> =
+                    Vec::with_capacity(1 + models.len());
+                delete_params.push(&tool.tool_id.0);
+                for model in models {
+                    delete_params.push(&model.model_id);
+                }
+                tx.execute(&sql, delete_params.as_slice())?;
+            }
+
+            // 3. UPSERT cache_models rows (same body as reconcile_tool).
+            {
+                let mut stmt = tx.prepare(
+                    "INSERT INTO cache_models (
+                        model_id, tool_id, display_name, format, quantisation,
+                        size_bytes, sha256, architecture, parameters_billions,
+                        context_length, dedup_group_id, metadata_kv_json,
+                        metadata_introspected_at, last_seen_at, last_validated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+                    ON CONFLICT(model_id, tool_id) DO UPDATE SET
+                        display_name = excluded.display_name,
+                        format = excluded.format,
+                        quantisation = excluded.quantisation,
+                        size_bytes = excluded.size_bytes,
+                        sha256 = excluded.sha256,
+                        architecture = excluded.architecture,
+                        parameters_billions = excluded.parameters_billions,
+                        context_length = excluded.context_length,
+                        dedup_group_id = excluded.dedup_group_id,
+                        metadata_kv_json = excluded.metadata_kv_json,
+                        metadata_introspected_at = excluded.metadata_introspected_at,
+                        last_seen_at = excluded.last_seen_at,
+                        last_validated_at = excluded.last_validated_at",
+                )?;
+
+                for model in models {
+                    let metadata_kv_json = serde_json::to_string(&model.metadata_kv).map_err(
+                        |e| CacheError::MalformedRow {
+                            table: "cache_models",
+                            detail: format!("serialize metadata_kv_json: {e}"),
+                        },
+                    )?;
+                    let metadata_introspected_at = model
+                        .metadata_introspected_at
+                        .as_ref()
+                        .map(format_iso8601_utc)
+                        .transpose()?;
+                    let last_seen_at = format_iso8601_utc(&model.last_seen_at)?;
+                    let last_validated_at = model
+                        .last_validated_at
+                        .as_ref()
+                        .map(format_iso8601_utc)
+                        .transpose()?;
+
+                    stmt.execute(params![
+                        model.model_id,
+                        model.tool_id.0,
+                        model.display_name,
+                        model.format,
+                        model.quantisation,
+                        model.size_bytes as i64,
+                        model.sha256,
+                        model.architecture,
+                        model.parameters_billions,
+                        model.context_length.map(|c| c as i64),
+                        model.dedup_group_id,
+                        metadata_kv_json,
+                        metadata_introspected_at,
+                        last_seen_at,
+                        last_validated_at,
+                    ])?;
+                }
+            }
+
+            tx.commit()?;
+            Ok(write_wait)
+        })
+    }
+
     /// Per-tool TTL eligibility check (Phase 04 step 04-03 / AC-25-2 +
     /// AC-25-4). Returns `true` iff the cache has a `cache_tools` row for
     /// `tool_id` AND that row's `last_scan_at` is recent enough — i.e.

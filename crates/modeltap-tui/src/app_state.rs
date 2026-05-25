@@ -349,6 +349,23 @@ pub struct AppState {
     /// AC-23-11: the banner NEVER blocks the launch — the cold-start
     /// inventory view paints below it regardless.
     pub recovery_reason: Option<(RecoveryReason, std::path::PathBuf)>,
+
+    /// Step 05-01 (US-26 AC-26-4): per-tool silent-ack indicator. When a
+    /// background reconcile detects a non-empty drift for `tool`, the
+    /// composition root dispatches `Msg::ReconcileCompleted { has_diff:
+    /// true }` and `update()` inserts the tool into this map with the
+    /// 3-second-from-now `Instant` expiry. The render layer paints a blue
+    /// `*` next to any tool present in this map; the tick timer (lands
+    /// fully in step 05-03) dispatches `Msg::DismissSilentAck { tool }`
+    /// when the expiry passes so the indicator disappears on the next
+    /// frame.
+    ///
+    /// `BTreeMap` for deterministic iteration order. `Instant` is a runtime
+    /// value — the field is excluded from `PartialEq` semantics in practice
+    /// (Instant comparison is monotonic but not relevant to acceptance test
+    /// equality); tests asserting silent-ack presence check `contains_key`
+    /// rather than equality on the instant value.
+    pub silent_ack_until: BTreeMap<ToolId, Instant>,
 }
 
 impl Default for AppState {
@@ -379,6 +396,7 @@ impl Default for AppState {
             status_line: None,
             expanded_folders: BTreeSet::new(),
             recovery_reason: None,
+            silent_ack_until: BTreeMap::new(),
         }
     }
 }
@@ -424,6 +442,7 @@ impl AppState {
             status_line: None,
             expanded_folders: BTreeSet::new(),
             recovery_reason: None,
+            silent_ack_until: BTreeMap::new(),
         }
     }
 

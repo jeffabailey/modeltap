@@ -7,4 +7,5 @@
 
 pub mod open_model_detail;
 pub mod open_tool_detail;
+pub mod reconcile;
 pub mod warm_start;

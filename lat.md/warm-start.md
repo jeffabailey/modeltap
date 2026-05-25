@@ -85,3 +85,27 @@ The K-INFO budgets (≤ 150 ms warm paint, ≤ 100 ms cache open) are calibrated
 outcome-kpis.md §K-INFO-1 explicitly notes the debug-build envelope is 1.5× the release ceiling, which is why the gating exists.
 
 The early-return is a `return;` at function head — not a `#[cfg]` attribute on the test itself — so `cargo check -p modeltap-acceptance --tests` still type-checks the facade wiring and the fixture round-trip. CI exercises the K-INFO assertions via `cargo test --release --test cache_kpi`, and the local development loop stays fast.
+
+## Background reconcile orchestrator
+
+Step 05-01 adds [[crates/modeltap-app/src/orchestration/reconcile.rs|`reconcile::run(scope, plugins, config)`]] — the post-warm-paint orchestrator that walks every registered plugin's `discover()`, diffs the result against the cached rows, and writes the merged inventory back atomically per tool.
+
+`ReconcileScope::All` is the post-warm-paint default and the future `[Shift+R]` semantic. `ReconcileScope::Tool(ToolId)` is the future `[r]` per-tool refresh. Both manual-refresh hotkeys land in step 05-03; this orchestrator exposes the entry point the hotkeys will dispatch into.
+
+Each per-tool reconcile runs inside ONE `tokio::task::spawn_blocking` that opens the cache, reads the cached signature, computes the diff, and writes the new rows in a single `BEGIN IMMEDIATE..COMMIT` transaction via [[crates/modeltap-store/src/repo/tools.rs|`Cache::atomic_reconcile_write`]]. On `Err(_)` the transaction rolls back automatically via rusqlite's `Drop` — the cache stays at last-known-good per AC-26-3 — and a `reconcile_failed tool=<id> reason=<text>` line is appended to `<diagnostics_dir>/diagnostics.log` before the per-tool `ToolFailed` event is dispatched.
+
+## Inventory diff (pure function)
+
+[[crates/modeltap-core/src/logic/inventory_diff.rs|`compute_inventory_diff(tool_id, cached, fresh) -> InventoryDiff`]] is the pure-domain core, projecting both sides into sorted `added_models` / `removed_models` / `modified_models` vectors.
+
+Inputs are `&[ModelSignature]` on both sides. `sha256_changed` is suppressed when either side is `None` so the lazy hash pool never produces false-positive drift events as it catches up. The function is its own driving port — calling it directly from tests IS port-to-port testing per the nw-tdd-methodology convention for pure domain functions. The orchestrator emits `Msg::ReconcileCompleted { tool, has_diff }` where `has_diff = !diff.is_empty()` so the renderer's silent-ack lookup stays O(1).
+
+## Silent-ack indicator
+
+AC-26-4: when a background reconcile produces a non-empty drift, the renderer paints a blue `*` next to the affected tool row for 3 seconds. State lives in `AppState.silent_ack_until` as `BTreeMap<ToolId, Instant>`.
+
+`Msg::ReconcileCompleted { has_diff: true }` inserts `(tool, now + 3s)`; the tick timer (lands in step 05-03) dispatches `Msg::DismissSilentAck { tool }` when the wall-clock crosses the stored instant. Per-tool granularity matches the AC: simultaneous reconciles surface independent indicators with independent expiries — dismissing one never clears any other. `has_diff: false` is a state-noop; a no-op reconcile produces no user-visible indicator.
+
+INT-INFO-3 holds inside the orchestrator's row projection: [[crates/modeltap-app/src/orchestration/reconcile.rs|`project_to_cache_rows`]] sets `tool.disk_usage_bytes = sum(models.size_bytes)` by construction, so the renderer's later total assertion is satisfied within 1-byte rounding (all accumulators are u64).
+
+Per-loop Msg dispatch wiring (calling `reconcile::run` from inside the headless / interactive event loops) is deferred to step 05-03 when the `[r]` / `[Shift+R]` keymap dispatch joins the same call site.
