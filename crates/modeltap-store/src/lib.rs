@@ -22,6 +22,7 @@ mod migrate;
 mod open;
 pub mod recovery;
 mod repo;
+mod revalidate;
 
 pub mod types;
 

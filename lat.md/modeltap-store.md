@@ -69,3 +69,19 @@ Two `modeltap` processes share one `cache.sqlite` without blocking, crashing, or
 The `cache.write_wait_ms` JSONL line in `<MODELTAP_LOG_DIR>/launch.log` carries the schema `modeltap.launch.v1` and one field, `wait_ms: u64`. The concurrent-writers acceptance scenario asserts process B's emitted value falls in `[0, 5000]` — exceeding the upper bound would mean SQLite returned `SQLITE_BUSY` to the writer, which the contract forbids.
 
 The acceptance contract is that concurrent processes never crash, never surface `SQLITE_BUSY`, and the last writer wins via `ON CONFLICT(tool_id) DO UPDATE`. The two `#[test]`s in [[crates/modeltap-store/tests/concurrent.rs]] cover the store-internals path; the two acceptance scenarios in [[tests/acceptance/cache_concurrent.rs]] cover the modeltap-binary boundary.
+
+## Pre-mutate revalidator
+
+[[crates/modeltap-store/src/revalidate.rs]] is the store-side half of K5. ADR-015 §3 forbids the cache from enabling a stale-data destructive action; `Cache::verify_against_fs(model_id)` is the seam every mutation orchestrator runs before invoking a plugin's destructive method.
+
+`verify_against_fs` reads every `cache_model_files` row for the given `model_id`, re-`stat()`s the path, and compares each result to the cached `(mtime_epoch_ns, size_bytes, inode, dev)` quad per architecture-design.md §8.2. The scan short-circuits at the first disagreement.
+
+Outcome is [[crates/modeltap-store/src/types.rs|ValidationResult]]: `Match` when every file's quad still matches the cached row, `Drift { fresh: FileStat }` when at least one quad differs, or `Gone` when at least one `std::fs::metadata` call returns `ErrorKind::NotFound`. A model with zero `cache_model_files` rows returns `Match` — there is no cached state to be stale against, and the orchestrator decides separately whether such a model is safe to mutate.
+
+[[crates/modeltap-store/src/types.rs|FileStat::matches]] is the pure helper called out by acceptance-test-plan.md §9 CM-D — no I/O, just the four-field equality check. It exists as a named method so revalidator call sites read `if cached.matches(&fresh)` rather than relying on the `PartialEq` derive implicitly.
+
+The companion `Cache::write_model_files` API is the minimum write surface needed by the revalidator fixtures and unit tests. It UPSERTs `cache_model_files` rows inside a single transaction via `ON CONFLICT(path) DO UPDATE`. The richer per-tool upsert + cascading-delete surface lands when an in-tree plugin starts populating these rows from `Tool::inspect_model`.
+
+Orchestrator-side `revalidate::pre_mutate` plus the four destructive-call-site wires (`execute_unify`, `execute_zap`, `execute_delete_one`, `execute_folder_delete`) land in step 05-02 part 2/2. This commit is store-side only.
+
+Fixtures `devon-cache-mtime-drift` (file touched after the cache row was written) and `devon-cache-file-gone` (file removed after the cache row was written) live at [[tests/src/fixtures/cache_fixtures.rs]] and back the unit tests in [[crates/modeltap-store/tests/revalidate.rs]].

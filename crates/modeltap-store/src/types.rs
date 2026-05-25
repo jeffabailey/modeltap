@@ -114,3 +114,34 @@ pub struct FileStat {
     pub inode: u64,
     pub dev: u64,
 }
+
+impl FileStat {
+    /// Pure comparison of two `FileStat` values across the load-bearing
+    /// quad — `(mtime, size, inode, dev)`. No I/O. The revalidator
+    /// (`Cache::verify_against_fs`) uses this to decide
+    /// `ValidationResult::Match` vs `ValidationResult::Drift { fresh }`.
+    ///
+    /// All four fields must match: a single mismatched element flips the
+    /// outcome to drift. The same logic could be expressed as `self ==
+    /// other` thanks to the `PartialEq` derive — this method exists as
+    /// the named pure helper called out by acceptance-test-plan.md §9 CM-D
+    /// (pure-function inventory) so the revalidator wiring reads as
+    /// `if cached.matches(&fresh) { ... }` rather than relying on the
+    /// derive at the call site.
+    pub fn matches(&self, other: &Self) -> bool {
+        self == other
+    }
+}
+
+impl From<&CachedFile> for FileStat {
+    /// Project a stored `CachedFile` row down to the quad the revalidator
+    /// compares against a fresh `std::fs::metadata()` read.
+    fn from(row: &CachedFile) -> Self {
+        Self {
+            size_bytes: row.size_bytes,
+            mtime: row.mtime,
+            inode: row.inode,
+            dev: row.dev,
+        }
+    }
+}

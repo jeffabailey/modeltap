@@ -543,6 +543,258 @@ impl DevonCacheFutureVersionFixture {
 }
 
 // ---------------------------------------------------------------------------
+// Step 05-02 — revalidator fixtures (US-26 AC-26-5 / AC-26-6 / AC-26-7).
+//
+// Two adjacent fixtures, each pre-installs ONE model file on disk plus a
+// matching `cache_model_files` row, then mutates the on-disk file so the
+// pre-mutate revalidator's quad comparison fires:
+//
+//   - `devon-cache-mtime-drift` — file's mtime is shifted forward AFTER the
+//     row is written. `Cache::verify_against_fs` returns
+//     `ValidationResult::Drift { fresh }`.
+//   - `devon-cache-file-gone`  — file is `remove_file()`d AFTER the row is
+//     written. `Cache::verify_against_fs` returns `ValidationResult::Gone`.
+//
+// Both fixtures expose the same env-var triad as the existing cache fixtures
+// so scenario step-defs can swap them without touching the cucumber wiring.
+// ---------------------------------------------------------------------------
+
+/// Pre-installed cache fixture with a single seeded model whose on-disk
+/// file's mtime is bumped AFTER the cache row was written. The cached quad
+/// therefore lags the on-disk quad → `verify_against_fs` returns Drift.
+///
+/// Layout:
+/// ```text
+/// <temp>/
+///   xdg-data/modeltap/cache.sqlite       <-- seeded with 1 model row + 1 file row
+///   test-tool/models/test-model-7b.gguf  <-- mtime bumped to now+1h after seed
+///   logs/                                <-- MODELTAP_LOG_DIR
+///   modeltap-home/                       <-- MODELTAP_DIAGNOSTICS_DIR
+/// ```
+pub struct DevonCacheMtimeDriftFixture {
+    pub temp: TempDir,
+}
+
+impl DevonCacheMtimeDriftFixture {
+    /// The model_id seeded into `cache_models` / `cache_model_files`. Stable
+    /// so step-defs can call `cache.verify_against_fs(&MODEL_ID.to_string())`.
+    pub const MODEL_ID: &'static str = "drift-model";
+
+    /// Build the fixture.
+    pub fn build() -> Self {
+        use modeltap_store::types::{CachedFile, CachedModel};
+        use modeltap_store::{Cache, CacheOpenResult};
+        use std::collections::BTreeMap;
+        use std::os::unix::fs::MetadataExt;
+        use std::time::SystemTime;
+
+        let temp = TempDir::new().expect("create devon-cache-mtime-drift tempdir");
+        let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
+        std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
+        std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home"))
+            .expect("create modeltap-home/");
+        let model_dir = temp.path().join("test-tool").join("models");
+        std::fs::create_dir_all(&model_dir).expect("create test-tool/models");
+        let model_file = model_dir.join(TEST_MODEL_FILENAME);
+        std::fs::write(&model_file, b"initial-bytes-for-mtime-drift")
+            .expect("seed initial gguf");
+
+        // Snapshot the just-written file's quad — this is what we'll seed
+        // into `cache_model_files` so the row matches BEFORE the touch.
+        let meta = std::fs::metadata(&model_file).expect("stat seed");
+        let initial_mtime = meta.modified().expect("modified");
+        let initial_size = meta.len();
+        let initial_inode = meta.ino();
+        let initial_dev = meta.dev();
+
+        // Seed cache.
+        let cache_path = xdg_modeltap.join("cache.sqlite");
+        let cache = match Cache::open(&cache_path).expect("seed open") {
+            CacheOpenResult::OpenedFresh(c) => c,
+            other => panic!("expected OpenedFresh on mtime-drift seed, got {:?}", other),
+        };
+        let now = SystemTime::now();
+        // Seed the model row first — cache_model_files has a FK on
+        // (model_id, tool_id) → cache_models, so the parent must exist.
+        cache
+            .write_models(
+                &TEST_TOOL_NAME,
+                &[CachedModel {
+                    model_id: Self::MODEL_ID.to_string(),
+                    tool_id: TEST_TOOL_NAME,
+                    display_name: "Drift Test Model".to_string(),
+                    format: Some("gguf".to_string()),
+                    quantisation: None,
+                    size_bytes: initial_size,
+                    sha256: None,
+                    architecture: None,
+                    parameters_billions: None,
+                    context_length: None,
+                    dedup_group_id: None,
+                    metadata_kv: BTreeMap::new(),
+                    metadata_introspected_at: None,
+                    last_seen_at: now,
+                    last_validated_at: None,
+                }],
+            )
+            .expect("seed model row for mtime-drift");
+        cache
+            .write_model_files(&[CachedFile {
+                model_id: Self::MODEL_ID.to_string(),
+                tool_id: TEST_TOOL_NAME,
+                path: model_file.clone(),
+                size_bytes: initial_size,
+                mtime: initial_mtime,
+                inode: initial_inode,
+                dev: initial_dev,
+                last_stat_at: now,
+            }])
+            .expect("seed file row for mtime-drift");
+
+        // Bump the on-disk mtime so the cached quad is stale. We do this by
+        // overwriting the file with different bytes (also drifts size, which
+        // tightens the drift signal but doesn't change the outcome — the
+        // first differing element wins).
+        std::fs::write(&model_file, b"mutated-after-seed-bytes-mtime-drift")
+            .expect("mutate seed file for drift");
+        // Force the mtime difference to be observable even on filesystems
+        // with coarse mtime granularity (HFS+ = 1s).
+        let _ = std::process::Command::new("touch")
+            .arg("-d")
+            .arg("2030-01-01T00:00:00Z")
+            .arg(&model_file)
+            .status();
+
+        Self { temp }
+    }
+
+    pub fn cache_path(&self) -> PathBuf {
+        self.temp
+            .path()
+            .join("xdg-data")
+            .join("modeltap")
+            .join("cache.sqlite")
+    }
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.temp.path().join("modeltap-home")
+    }
+    pub fn log_dir(&self) -> PathBuf {
+        self.temp.path().join("logs")
+    }
+    pub fn model_file_path(&self) -> PathBuf {
+        self.temp
+            .path()
+            .join("test-tool")
+            .join("models")
+            .join(TEST_MODEL_FILENAME)
+    }
+}
+
+/// Pre-installed cache fixture with a single seeded model whose on-disk
+/// file is `remove_file()`d AFTER the cache row was written.
+/// `verify_against_fs` returns Gone.
+pub struct DevonCacheFileGoneFixture {
+    pub temp: TempDir,
+}
+
+impl DevonCacheFileGoneFixture {
+    pub const MODEL_ID: &'static str = "gone-model";
+
+    pub fn build() -> Self {
+        use modeltap_store::types::{CachedFile, CachedModel};
+        use modeltap_store::{Cache, CacheOpenResult};
+        use std::collections::BTreeMap;
+        use std::os::unix::fs::MetadataExt;
+        use std::time::SystemTime;
+
+        let temp = TempDir::new().expect("create devon-cache-file-gone tempdir");
+        let xdg_modeltap = temp.path().join("xdg-data").join("modeltap");
+        std::fs::create_dir_all(&xdg_modeltap).expect("create xdg-data/modeltap");
+        std::fs::create_dir_all(temp.path().join("logs")).expect("create logs/");
+        std::fs::create_dir_all(temp.path().join("modeltap-home"))
+            .expect("create modeltap-home/");
+        let model_dir = temp.path().join("test-tool").join("models");
+        std::fs::create_dir_all(&model_dir).expect("create test-tool/models");
+        let model_file = model_dir.join(TEST_MODEL_FILENAME);
+        std::fs::write(&model_file, b"will-be-deleted-after-seed").expect("seed gguf");
+
+        let meta = std::fs::metadata(&model_file).expect("stat seed");
+        let mtime = meta.modified().expect("modified");
+        let size = meta.len();
+        let inode = meta.ino();
+        let dev = meta.dev();
+
+        let cache_path = xdg_modeltap.join("cache.sqlite");
+        let cache = match Cache::open(&cache_path).expect("seed open") {
+            CacheOpenResult::OpenedFresh(c) => c,
+            other => panic!("expected OpenedFresh on file-gone seed, got {:?}", other),
+        };
+        let now = SystemTime::now();
+        cache
+            .write_models(
+                &TEST_TOOL_NAME,
+                &[CachedModel {
+                    model_id: Self::MODEL_ID.to_string(),
+                    tool_id: TEST_TOOL_NAME,
+                    display_name: "Gone Test Model".to_string(),
+                    format: Some("gguf".to_string()),
+                    quantisation: None,
+                    size_bytes: size,
+                    sha256: None,
+                    architecture: None,
+                    parameters_billions: None,
+                    context_length: None,
+                    dedup_group_id: None,
+                    metadata_kv: BTreeMap::new(),
+                    metadata_introspected_at: None,
+                    last_seen_at: now,
+                    last_validated_at: None,
+                }],
+            )
+            .expect("seed model row for file-gone");
+        cache
+            .write_model_files(&[CachedFile {
+                model_id: Self::MODEL_ID.to_string(),
+                tool_id: TEST_TOOL_NAME,
+                path: model_file.clone(),
+                size_bytes: size,
+                mtime,
+                inode,
+                dev,
+                last_stat_at: now,
+            }])
+            .expect("seed file row for file-gone");
+
+        // Remove the on-disk file so the next verify_against_fs sees Gone.
+        std::fs::remove_file(&model_file).expect("remove seed file for gone fixture");
+
+        Self { temp }
+    }
+
+    pub fn cache_path(&self) -> PathBuf {
+        self.temp
+            .path()
+            .join("xdg-data")
+            .join("modeltap")
+            .join("cache.sqlite")
+    }
+    pub fn diagnostics_dir(&self) -> PathBuf {
+        self.temp.path().join("modeltap-home")
+    }
+    pub fn log_dir(&self) -> PathBuf {
+        self.temp.path().join("logs")
+    }
+    pub fn model_file_path(&self) -> PathBuf {
+        self.temp
+            .path()
+            .join("test-tool")
+            .join("models")
+            .join(TEST_MODEL_FILENAME)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // CACHE seam helper — acceptance-test-plan.md §1 CM-A.
 // ---------------------------------------------------------------------------
 
@@ -821,5 +1073,50 @@ mod tests {
         );
         // log_dir exists.
         assert!(fix.log_dir().exists(), "log_dir must exist");
+    }
+
+    #[test]
+    fn devon_cache_mtime_drift_fixture_seeds_row_with_stale_quad() {
+        use modeltap_store::types::ValidationResult;
+        use modeltap_store::{Cache, CacheOpenResult};
+        let fix = DevonCacheMtimeDriftFixture::build();
+        assert!(
+            fix.model_file_path().exists(),
+            "post-mutation file must still exist on disk"
+        );
+        let cache = match Cache::open(&fix.cache_path()).expect("open seeded cache") {
+            CacheOpenResult::OpenedExisting(c) => c,
+            other => panic!("expected OpenedExisting on re-open, got {:?}", other),
+        };
+        let result = cache
+            .verify_against_fs(&DevonCacheMtimeDriftFixture::MODEL_ID.to_string())
+            .expect("verify");
+        assert!(
+            matches!(result, ValidationResult::Drift { .. }),
+            "fixture must produce Drift; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn devon_cache_file_gone_fixture_seeds_row_with_missing_file() {
+        use modeltap_store::types::ValidationResult;
+        use modeltap_store::{Cache, CacheOpenResult};
+        let fix = DevonCacheFileGoneFixture::build();
+        assert!(
+            !fix.model_file_path().exists(),
+            "file-gone fixture must have removed the on-disk file"
+        );
+        let cache = match Cache::open(&fix.cache_path()).expect("open seeded cache") {
+            CacheOpenResult::OpenedExisting(c) => c,
+            other => panic!("expected OpenedExisting on re-open, got {:?}", other),
+        };
+        let result = cache
+            .verify_against_fs(&DevonCacheFileGoneFixture::MODEL_ID.to_string())
+            .expect("verify");
+        assert_eq!(
+            result,
+            ValidationResult::Gone,
+            "fixture must produce Gone for missing on-disk file"
+        );
     }
 }
