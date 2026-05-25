@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use modeltap_core::logic::canonical_selector::{select_canonical, CandidatePath};
 use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
@@ -21,7 +21,7 @@ use crate::dialogs::running_tool_prompt::{PendingGatedAction, RunningToolDialog}
 use crate::dialogs::unify_confirm::{UnifyDecision, UnifyDialogState};
 use crate::dialogs::zap_confirm::{ZapConfirmState, ZapDecision};
 use crate::effects::unify_outcome::UnifyOutcome;
-use crate::msg::Msg;
+use crate::msg::{Msg, RefreshScope};
 
 /// Side-effects the composition root must perform after this update. The
 /// pure update function only describes effects; it does not execute them.
@@ -189,6 +189,21 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // root sees the message and re-spawns the refresh task. The failed
         // marker stays in place until RefreshSucceeded arrives.
         Msg::RetryRefresh(_) => (state, UpdateEffect::default()),
+        // Step 05-03 (US-24 AC-24-2): manual refresh request from [r] /
+        // [Shift+R]. Mark the affected tool ids as in-flight so the
+        // summary-bar provenance line gains the `, refreshing <tool>...`
+        // suffix; the composition root sees this Msg, maps RefreshScope ->
+        // ReconcileScope, and dispatches `orchestration::reconcile::run`.
+        //
+        // For `Tool(ToolId(""))` (the keymap sentinel) we resolve the
+        // currently-selected tool from state here so the suffix renders
+        // immediately even if the orchestrator dispatch is deferred a tick.
+        // For `Tool(t)` with a real id, we trust the caller (interactive /
+        // headless composition root may have already resolved the sentinel
+        // before passing the Msg to update — defense in depth).
+        Msg::RequestRefresh(scope) => {
+            (apply_request_refresh(state, scope), UpdateEffect::default())
+        }
         Msg::OpenDetail(detail) => (
             AppState {
                 current_screen: Screen::Detail(detail),
@@ -434,14 +449,21 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // tick timer dispatches `DismissSilentAck` when wall-clock has
         // crossed the stored instant).
         Msg::ReconcileCompleted { tool, has_diff } => {
-            if !has_diff {
-                (state, UpdateEffect::default())
-            } else {
-                let mut next = state;
+            // Step 05-03 (US-24 AC-24-7 + AC-24-2): the orchestrator just
+            // wrote a fresh cache row for `tool` — clear the in-flight
+            // suffix, bump the global `last_scan_at` so the provenance line
+            // shows "just now" on the next paint, and surface the
+            // "(<tool> refreshed)" annotation. The silent-ack `*` indicator
+            // is still gated on `has_diff` per AC-26-4 (unchanged from 05-01).
+            let mut next = state;
+            next.reconciling.remove(&tool);
+            next.last_refreshed_tool = Some(tool);
+            next.last_scan_at = Some(SystemTime::now());
+            if has_diff {
                 next.silent_ack_until
                     .insert(tool, Instant::now() + Duration::from_secs(3));
-                (next, UpdateEffect::default())
             }
+            (next, UpdateEffect::default())
         }
         // Step 05-01 — reconcile failure (AC-26-3): pure update is a
         // state-noop. The cache stays at last-known-good (the rollback is
@@ -449,7 +471,16 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // appended by the orchestrator before this Msg is dispatched. The
         // variant exists so a future per-tool error indicator can plug in
         // without a Msg-shape change.
-        Msg::ReconcileFailed { tool: _ } => (state, UpdateEffect::default()),
+        Msg::ReconcileFailed { tool } => {
+            // Step 05-03 (US-24 AC-24-2): a failed reconcile still drops the
+            // in-flight `, refreshing <tool>...` suffix — the user must not
+            // see a perpetual spinner. The cache stays at last-known-good
+            // per AC-26-3 so we do NOT bump `last_scan_at`; the provenance
+            // line continues to show the pre-failure staleness.
+            let mut next = state;
+            next.reconciling.remove(&tool);
+            (next, UpdateEffect::default())
+        }
         // Step 05-01 — silent-ack timer expiry (US-26 AC-26-4). Remove the
         // tool from `silent_ack_until` so the next render frame omits the
         // blue `*`. Per-tool granularity matches the AC: simultaneous
@@ -814,12 +845,16 @@ fn toggle_help(state: AppState) -> AppState {
 
 /// Clear `last_action` (US-06: any nav Msg dismisses the post-action banner)
 /// AND `status_line` (step 01-10: any nav Msg dismisses the unify-from-main
-/// status hint). Both fields share the "user moved on, drop the transient
-/// post-action narrative" semantics, so they clear together.
+/// status hint) AND `last_refreshed_tool` (step 05-03 US-24: the
+/// `"(<tool> refreshed)"` provenance annotation is post-action narrative
+/// too — once the user navigates away, it stops being interesting). All
+/// three fields share the "user moved on, drop the transient post-action
+/// narrative" semantics, so they clear together.
 fn clear_last_action(state: AppState) -> AppState {
     AppState {
         last_action: None,
         status_line: None,
+        last_refreshed_tool: None,
         ..state
     }
 }
@@ -1332,6 +1367,51 @@ fn apply_toggle_folder_expansion(mut state: AppState) -> AppState {
         state.expanded_folders.insert(folder_path);
     }
     state
+}
+
+/// Step 05-03 (US-24): apply a `Msg::RequestRefresh(scope)` to the in-flight
+/// reconciling set so the summary-bar provenance line surfaces the
+/// `, refreshing <tool>...` / `, reconciling...` suffix without waiting for
+/// the orchestrator's ToolStarted event. The composition root translates
+/// the same Msg into an `orchestration::reconcile::run` dispatch in
+/// parallel; both surfaces converge on the same set.
+///
+/// Sentinel resolution: `RefreshScope::Tool(ToolId(""))` from the keymap
+/// resolves to `state.current_tool()` here. If there is no selected real
+/// tool (synthetic [All Unified] slot or empty registry), the set is
+/// untouched and the orchestrator dispatch is a no-op too.
+///
+/// `RefreshScope::All` expands to every registered real tool so the suffix
+/// shows `, reconciling...` (plural) while [Shift+R] is in flight.
+fn apply_request_refresh(mut state: AppState, scope: RefreshScope) -> AppState {
+    match scope {
+        RefreshScope::Tool(tool_id) if tool_id == ToolId("") => {
+            if let Some(view) = state.current_tool() {
+                let id = view.tool;
+                state.reconciling.insert(id);
+            }
+            state
+        }
+        RefreshScope::Tool(tool_id) => {
+            state.reconciling.insert(tool_id);
+            state
+        }
+        RefreshScope::All => {
+            // Materialize tool ids into a Vec first so `state.real_tools_iter()`'s
+            // immutable borrow of `state` is released BEFORE we mutably borrow
+            // `state.reconciling`. The two-phase borrow checker (NLL) does NOT
+            // shorten the iterator-chain borrow across an insert that mutates a
+            // sibling field, so the naive `for view in state.real_tools_iter() {
+            // state.reconciling.insert(view.tool); }` form fails E0502. The
+            // intermediate Vec costs a single small alloc per [Shift+R] press —
+            // dwarfed by the orchestrator round-trip.
+            let tool_ids: Vec<ToolId> = state.real_tools_iter().map(|v| v.tool).collect();
+            for tool_id in tool_ids {
+                state.reconciling.insert(tool_id);
+            }
+            state
+        }
+    }
 }
 
 /// Extract the `<author>/<repo>` prefix from an HF model id (which has the

@@ -145,11 +145,13 @@ pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static>
         if !entry.sections.contains(&ctx.section) {
             continue;
         }
-        // [r] retry is conditionally visible — omit entirely when no
-        // refresh failures are pending (US-11.AC-2).
-        if is_retry_entry(entry) && !ctx.has_refresh_failures {
-            continue;
-        }
+        // Step 05-03 (US-24): [r] migrated from US-11 retry-on-failure to
+        // unconditional manual refresh. The bar entry is therefore always
+        // visible; the legacy gating on `has_refresh_failures` is dropped
+        // because the user can press [r] at any time to reconcile the
+        // selected tool against its plugin. `has_refresh_failures` still
+        // drives the summary-bar "(refresh failed)" indicator (separate
+        // surface, separate code path).
         // Width-aware drop: omit [F] folder-delete entirely when the full
         // bar would not fit in the available terminal width. The Main bar
         // is the only section dense enough to overflow at 100 cols; Detail
@@ -210,9 +212,9 @@ fn full_bar_width(ctx: &BarContext<'_>) -> usize {
         if !entry.sections.contains(&ctx.section) {
             continue;
         }
-        if is_retry_entry(entry) && !ctx.has_refresh_failures {
-            continue;
-        }
+        // Step 05-03 (US-24): [r] is unconditionally visible now (see render
+        // block above). The width calculation must include it on every paint
+        // so `should_drop_folder_delete` measures the truthful bar width.
         let label_len = if entry.key.code == crossterm::event::KeyCode::Up
             && entry.key.modifiers == crossterm::event::KeyModifiers::NONE
         {
@@ -311,11 +313,6 @@ fn no_color_active() -> bool {
     crate::render::colors::no_color_active()
 }
 
-/// True when this entry is the `[r] retry` shortcut (US-11.AC-2). Identified
-/// by KeyCode rather than label-string-equality so a future label tweak
-/// (e.g. localization) cannot drift from the dispatch contract.
-fn is_retry_entry(entry: &Shortcut) -> bool {
-    use crossterm::event::KeyCode;
-    matches!(entry.key.code, KeyCode::Char('r'))
-        && entry.key.modifiers == crossterm::event::KeyModifiers::NONE
-}
+// Step 05-03 (US-24) removed the legacy `is_retry_entry` predicate that
+// hid `[r]` while no refresh failures were pending. The hotkey is now
+// manual refresh and is always visible in Main + Detail.

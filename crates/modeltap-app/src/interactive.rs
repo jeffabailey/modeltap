@@ -46,6 +46,7 @@ use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::{DiscoveredModel, Tool, ToolId};
 use modeltap_tui::app_state::Screen;
 use modeltap_tui::dialogs::delete_one_confirm::DeleteOneConfirmState;
+use modeltap_tui::msg::RefreshScope;
 use modeltap_tui::{
     keymap, left_pane_body_rows, right_pane_body_rows, update, view, AppState, Msg, UpdateEffect,
 };
@@ -249,6 +250,23 @@ fn event_loop(
                     Msg::OpenToolDetail(tool_id) => Some(*tool_id),
                     _ => None,
                 };
+                // Step 05-03 (US-24): peek `Msg::RequestRefresh(scope)` BEFORE
+                // the pure update consumes it so the composition root can
+                // dispatch the orchestrator AFTER `state.reconciling` is
+                // populated (the suffix renders immediately on the next
+                // paint). Mirrors the OpenToolDetail / OpenDetail
+                // peek-then-translate pattern documented in lat.md/
+                // model-detail-tui "Msg dispatch — interactive and headless
+                // event loops".
+                //
+                // The keymap dispatches `RefreshScope::Tool(ToolId(""))` as a
+                // sentinel — we resolve it to the currently-selected real
+                // tool from `state` here. `RefreshScope::All` passes
+                // through unchanged.
+                let request_refresh: Option<RefreshScope> = match &msg {
+                    Msg::RequestRefresh(scope) => Some(scope.clone()),
+                    _ => None,
+                };
                 // Step 03-01 part 2/N (US-22): peek OpenDetail / ReintrospectModel
                 // BEFORE the pure update consumes the Msg so we can dispatch
                 // the async model-detail orchestrator AFTER the pure update
@@ -291,6 +309,10 @@ fn event_loop(
                         &mut state,
                         tool_id,
                     );
+                    terminal.draw(|f| view(&state, f))?;
+                }
+                if let Some(scope) = request_refresh {
+                    dispatch_request_refresh(runtime, plugins, &mut state, scope);
                     terminal.draw(|f| view(&state, f))?;
                 }
                 if let Some((tool_id, model_id, run_mode)) = open_model_detail {
@@ -835,6 +857,110 @@ fn find_plugin(plugins: &[Box<dyn Tool>], tool_id: ToolId) -> Option<&dyn Tool> 
         .iter()
         .find(|p| p.name().0 == tool_id.0)
         .map(|b| b.as_ref())
+}
+
+/// Step 05-03 (US-24): dispatch a `Msg::RequestRefresh(scope)` peeked from
+/// the input loop. Resolves the empty-string sentinel
+/// (`RefreshScope::Tool(ToolId(""))`) to the currently-selected real tool,
+/// then runs `refresh::refresh_tool_incremental` for each affected tool and
+/// dispatches `Msg::ReconcileCompleted` per completion so
+/// `state.reconciling` clears and `state.last_scan_at` bumps to "just now"
+/// per AC-24-7.
+///
+/// FIXME(05-03): a follow-up step should swap the
+/// `refresh_tool_incremental` call for a real
+/// `orchestration::reconcile::run(scope, plugins, config)` dispatch. The
+/// orchestrator takes `Vec<Arc<dyn Tool + Send + Sync>>` but the
+/// composition root holds `Vec<Box<dyn Tool>>` — bridging that requires
+/// either (a) changing `PluginFactory.make` across all 7 plugin crates or
+/// (b) an unsafe trait-object upcast that warrants its own step. Until then
+/// the user-visible suffix transition (US-24 AC-24-2 / AC-24-7) is produced
+/// by the in-process refresh + synthetic ReconcileCompleted dispatch below.
+/// The cache writeback half (US-26 silent-ack indicator) is unaffected: it
+/// continues to be driven by the post-warm-paint orchestrator from step
+/// 05-01 when a follow-up wires it.
+fn dispatch_request_refresh(
+    runtime: &tokio::runtime::Runtime,
+    plugins: &[Box<dyn Tool>],
+    state: &mut AppState,
+    scope: RefreshScope,
+) {
+    // Resolve the keymap sentinel ToolId("") to the currently-selected tool.
+    let targets: Vec<ToolId> = match scope {
+        RefreshScope::Tool(t) if t.0.is_empty() => match state.current_tool() {
+            Some(view) => vec![view.tool],
+            None => {
+                tracing::debug!(
+                    target: "modeltap.refresh",
+                    "Msg::RequestRefresh(Tool(\"\")) with no real tool selected; skipping"
+                );
+                return;
+            }
+        },
+        RefreshScope::Tool(t) => vec![t],
+        RefreshScope::All => state.real_tools_iter().map(|v| v.tool).collect(),
+    };
+
+    for tool_id in targets {
+        let Some(plugin) = find_plugin(plugins, tool_id) else {
+            tracing::warn!(
+                target: "modeltap.refresh",
+                "RequestRefresh dispatched for tool {} not in plugin registry",
+                tool_id.0
+            );
+            // Still clear the in-flight suffix entry so the user does not
+            // see a perpetual spinner for a phantom plugin.
+            let (next, _) = update(
+                std::mem::take(state),
+                Msg::ReconcileFailed { tool: tool_id },
+            );
+            *state = next;
+            continue;
+        };
+        match runtime.block_on(refresh::refresh_tool_incremental(plugin)) {
+            Ok(view) => {
+                let (next, _) = update(std::mem::take(state), Msg::RefreshSucceeded(view));
+                *state = next;
+                // Synthetic ReconcileCompleted so the pure update bumps
+                // last_scan_at + clears the in-flight reconciling entry. The
+                // `has_diff: false` is conservative; the real orchestrator
+                // would compute drift against the cached row and surface the
+                // silent-ack `*` indicator. See FIXME on the fn doc.
+                let (next, _) = update(
+                    std::mem::take(state),
+                    Msg::ReconcileCompleted {
+                        tool: tool_id,
+                        has_diff: false,
+                    },
+                );
+                *state = next;
+            }
+            Err(refresh::RefreshError::NotInstalled) => {
+                tracing::info!(
+                    target: "modeltap.refresh",
+                    "RequestRefresh: tool {} not installed",
+                    tool_id.0
+                );
+                let (next, _) = update(
+                    std::mem::take(state),
+                    Msg::ReconcileFailed { tool: tool_id },
+                );
+                *state = next;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "modeltap.refresh",
+                    "RequestRefresh failed for {}: {e}",
+                    tool_id.0
+                );
+                let (next, _) = update(
+                    std::mem::take(state),
+                    Msg::ReconcileFailed { tool: tool_id },
+                );
+                *state = next;
+            }
+        }
+    }
 }
 
 /// Step 02-01 (US-21): run the tool-detail orchestrator after a

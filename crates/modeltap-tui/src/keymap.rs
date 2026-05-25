@@ -26,7 +26,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use modeltap_core::ToolId;
 
 use crate::app_state::FocusPane;
-use crate::msg::Msg;
+use crate::msg::{Msg, RefreshScope};
 
 /// Which bottom-bar context a shortcut belongs to. The dynamic bar render
 /// fn filters SHORTCUT_TABLE by the currently-active section so the bar
@@ -107,15 +107,32 @@ pub const SHORTCUT_TABLE: &[Shortcut] = &[
         msg: Msg::ZapTool,
         sections: &[BarSection::Main],
     },
-    // US-11.AC-2: [r] retry — visible only when state.refresh_failed_tools is
-    // non-empty (the bottom bar's `is_available` predicate dims the entry
-    // otherwise; the bar render filter further omits it on Main with no
-    // failure). The keymap dispatches a sentinel ToolId(""); the composition
-    // root resolves the actual failed tool from state when re-spawning.
+    // Step 05-03 — US-24 manual refresh hotkey. [r] requests a refresh of the
+    // currently-selected tool; the composition root translates the sentinel
+    // ToolId("") to state.current_tool() at peek-then-dispatch time and runs
+    // orchestration::reconcile::run(ReconcileScope::Tool(_)). Mirrors the
+    // RetryRefresh(ToolId("")) sentinel pattern that previously lived here —
+    // the variant is preserved for any unaudited in-process retry call sites.
+    //
+    // [r] is silently no-op while any dialog is open per AC-24-5: the keymap
+    // routes dispatch through `dispatch_in_dialog` while a dialog is up,
+    // which translates KeyCode::Char(_) to Msg::DialogTextInput, never to
+    // Msg::RequestRefresh. No extra ContextFilter wiring needed.
     Shortcut {
         key: KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE),
-        label: "[r] retry",
-        msg: Msg::RetryRefresh(ToolId("")),
+        label: "[r] refresh",
+        msg: Msg::RequestRefresh(RefreshScope::Tool(ToolId(""))),
+        sections: &[BarSection::Main, BarSection::Detail],
+    },
+    // Step 05-03 — US-24 manual refresh-all hotkey. [Shift+R] requests a
+    // parallel refresh of every registered plugin via
+    // orchestration::reconcile::run(ReconcileScope::All). Same dialog-gating
+    // story as [r] — `dispatch_in_dialog` swallows it as DialogTextInput
+    // while a dialog is open (AC-24-5).
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT),
+        label: "[R] refresh-all",
+        msg: Msg::RequestRefresh(RefreshScope::All),
         sections: &[BarSection::Main, BarSection::Detail],
     },
     // ----- Detail view ----------------------------------------------------

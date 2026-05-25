@@ -23,6 +23,7 @@ pub mod panic_hook;
 pub mod render;
 pub mod screens;
 pub mod update;
+pub mod view;
 
 pub use app_state::{AppState, FocusPane, RecoveryReason, Screen, ToolView};
 pub use layout::{

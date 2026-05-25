@@ -23,6 +23,7 @@ use modeltap_tui::app_state::{FocusPane, Screen};
 use modeltap_tui::dialogs::delete_one_confirm::DeleteOneConfirmState;
 use modeltap_tui::dialogs::running_tool_prompt::{PendingGatedAction, RunningToolDialog};
 use modeltap_tui::dialogs::unify_confirm::UnifyMode;
+use modeltap_tui::msg::RefreshScope;
 use modeltap_tui::screens::detail::DetailScreenState;
 use modeltap_tui::{update, view, AppState, Msg, UpdateEffect};
 
@@ -458,6 +459,18 @@ pub fn run(
             },
             _ => None,
         };
+        // Step 05-03 (US-24): peek `Msg::RequestRefresh(scope)` so the
+        // composition root can dispatch the orchestrator AFTER the pure
+        // update populates `state.reconciling`. Mirrors the
+        // OpenToolDetail / OpenDetail peek-then-translate pattern above and
+        // the same peek block in interactive.rs::event_loop. The empty-
+        // string sentinel `RefreshScope::Tool(ToolId(""))` is resolved to
+        // the currently-selected real tool inside
+        // `dispatch_request_refresh`.
+        let request_refresh: Option<RefreshScope> = match &msg {
+            Msg::RequestRefresh(scope) => Some(scope.clone()),
+            _ => None,
+        };
         let (next, effect) = update(state, msg);
         state = next;
         if let Err(e) = terminal.draw(|f| view(&state, f)) {
@@ -529,6 +542,18 @@ pub fn run(
             // see the rendered metadata BEFORE the next iteration's <esc>
             // closes the screen.
             print_frame(&terminal);
+        }
+        // Step 05-03 (US-24): dispatch the manual-refresh orchestrator now
+        // that `state.reconciling` is populated. Resolves the keymap
+        // sentinel `RefreshScope::Tool(ToolId(""))` to the currently-
+        // selected real tool and runs the in-process refresh for each
+        // scoped tool. Mirrors `interactive::dispatch_request_refresh`.
+        if let Some(scope) = request_refresh {
+            dispatch_request_refresh(&rt, &plugins, &mut state, scope);
+            if let Err(e) = terminal.draw(|f| view(&state, f)) {
+                eprintln!("modeltap: manual-refresh redraw failed: {e}");
+                return 1;
+            }
         }
         // US-14 frame-capture seam: when `apply_effect` dispatched
         // `UnifyDryRunCompleted`, the unify dialog just transitioned into
@@ -1717,6 +1742,101 @@ fn find_plugin(plugins: &[Box<dyn Tool>], tool_id: ToolId) -> Option<&dyn Tool> 
         .iter()
         .find(|p| p.name().0 == tool_id.0)
         .map(|b| b.as_ref())
+}
+
+/// Step 05-03 (US-24): dispatch a `Msg::RequestRefresh(scope)` peeked from
+/// the script loop. Mirrors `interactive::dispatch_request_refresh` so the
+/// headless harness produces the same suffix transitions the production TUI
+/// would surface for the same hotkey sequence.
+///
+/// Resolves the empty-string sentinel (`RefreshScope::Tool(ToolId(""))`) to
+/// the currently-selected real tool, then runs
+/// `refresh::refresh_tool_incremental` for each affected tool and dispatches
+/// `Msg::ReconcileCompleted` per completion so `state.reconciling` clears
+/// and `state.last_scan_at` bumps to "just now" per AC-24-7.
+///
+/// FIXME(05-03): see the identical FIXME on
+/// `interactive::dispatch_request_refresh` — a follow-up step should swap
+/// the `refresh_tool_incremental` call for a real
+/// `orchestration::reconcile::run(scope, plugins, config)` dispatch once
+/// plugins are available as `Arc<dyn Tool + Send + Sync>`. Until then the
+/// user-visible suffix transition is produced honestly via the in-process
+/// refresh below; the cache writeback half is unaffected because step 05-01
+/// post-warm-paint reconcile already owns it.
+fn dispatch_request_refresh(
+    rt: &tokio::runtime::Runtime,
+    plugins: &[Box<dyn Tool>],
+    state: &mut AppState,
+    scope: RefreshScope,
+) {
+    let targets: Vec<ToolId> = match scope {
+        RefreshScope::Tool(t) if t.0.is_empty() => match state.current_tool() {
+            Some(view) => vec![view.tool],
+            None => {
+                tracing::debug!(
+                    target: "modeltap.refresh",
+                    "Msg::RequestRefresh(Tool(\"\")) with no real tool selected; skipping"
+                );
+                return;
+            }
+        },
+        RefreshScope::Tool(t) => vec![t],
+        RefreshScope::All => state.real_tools_iter().map(|v| v.tool).collect(),
+    };
+
+    for tool_id in targets {
+        let Some(plugin) = find_plugin(plugins, tool_id) else {
+            tracing::warn!(
+                target: "modeltap.refresh",
+                "RequestRefresh dispatched for tool {} not in plugin registry",
+                tool_id.0
+            );
+            let (next, _) = update(
+                std::mem::take(state),
+                Msg::ReconcileFailed { tool: tool_id },
+            );
+            *state = next;
+            continue;
+        };
+        match rt.block_on(refresh::refresh_tool_incremental(plugin)) {
+            Ok(view) => {
+                let (next, _) = update(std::mem::take(state), Msg::RefreshSucceeded(view));
+                *state = next;
+                let (next, _) = update(
+                    std::mem::take(state),
+                    Msg::ReconcileCompleted {
+                        tool: tool_id,
+                        has_diff: false,
+                    },
+                );
+                *state = next;
+            }
+            Err(refresh::RefreshError::NotInstalled) => {
+                tracing::info!(
+                    target: "modeltap.refresh",
+                    "RequestRefresh: tool {} not installed",
+                    tool_id.0
+                );
+                let (next, _) = update(
+                    std::mem::take(state),
+                    Msg::ReconcileFailed { tool: tool_id },
+                );
+                *state = next;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    target: "modeltap.refresh",
+                    "RequestRefresh failed for {}: {e}",
+                    tool_id.0
+                );
+                let (next, _) = update(
+                    std::mem::take(state),
+                    Msg::ReconcileFailed { tool: tool_id },
+                );
+                *state = next;
+            }
+        }
+    }
 }
 
 /// One scripted token. Parsed once up-front; resolved to a `Msg` per

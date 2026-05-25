@@ -193,6 +193,22 @@ path = "acceptance/integration_checkpoints.rs"
 name = "model_detail"
 path = "acceptance/model_detail.rs"
 
+# tool-model-info-sqlite-cache step 05-03 — US-24 manual refresh hotkeys + US-25
+# summary-bar provenance. Four scenarios mirroring manual-refresh.feature:
+# `[r]` refresh selected tool in ≤1 s, `[Shift+R]` refresh all in ≤2 s, `[r]`
+# no-op under a dialog, and the always-visible provenance suffix transitions.
+# All four currently `#[ignore]`d pending the launch.log timing seam — the
+# behavioural coverage runs in `modeltap-tui` unit tests:
+#  - `view::provenance::tests` for the pure format_provenance function
+#    (CM-D §9 of acceptance-test-plan.md), every threshold + None case.
+#  - `keymap::tests` for the SHORTCUT_TABLE [r] / [Shift+R] entries and
+#    their ContextFilter::NoDialog gate.
+#  - `render::summary_bar::tests` for the "reconciling..." / "refreshing
+#    <tool>..." / "as of just now (<tool> refreshed)" suffix transitions.
+[[test]]
+name = "manual_refresh"
+path = "acceptance/manual_refresh.rs"
+
 [[test]]
 name = "release_process_validate_tag"
 path = "acceptance/release_process/validate_tag.rs"

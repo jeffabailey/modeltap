@@ -5,7 +5,7 @@
 //! `render::*` reads `&AppState` and writes ratatui widgets.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 use modeltap_core::domain::last_action::LastAction;
 use modeltap_core::domain::synthetic_slot::{LeftPaneSlot, SyntheticSlot};
@@ -366,6 +366,39 @@ pub struct AppState {
     /// equality); tests asserting silent-ack presence check `contains_key`
     /// rather than equality on the instant value.
     pub silent_ack_until: BTreeMap<ToolId, Instant>,
+
+    /// Step 05-03 (US-24 AC-24-2): tools with an in-flight manual refresh
+    /// kicked off by `[r]` / `[Shift+R]`. When non-empty, the summary-bar
+    /// provenance line appends a `", refreshing <tool>..."` (single tool)
+    /// or `", reconciling..."` (multiple tools, i.e., `[Shift+R]`) suffix
+    /// so Devon sees the in-flight indicator without a separate spinner
+    /// widget. Per-tool entries are cleared on `Msg::ReconcileCompleted`
+    /// / `Msg::ReconcileFailed`.
+    ///
+    /// `BTreeSet` for deterministic iteration order in the suffix render.
+    pub reconciling: BTreeSet<ToolId>,
+
+    /// Step 05-03 (US-24 AC-24-7): the most-recent tool a manual refresh
+    /// completed for. When `Some(tool)`, the summary-bar provenance line
+    /// renders `"as of just now (<tool> refreshed)"` until either
+    /// `last_scan_at` ages past the `"just now"` threshold OR another
+    /// reconcile completes for a different tool. Cleared on any nav Msg
+    /// so it does not stick around forever.
+    pub last_refreshed_tool: Option<ToolId>,
+
+    /// Step 05-03 (US-25): wall-clock instant at which the painted inventory
+    /// was last reconciled with the underlying tool stores. Populated by the
+    /// composition root from the OLDEST `last_scan_at` across all cached
+    /// tools at warm-paint time, and bumped to `SystemTime::now()` on every
+    /// `Msg::ReconcileCompleted` (the orchestrator just wrote a fresh row).
+    /// Consumed by the summary-bar provenance line via `format_provenance`.
+    ///
+    /// `None` means "no cache row yet" — the provenance line renders
+    /// `"never reconciled"`. The field is intentionally a single global
+    /// instant rather than a per-tool map: the provenance line surfaces the
+    /// staler-than-thou tool's freshness so the user sees the worst-case
+    /// staleness in one glance, without scanning per-tool indicators.
+    pub last_scan_at: Option<SystemTime>,
 }
 
 impl Default for AppState {
@@ -397,6 +430,9 @@ impl Default for AppState {
             expanded_folders: BTreeSet::new(),
             recovery_reason: None,
             silent_ack_until: BTreeMap::new(),
+            reconciling: BTreeSet::new(),
+            last_refreshed_tool: None,
+            last_scan_at: None,
         }
     }
 }
@@ -443,6 +479,9 @@ impl AppState {
             expanded_folders: BTreeSet::new(),
             recovery_reason: None,
             silent_ack_until: BTreeMap::new(),
+            reconciling: BTreeSet::new(),
+            last_refreshed_tool: None,
+            last_scan_at: None,
         }
     }
 

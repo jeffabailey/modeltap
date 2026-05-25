@@ -16,6 +16,27 @@ use crate::dialogs::running_tool_prompt::RunningToolDialog;
 use crate::effects::unify_outcome::UnifyOutcome;
 use crate::screens::detail::{DetailScreenState, MetadataSection};
 
+/// Scope for the user-initiated refresh hotkeys (US-24, step 05-03).
+///
+/// Carried inside `Msg::RequestRefresh(_)` so the keymap stays a pure
+/// `KeyEvent -> Msg` translation and the composition root resolves the
+/// scope into the orchestrator's own `ReconcileScope` at dispatch time.
+///
+/// This mirror type exists because `modeltap-tui` MUST NOT import
+/// `modeltap-app::orchestration::*` — architecture layer R7: the TUI is
+/// a pure view-model crate, the composition root in `modeltap-app` is the
+/// only place orchestrators and the TUI come together. The mapping
+/// `RefreshScope -> orchestration::reconcile::ReconcileScope` lives in the
+/// composition root (`modeltap-app::interactive` / `headless`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RefreshScope {
+    /// Refresh every registered plugin (dispatched on `[Shift+R]`).
+    All,
+    /// Refresh exactly one plugin (dispatched on `[r]` with the
+    /// currently-selected left-pane tool).
+    Tool(ToolId),
+}
+
 /// Reason a hash-pool worker reported a failure for a given (tool, model_id).
 /// Carried inside `Msg::HashFailed` so the renderer / observability layer can
 /// distinguish read errors from cancellation. Per BR-3 the classifier treats
@@ -128,6 +149,34 @@ pub enum Msg {
     /// keymap dispatches `RetryRefresh(ToolId(""))` (sentinel) and the
     /// composition root resolves the actual failed tool from state.
     RetryRefresh(ToolId),
+
+    // -----------------------------------------------------------------------
+    // Step 05-03 — US-24 manual refresh hotkeys.
+    //
+    // `[r]` dispatches `RequestRefresh(RefreshScope::Tool(<selected>))` —
+    // the composition root resolves the selected tool from state at peek
+    // time (mirrors RetryRefresh's sentinel pattern) and dispatches the
+    // step 05-01 `orchestration::reconcile::run` orchestrator with the
+    // mapped `ReconcileScope::Tool(_)`. `[Shift+R]` dispatches
+    // `RequestRefresh(RefreshScope::All)` for the parallel-all variant.
+    //
+    // Pure update inserts the affected tool ids into
+    // `state.reconciling` so the summary-bar provenance line gains the
+    // `", refreshing <tool>..."` / `", reconciling..."` suffix per
+    // AC-24-2. The set is cleared per-tool on `Msg::ReconcileCompleted`
+    // / `Msg::ReconcileFailed` from step 05-01.
+    //
+    // Both hotkeys are silent no-ops while any dialog is open per AC-24-5.
+    // The keymap-level enforcement is documented in keymap.rs: the
+    // SHORTCUT_TABLE entries declare `BarSection::Main` so the dispatcher
+    // never sees them while `dispatch_in_dialog` is in effect.
+    /// User pressed `[r]` (Tool scope) or `[Shift+R]` (All scope). The
+    /// pure update marks the affected tool ids as reconciling so the
+    /// summary-bar provenance line surfaces the in-flight suffix; the
+    /// composition root sees this Msg and dispatches the
+    /// `orchestration::reconcile::run` orchestrator with the mapped
+    /// scope.
+    RequestRefresh(RefreshScope),
 
     // -----------------------------------------------------------------------
     // US-13 per-model detail screen.
@@ -466,10 +515,7 @@ pub enum Msg {
     /// inserts the tool into `state.silent_ack_until` with the 3-second
     /// expiry instant (AC-26-4). `has_diff = false` is a state-noop (no
     /// indicator).
-    ReconcileCompleted {
-        tool: ToolId,
-        has_diff: bool,
-    },
+    ReconcileCompleted { tool: ToolId, has_diff: bool },
     /// Composition root dispatches this when the per-tool reconcile write
     /// transaction failed (CacheError or plugin discover panic). Pure
     /// `update()` is a state-noop — the cache stays at last-known-good
@@ -477,17 +523,13 @@ pub enum Msg {
     /// orchestrator before this Msg is sent. The variant exists so a
     /// future per-tool error indicator can plug in without a Msg-shape
     /// change.
-    ReconcileFailed {
-        tool: ToolId,
-    },
+    ReconcileFailed { tool: ToolId },
     /// Composition root dispatches this when the 3-second silent-ack timer
     /// expires for a specific tool. `update()` removes that tool from
     /// `state.silent_ack_until` so the blue `*` indicator disappears on the
     /// next frame. Per-tool granularity matches AC-26-4: simultaneous
     /// reconciles surface independent indicators with independent expiries.
-    DismissSilentAck {
-        tool: ToolId,
-    },
+    DismissSilentAck { tool: ToolId },
 
     /// Any unrecognized key. No-op per US-03 AC-6 (silently ignored).
     UnboundKey,
