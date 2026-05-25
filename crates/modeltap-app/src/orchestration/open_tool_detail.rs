@@ -132,12 +132,11 @@ pub async fn run(
         Ok(inner) => inner,
         Err(panic_payload) => {
             let message = format_panic_payload(panic_payload);
-            write_diagnostics_panic_line(
-                config.diagnostics_dir.as_deref(),
-                tool_id,
-                &message,
-            );
-            Err(InspectError::PluginPanic { tool: tool_id, message })
+            write_diagnostics_panic_line(config.diagnostics_dir.as_deref(), tool_id, &message);
+            Err(InspectError::PluginPanic {
+                tool: tool_id,
+                message,
+            })
         }
     };
 
@@ -298,11 +297,7 @@ fn store_search_path_to_domain(e: modeltap_store::types::SearchPathEntry) -> Dom
 /// The `message` field is sanitised to a single line (any embedded `\n` is
 /// replaced with `\\n`) so a multi-line panic payload does not corrupt the
 /// line-oriented file format.
-fn write_diagnostics_panic_line(
-    diagnostics_dir: Option<&Path>,
-    tool_id: ToolId,
-    message: &str,
-) {
+fn write_diagnostics_panic_line(diagnostics_dir: Option<&Path>, tool_id: ToolId, message: &str) {
     let Some(dir) = diagnostics_dir else {
         return;
     };

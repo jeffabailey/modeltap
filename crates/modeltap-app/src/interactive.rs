@@ -535,7 +535,10 @@ fn apply_effect(
 
     if let Some(tool_id) = effect.trigger_zap {
         if let Some(plugin) = find_plugin(plugins, tool_id) {
-            let outcome: ZapOutcome = runtime.block_on(zap::run(plugin, logger));
+            // Step 05-02 part 2/2: cache + cache_log_dir wired as None here;
+            // step 05-04 cucumber will thread real values through the composition
+            // root. None preserves v0 behaviour (K5 gate is a no-op).
+            let outcome: ZapOutcome = runtime.block_on(zap::run(plugin, logger, None, None));
             let action = build_zap_last_action(&outcome);
             let (next, _) = update(std::mem::take(state), Msg::SetLastAction(action));
             *state = next;
@@ -602,6 +605,14 @@ fn apply_effect(
                     trigger.size_bytes,
                     trigger.was_shared,
                     logger,
+                    // Step 05-02 part 2/2 — K5 pre-mutate gate. Cache is
+                    // not yet threaded into the production event loop;
+                    // step 05-04 will plumb `Some(&cache)` here so the
+                    // K5 gate fires on every delete-one keystroke. Until
+                    // then we preserve current behaviour: no gate, no
+                    // JSONL `revalidate.invoked` event.
+                    None,
+                    None,
                 ));
                 let action = build_delete_one_last_action(&outcome);
                 let (next, _) = update(std::mem::take(state), Msg::SetLastAction(action));
@@ -675,6 +686,13 @@ fn apply_effect(
             plugins,
             logger,
             effect.cross_fs_choice,
+            // Step 05-02 part 2/2 — K5 pre-mutate gate. Cache is not yet
+            // threaded into the production event loop; step 05-04 will
+            // plumb `Some(&cache)` here so the K5 gate fires on every
+            // unify keystroke. Until then we preserve current behaviour:
+            // no gate, no JSONL `revalidate.invoked` event.
+            None,
+            None,
         ));
 
         // Reclassify pure step BEFORE SetLastAction (per step 01-11 spec).
@@ -752,6 +770,12 @@ fn build_delete_one_last_action(outcome: &DeleteOneOutcome) -> LastAction {
         DeleteOneResult::NotFound | DeleteOneResult::Failed => {
             LastAction::for_zap_failed(outcome.tool)
         }
+        // Step 05-02 part 2/2: K5 gate fired. Surface as the same failure
+        // banner shape for now — the JSONL event already carries `cache_stale`
+        // for downstream observability. A dedicated banner copy ("cache out of
+        // date — refresh and retry") lands when LastAction gains a CacheStale
+        // variant in step 05-04.
+        DeleteOneResult::CacheStale => LastAction::for_zap_failed(outcome.tool),
     }
 }
 
@@ -781,6 +805,11 @@ fn build_unify_last_action(outcome: &UnifyOutcome, target_name: String) -> LastA
             LastAction::for_unify_partial(target_name, outcome.bytes_reclaimed, successes, failures)
         }
         UnifyResult::Failed => LastAction::for_unify_failed(target_name),
+        // Step 05-02 part 2/2: K5 gate fired. Surface as the same failure
+        // banner shape for now — the JSONL event already carries `cache_stale`
+        // for downstream observability. A dedicated banner copy lands when
+        // LastAction gains a CacheStale variant in step 05-04.
+        UnifyResult::CacheStale => LastAction::for_unify_failed(target_name),
     }
 }
 
@@ -793,6 +822,11 @@ fn build_zap_last_action(outcome: &ZapOutcome) -> LastAction {
         ZapResult::Partial | ZapResult::Empty | ZapResult::Failed => {
             LastAction::for_zap_failed(outcome.tool)
         }
+        // Step 05-02 part 2/2: K5 gate fired. Surface as the same failure
+        // banner shape for now — the JSONL event already carries `cache_stale`
+        // for downstream observability. A dedicated banner copy lands when
+        // LastAction gains a CacheStale variant in step 05-04.
+        ZapResult::CacheStale => LastAction::for_zap_failed(outcome.tool),
     }
 }
 

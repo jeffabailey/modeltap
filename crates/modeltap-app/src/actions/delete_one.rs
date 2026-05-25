@@ -15,11 +15,13 @@
 //! outcome string. NO model names, NO paths, NO usernames — the schema is
 //! privacy-preserving by design.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use modeltap_core::{DeleteError, DeleteOutcome, ModelMeta, Tool, ToolId};
+use modeltap_store::Cache;
 
 use crate::observability::{LaunchLogger, RecordKind};
+use modeltap_app::orchestration::revalidate::{self, PreMutateOutcome};
 
 /// Result of a confirmed single-model delete action. Surfaced to the right
 /// pane as the "Last action" footer and used by acceptance tests to assert
@@ -44,6 +46,12 @@ pub enum DeleteOneResult {
     NotFound,
     /// Plugin returned an error before completing the delete.
     Failed,
+    /// Step 05-02 part 2/2 — K5 gate fired: the cache row for this model
+    /// failed pre-mutate revalidation (Drift / Gone / store error). No
+    /// `delete_one` call, no filesystem mutation. The caller MUST dispatch
+    /// a per-tool refresh + re-prompt per AC-26-6 / AC-26-7. JSONL `outcome`
+    /// field carries `"cache_stale"`.
+    CacheStale,
 }
 
 impl DeleteOneResult {
@@ -52,6 +60,7 @@ impl DeleteOneResult {
             DeleteOneResult::Success => "success",
             DeleteOneResult::NotFound => "not_found",
             DeleteOneResult::Failed => "failed",
+            DeleteOneResult::CacheStale => "cache_stale",
         }
     }
 }
@@ -72,6 +81,13 @@ impl DeleteOneResult {
 ///     ADR-002 conservative-when-uncertain). Recorded in the JSONL event;
 ///     does NOT affect the destructive path.
 ///   - `logger`: launch.log JSONL sink.
+///   - `cache`: optional cache for the K5 pre-mutate gate. `Some(c)` revalidates
+///     `model_id` against the filesystem before invoking the plugin's
+///     destructive method (step 05-02 part 2/2). `None` preserves v0
+///     behaviour (no gate) for `--no-cache` launches and pre-step-05-04
+///     call sites.
+///   - `cache_log_dir`: directory containing `launch.log` for the
+///     `revalidate.invoked` JSONL emission. Ignored when `cache` is `None`.
 pub async fn run(
     plugin: &dyn Tool,
     tool_id: ToolId,
@@ -80,7 +96,34 @@ pub async fn run(
     size_bytes: u64,
     was_shared: bool,
     logger: &mut LaunchLogger,
+    cache: Option<&Cache>,
+    cache_log_dir: Option<&Path>,
 ) -> DeleteOneOutcome {
+    // Step 05-02 part 2/2 — K5 pre-mutate gate. When a cache is threaded
+    // through, the targeted model is revalidated against the filesystem
+    // before the plugin call. A Drift / Gone / StoreError outcome
+    // short-circuits with `DeleteOneResult::CacheStale` — zero plugin
+    // calls, zero filesystem mutation. `None` preserves the v0 behaviour
+    // (no gate) for `--no-cache` launches and pre-step-05-04 call sites.
+    if let Some(c) = cache {
+        match revalidate::pre_mutate(c, &tool_id, &model_id, cache_log_dir).await {
+            PreMutateOutcome::Proceed => {}
+            PreMutateOutcome::Drift { .. }
+            | PreMutateOutcome::Gone
+            | PreMutateOutcome::StoreError(_) => {
+                let outcome = DeleteOneOutcome {
+                    tool: tool_id,
+                    model_id,
+                    bytes_reclaimed: 0,
+                    was_shared,
+                    outcome: DeleteOneResult::CacheStale,
+                };
+                emit(logger, &outcome);
+                return outcome;
+            }
+        }
+    }
+
     let model = synthesize_model_meta(tool_id, model_id.clone(), on_disk_path, size_bytes);
     let outcome = match plugin.delete_one(&model).await {
         Ok(DeleteOutcome {
@@ -228,6 +271,8 @@ mod tests {
             4_400_000_000,
             false,
             &mut logger,
+            None,
+            None,
         )
         .await;
         assert_eq!(
@@ -264,6 +309,8 @@ mod tests {
             100,
             true, // was_shared
             &mut logger,
+            None,
+            None,
         )
         .await;
         assert!(
@@ -305,6 +352,8 @@ mod tests {
             42,
             false,
             &mut logger,
+            None,
+            None,
         )
         .await;
         assert_eq!(outcome.outcome, DeleteOneResult::NotFound);

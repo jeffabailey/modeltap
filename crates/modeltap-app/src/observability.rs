@@ -154,6 +154,23 @@ pub enum RecordKind {
         status: &'static str,
         size_bytes: u64,
     },
+    /// Pre-mutate revalidation invocation (Step 05-02 part 2/2 — K5 gate).
+    /// Emitted once per `orchestration::revalidate::pre_mutate` call. Fields
+    /// per dispatch spec: tool, model, outcome ("proceed"|"drift"|"gone"|
+    /// "store_error"), duration_ms. NO paths, NO blob hex digests — `tool`
+    /// is the registered plugin id (e.g., `"hf"`); `model` is the
+    /// plugin-supplied `id_in_tool` string (logical identifier, not a
+    /// filesystem path). The K5 invariant ("cache must never enable a
+    /// stale-data destructive action") is enforced at every destructive
+    /// entry point; this event lets observability see WHEN the gate ran,
+    /// WHAT it decided, and HOW LONG the revalidation took (input to
+    /// future K-INFO budgets on destructive-action latency).
+    RevalidateInvoked {
+        tool: String,
+        model: String,
+        outcome: &'static str,
+        duration_ms: u64,
+    },
 }
 
 pub struct LaunchLogger {
@@ -351,6 +368,19 @@ impl LaunchLogger {
                 env["outcomes_count"] = json!(outcomes_count);
                 env["keystroke_count"] = json!(keystroke_count);
                 env["outcome"] = json!(outcome);
+                env
+            }
+            RecordKind::RevalidateInvoked {
+                tool,
+                model,
+                outcome,
+                duration_ms,
+            } => {
+                let mut env = self.base_envelope("revalidate.invoked");
+                env["tool"] = json!(tool);
+                env["model"] = json!(model);
+                env["outcome"] = json!(outcome);
+                env["duration_ms"] = json!(duration_ms);
                 env
             }
             RecordKind::DiscoveredModel { .. } => unreachable!("handled above"),

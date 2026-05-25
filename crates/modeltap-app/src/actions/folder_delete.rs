@@ -34,8 +34,10 @@ use modeltap_core::types::{
     SidecarKind, ToolId,
 };
 use modeltap_core::Tool;
+use modeltap_store::Cache;
 
 use crate::observability::{LaunchLogger, RecordKind};
+use modeltap_app::orchestration::revalidate::{self, PreMutateOutcome};
 
 /// Result of a confirmed folder-group bulk-delete. Surfaced to the right
 /// pane as the "Last action" banner and used by acceptance tests to assert
@@ -95,6 +97,12 @@ pub enum FolderDeleteResult {
     /// will refresh. JSONL outcome = `"refused_folder_missing"`,
     /// `outcomes_count=0`.
     RefusedFolderMissing,
+    /// Step 05-02 part 2/2 — K5 gate fired: at least one of the targeted
+    /// folder's cached models failed pre-mutate revalidation (Drift / Gone
+    /// / store error). No `delete_folder` call, no filesystem mutation.
+    /// The caller MUST dispatch a per-tool refresh + re-prompt per
+    /// AC-26-6 / AC-26-7. JSONL `outcome` field carries `"cache_stale"`.
+    CacheStale,
 }
 
 impl FolderDeleteResult {
@@ -107,6 +115,7 @@ impl FolderDeleteResult {
             FolderDeleteResult::CancelledEscape => "cancelled_escape",
             FolderDeleteResult::RefusedReadonlyCache => "refused_readonly_cache",
             FolderDeleteResult::RefusedFolderMissing => "refused_folder_missing",
+            FolderDeleteResult::CacheStale => "cache_stale",
         }
     }
 }
@@ -141,6 +150,8 @@ pub async fn run(
     sidecar_enumerator: &dyn SidecarEnumerator,
     keystroke_count: u64,
     logger: &mut LaunchLogger,
+    cache: Option<&Cache>,
+    cache_log_dir: Option<&std::path::Path>,
 ) -> FolderDeleteOutcome {
     // 1. Discover HF models. The walking-skeleton fixture is small (5 files);
     //    a fresh discover() is the simplest seam — no separate "lookup by path"
@@ -230,6 +241,39 @@ pub async fn run(
     let files_total = plan.folder.file_count() as u64;
     let bytes_to_reclaim = plan.bytes_to_reclaim;
     let bytes_to_retain = plan.bytes_to_retain;
+
+    // Step 05-02 part 2/2 — K5 pre-mutate gate. When a cache is threaded
+    // through, every model in the targeted folder is revalidated against
+    // the filesystem before `delete_folder` is invoked. The first
+    // non-Proceed short-circuits the whole action with
+    // `FolderDeleteResult::CacheStale` — zero `delete_folder` calls, zero
+    // filesystem mutation. `None` preserves the v0 behaviour (no gate)
+    // for `--no-cache` launches and pre-step-05-04 call sites.
+    if let Some(c) = cache {
+        for m in &plan.folder.models {
+            match revalidate::pre_mutate(c, &tool_id, &m.id_in_tool, cache_log_dir).await {
+                PreMutateOutcome::Proceed => continue,
+                PreMutateOutcome::Drift { .. }
+                | PreMutateOutcome::Gone
+                | PreMutateOutcome::StoreError(_) => {
+                    let outcome = FolderDeleteOutcome {
+                        tool: tool_id,
+                        folder_path,
+                        bytes_reclaimed: 0,
+                        bytes_retained: 0,
+                        files_total: 0,
+                        files_removed: 0,
+                        outcomes_count: 0,
+                        keystroke_count,
+                        outcome: FolderDeleteResult::CacheStale,
+                        failures: Vec::new(),
+                    };
+                    emit(logger, &outcome);
+                    return outcome;
+                }
+            }
+        }
+    }
 
     // 6. Dispatch to plugin.
     let outcomes = match plugin.delete_folder(&plan).await {

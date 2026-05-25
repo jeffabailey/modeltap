@@ -28,14 +28,16 @@
 //! outcome ("success"|"partial"|"already_unified"|"failed"). NO model
 //! names, NO paths, NO hash values.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use modeltap_core::logic::plan::{PlannedLink, UnifyPlan};
 use modeltap_core::{LinkError, LinkOutcome, LinkResult, ModelMeta, Tool, ToolId};
+use modeltap_store::Cache;
 use modeltap_tui::dialogs::cross_fs_choice::CrossFsChoice;
 use modeltap_tui::render::bytes::format_bytes;
 
 use crate::observability::{LaunchLogger, RecordKind};
+use modeltap_app::orchestration::revalidate::{self, PreMutateOutcome};
 
 /// Result of a confirmed unify action. Surfaced to the right pane as the
 /// "Last action" footer and used by acceptance tests to assert success.
@@ -80,6 +82,12 @@ pub enum UnifyResult {
     AlreadyUnified,
     /// Every target failed (or there were no targets to link).
     Failed,
+    /// Step 05-02 part 2/2 — K5 gate fired: pre-mutate revalidation found
+    /// the cache disagrees with the filesystem (Drift / Gone) or the
+    /// store itself errored. No plugin call, no filesystem mutation. The
+    /// caller MUST dispatch a refresh + re-prompt per AC-26-6 / AC-26-7.
+    /// JSONL `outcome` field carries `"cache_stale"`.
+    CacheStale,
 }
 
 impl UnifyResult {
@@ -89,6 +97,7 @@ impl UnifyResult {
             UnifyResult::Partial => "partial",
             UnifyResult::AlreadyUnified => "already_unified",
             UnifyResult::Failed => "failed",
+            UnifyResult::CacheStale => "cache_stale",
         }
     }
 }
@@ -208,9 +217,52 @@ pub async fn run(
     plugins: &[Box<dyn Tool>],
     logger: &mut LaunchLogger,
     cross_fs_choice: Option<CrossFsChoice>,
+    cache: Option<&Cache>,
+    cache_log_dir: Option<&Path>,
 ) -> UnifyOutcome {
     let canonical_src = plan.canonical.path.clone();
     let canonical_size = plan.canonical.size_bytes;
+
+    // Step 05-02 part 2/2 — K5 pre-mutate gate. When a cache is threaded
+    // through (post step-05-04 wiring) every model referenced by the plan is
+    // revalidated against the filesystem before any plugin call. The first
+    // non-Proceed short-circuits the whole action: zero plugin calls, zero
+    // filesystem mutation. When `cache` is `None` (no-cache launches, or
+    // pre-step-05-04 call sites) the gate is skipped and the call proceeds
+    // exactly as before.
+    if let Some(c) = cache {
+        // Build the unique (tool, model_id) pairs the plan references:
+        // canonical + every link target. De-dup so a plan with a 5-link
+        // canonical revalidates each model exactly once.
+        let canonical_id = synthetic_id_from_path(&canonical_src);
+        let mut checked: Vec<(ToolId, String)> = Vec::with_capacity(1 + plan.links.len());
+        checked.push((plan.canonical.tool, canonical_id));
+        for link in &plan.links {
+            let id = synthetic_id_from_path(&link.target);
+            if !checked.iter().any(|(t, m)| *t == link.tool && m == &id) {
+                checked.push((link.tool, id));
+            }
+        }
+        for (tool, model_id) in &checked {
+            match revalidate::pre_mutate(c, tool, model_id, cache_log_dir).await {
+                PreMutateOutcome::Proceed => continue,
+                PreMutateOutcome::Drift { .. }
+                | PreMutateOutcome::Gone
+                | PreMutateOutcome::StoreError(_) => {
+                    let outcome = UnifyOutcome {
+                        tools_unified: Vec::new(),
+                        bytes_reclaimed: 0,
+                        outcome: UnifyResult::CacheStale,
+                        failures: Vec::new(),
+                        cross_fs_targets_skipped: 0,
+                        cross_fs_targets_copied: 0,
+                    };
+                    emit(logger, &outcome);
+                    return outcome;
+                }
+            }
+        }
+    }
 
     let mut succeeded: Vec<ToolId> = Vec::new();
     let mut failures: Vec<UnifyFailure> = Vec::new();
@@ -451,13 +503,20 @@ fn classify(
 /// (for the `LinkOutcome` correlation); the rest is filled with conservative
 /// defaults via the shared `super::synthetic_model_meta` helper.
 fn synthesize_model_meta(link: &PlannedLink, size_bytes: u64) -> ModelMeta {
-    let id_in_tool = link
-        .target
-        .file_name()
+    let id_in_tool = synthetic_id_from_path(&link.target);
+    super::synthetic_model_meta(link.tool, id_in_tool, link.target.clone(), size_bytes)
+}
+
+/// Project a `<path>/<file>` into the synthetic `id_in_tool` the plugin
+/// receives at `link()`/`delete_one()` time. Shared between the K5 pre-
+/// mutate gate (Step 05-02 part 2/2) and the per-link `ModelMeta`
+/// synthesis so the cache lookup uses the SAME identifier the plugin
+/// sees.
+fn synthetic_id_from_path(p: &Path) -> String {
+    p.file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("")
-        .to_string();
-    super::synthetic_model_meta(link.tool, id_in_tool, link.target.clone(), size_bytes)
+        .to_string()
 }
 
 /// Translate a `LinkError` to a short user-visible reason string. Drops

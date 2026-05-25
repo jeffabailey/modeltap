@@ -205,9 +205,8 @@ mod tests {
     fn ignores_unknown_sections() {
         // The plugin-side sections must not break the app loader. Mirrors
         // a realistic user config that mixes [cache] with [plugins.*].
-        let f = write_config(
-            "[cache]\nenabled = false\n\n[plugins.lm-studio]\nsearch_paths = []\n",
-        );
+        let f =
+            write_config("[cache]\nenabled = false\n\n[plugins.lm-studio]\nsearch_paths = []\n");
         let cfg = load_from_path(f.path());
         assert!(!cfg.cache.enabled);
     }

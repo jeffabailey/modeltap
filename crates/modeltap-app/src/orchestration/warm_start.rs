@@ -23,7 +23,9 @@ use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
 use modeltap_core::logic::compatibility::{Inventory, InventoryEntry};
-use modeltap_core::types::{ContentHash, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId};
+use modeltap_core::types::{
+    ContentHash, DiscoveredModel, DisplayLabel, Format, ModelStatus, ToolId,
+};
 use modeltap_store::types::CachedModel;
 use modeltap_store::{Cache, CacheError, CacheOpenResult};
 use thiserror::Error;
@@ -180,49 +182,48 @@ pub async fn run(
     // fallback at the call site handles.
     let ttl_seconds = config.tool_ttl_seconds;
     let now = config.now;
-    let partition =
-        tokio::task::spawn_blocking(move || -> Result<WarmPartition, CacheError> {
-            let tools = cache.tools()?;
-            let mut entries: Vec<InventoryEntry> = Vec::new();
-            let mut stale: Vec<ToolId> = Vec::new();
-            for tool in &tools {
-                let eligible = match cache.ttl_eligible(&tool.tool_id, ttl_seconds, now) {
-                    Ok(b) => b,
-                    Err(CacheError::Io { .. }) | Err(CacheError::Sqlite(_)) => {
-                        // Transient read failure for this tool — treat as
-                        // stale; cold-start will own the row.
-                        stale.push(tool.tool_id);
-                        continue;
-                    }
-                    Err(other) => return Err(other),
-                };
-                if !eligible {
+    let partition = tokio::task::spawn_blocking(move || -> Result<WarmPartition, CacheError> {
+        let tools = cache.tools()?;
+        let mut entries: Vec<InventoryEntry> = Vec::new();
+        let mut stale: Vec<ToolId> = Vec::new();
+        for tool in &tools {
+            let eligible = match cache.ttl_eligible(&tool.tool_id, ttl_seconds, now) {
+                Ok(b) => b,
+                Err(CacheError::Io { .. }) | Err(CacheError::Sqlite(_)) => {
+                    // Transient read failure for this tool — treat as
+                    // stale; cold-start will own the row.
                     stale.push(tool.tool_id);
                     continue;
                 }
-                match cache.models_for_tool(&tool.tool_id) {
-                    Ok(models) => {
-                        for m in models {
-                            entries.push(inventory_entry_from_cached(m));
-                        }
-                    }
-                    Err(CacheError::Io { .. }) | Err(CacheError::Sqlite(_)) => {
-                        // Tool was TTL-fresh but the model rows could not
-                        // be read — fall through to cold-start for this
-                        // tool. Drop any entries already accumulated for
-                        // the tool (none yet, because the inner loop only
-                        // appends on `Ok`).
-                        stale.push(tool.tool_id);
-                    }
-                    Err(other) => return Err(other),
-                }
+                Err(other) => return Err(other),
+            };
+            if !eligible {
+                stale.push(tool.tool_id);
+                continue;
             }
-            Ok(WarmPartition {
-                inventory: Inventory { entries },
-                stale_tool_ids: stale,
-            })
+            match cache.models_for_tool(&tool.tool_id) {
+                Ok(models) => {
+                    for m in models {
+                        entries.push(inventory_entry_from_cached(m));
+                    }
+                }
+                Err(CacheError::Io { .. }) | Err(CacheError::Sqlite(_)) => {
+                    // Tool was TTL-fresh but the model rows could not
+                    // be read — fall through to cold-start for this
+                    // tool. Drop any entries already accumulated for
+                    // the tool (none yet, because the inner loop only
+                    // appends on `Ok`).
+                    stale.push(tool.tool_id);
+                }
+                Err(other) => return Err(other),
+            }
+        }
+        Ok(WarmPartition {
+            inventory: Inventory { entries },
+            stale_tool_ids: stale,
         })
-        .await??;
+    })
+    .await??;
 
     // Step 04-05: cache_open_ms closes when the cache.tools() +
     // models_for_tool(_) round-trip completes (the partition spawn_blocking

@@ -8,4 +8,9 @@
 pub mod open_model_detail;
 pub mod open_tool_detail;
 pub mod reconcile;
+// tool-model-info-sqlite-cache step 05-02 part 2/2: orchestrator-side K5
+// gate. Wraps modeltap-store's `Cache::verify_against_fs` and is wired into
+// every destructive entry point in `actions::*`. See
+// lat.md/modeltap-store.md "Pre-mutate revalidator" section.
+pub mod revalidate;
 pub mod warm_start;

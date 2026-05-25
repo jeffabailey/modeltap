@@ -243,9 +243,7 @@ async fn load_cached_model(
             | CacheOpenResult::OpenedAfterRecovery { cache: c, .. } => c,
         };
         let models = cache.models_for_tool(&tool_id)?;
-        Ok(models
-            .into_iter()
-            .find(|m| m.model_id == model_id.0))
+        Ok(models.into_iter().find(|m| m.model_id == model_id.0))
     })
     .await??;
     Ok(opt)
@@ -330,7 +328,10 @@ pub fn merge(
         Ok(detail) => detail,
         Err(InspectError::Unsupported { .. }) => {
             let mut metadata_kv = BTreeMap::new();
-            metadata_kv.insert("_status".to_string(), METADATA_UNSUPPORTED_SENTINEL.to_string());
+            metadata_kv.insert(
+                "_status".to_string(),
+                METADATA_UNSUPPORTED_SENTINEL.to_string(),
+            );
             build_error_detail(model_id, cached, metadata_kv)
         }
         Err(_) => {
@@ -595,11 +596,17 @@ mod tests {
         assert_eq!(detail.format, inspect_ok.format);
         assert_eq!(detail.context_length, Some(32768));
         assert_eq!(
-            detail.metadata_kv.get("general.architecture").map(String::as_str),
+            detail
+                .metadata_kv
+                .get("general.architecture")
+                .map(String::as_str),
             Some("llama")
         );
         assert_eq!(
-            detail.metadata_kv.get("llama.context_length").map(String::as_str),
+            detail
+                .metadata_kv
+                .get("llama.context_length")
+                .map(String::as_str),
             Some("32768")
         );
         assert_eq!(detail.introspected_at, inspect_ok.introspected_at);

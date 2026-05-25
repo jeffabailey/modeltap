@@ -9,7 +9,12 @@ mod actions;
 mod discovery;
 mod headless;
 mod interactive;
-mod observability;
+// `observability` was promoted from `mod` (bin-private) to
+// `pub mod` in lib.rs so `orchestration::revalidate` (lib-side) can emit
+// `revalidate.invoked` JSONL events and integration tests can drive the
+// K5 gate without spawning the binary
+// (tool-model-info-sqlite-cache step 05-02 part 2/2).
+use modeltap_app::observability;
 
 use modeltap_app::adapters::cache_path;
 // tool-model-info-sqlite-cache step 04-02 (AC-23-8 / AC-23-9): the app-level
@@ -270,11 +275,7 @@ fn main() -> ExitCode {
     if warm_start_source.is_some() {
         if let Some(env) = cache_env_override.as_deref() {
             if let Ok(cache_file) = cache_path::resolve(None, Some(env)) {
-                runtime.block_on(reconcile_writeback(
-                    cache_file,
-                    &summary,
-                    log_dir.clone(),
-                ));
+                runtime.block_on(reconcile_writeback(cache_file, &summary, log_dir.clone()));
             }
         }
     }

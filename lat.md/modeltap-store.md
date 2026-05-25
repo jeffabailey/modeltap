@@ -82,6 +82,14 @@ Outcome is [[crates/modeltap-store/src/types.rs|ValidationResult]]: `Match` when
 
 The companion `Cache::write_model_files` API is the minimum write surface needed by the revalidator fixtures and unit tests. It UPSERTs `cache_model_files` rows inside a single transaction via `ON CONFLICT(path) DO UPDATE`. The richer per-tool upsert + cascading-delete surface lands when an in-tree plugin starts populating these rows from `Tool::inspect_model`.
 
-Orchestrator-side `revalidate::pre_mutate` plus the four destructive-call-site wires (`execute_unify`, `execute_zap`, `execute_delete_one`, `execute_folder_delete`) land in step 05-02 part 2/2. This commit is store-side only.
+Orchestrator-side `revalidate::pre_mutate` lives at [[crates/modeltap-app/src/orchestration/revalidate.rs]] and wraps `cache.verify_against_fs` so async mutation sites don't block the runtime. The R8 `spawn_blocking` hop is reserved for when per-call cost grows non-trivial (>10 ms); today the inline call reads more naturally and mirrors how `Cache::tools()` is invoked from `warm_start::run`.
+
+It emits one `revalidate.invoked` JSONL line per call to `<MODELTAP_LOG_DIR>/launch.log` with schema `modeltap.launch.v1` and fields `tool|model|outcome|duration_ms`. Outcome strings are stable: `proceed`, `drift`, `gone`, `store_error`.
+
+The four destructive entry points — [[crates/modeltap-app/src/actions/unify.rs]], [[crates/modeltap-app/src/actions/zap.rs]], [[crates/modeltap-app/src/actions/delete_one.rs]], [[crates/modeltap-app/src/actions/folder_delete.rs]] — each run `pre_mutate` before invoking the plugin's destructive method.
+
+`PreMutateOutcome::{Drift, Gone}` returns the K5 cache-stale error to the caller without ever entering the plugin; `StoreError` fails closed. Only `Proceed` reaches the plugin. The zap path is special: it `discover()`s the per-tool inventory first to enumerate model ids, then revalidates each before invoking `delete_all`. The folder-delete path revalidates every `ModelMeta` in the targeted `<author>/<repo>` group.
+
+Together with part 1's store-side `verify_against_fs`, this closes K5: a stale cache cannot enable a destructive action.
 
 Fixtures `devon-cache-mtime-drift` (file touched after the cache row was written) and `devon-cache-file-gone` (file removed after the cache row was written) live at [[tests/src/fixtures/cache_fixtures.rs]] and back the unit tests in [[crates/modeltap-store/tests/revalidate.rs]].

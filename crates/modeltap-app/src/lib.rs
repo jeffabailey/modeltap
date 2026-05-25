@@ -32,6 +32,12 @@ pub mod hash_pool_wiring;
 pub mod instrumentation;
 pub mod inventory_build;
 pub mod lsof_adapter;
+// tool-model-info-sqlite-cache step 05-02 part 2/2: `observability` exposes
+// `LaunchLogger` + `RecordKind`. Promoted from a `main.rs`-private module
+// to a library-half `pub mod` so `orchestration::revalidate` (lib-side) can
+// emit `revalidate.invoked` JSONL events, and so integration tests can
+// drive the K5 gate without spawning the binary.
+pub mod observability;
 pub mod platform;
 pub mod plugin_isolation;
 pub mod reclassify;

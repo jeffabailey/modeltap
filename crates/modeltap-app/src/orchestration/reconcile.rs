@@ -41,9 +41,7 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use futures_util::{stream, FutureExt, Stream, StreamExt};
-use modeltap_core::logic::inventory_diff::{
-    compute_inventory_diff, InventoryDiff, ModelSignature,
-};
+use modeltap_core::logic::inventory_diff::{compute_inventory_diff, InventoryDiff, ModelSignature};
 use modeltap_core::{DiscoverError, Tool, ToolId};
 use modeltap_store::types::{CachedModel, CachedTool};
 use modeltap_store::{Cache, CacheError, CacheOpenResult};
@@ -274,12 +272,8 @@ pub fn run(
                         .collect::<Vec<_>>(),
                 );
 
-                let (cached_tool, cached_models) = project_to_cache_rows(
-                    tool_id,
-                    &discovered_for_blocking,
-                    &plugin_version,
-                    now,
-                );
+                let (cached_tool, cached_models) =
+                    project_to_cache_rows(tool_id, &discovered_for_blocking, &plugin_version, now);
                 cache.atomic_reconcile_write(&cached_tool, &cached_models)?;
                 Ok(diff)
             })
@@ -465,11 +459,7 @@ fn format_panic_payload(payload: Box<dyn std::any::Any + Send>) -> String {
 /// failure never compounds into a second user-visible failure. Multi-line
 /// reasons are flattened with `\\n` so the line-oriented format stays
 /// readable.
-fn write_diagnostics_failed_line(
-    diagnostics_dir: Option<&Path>,
-    tool_id: ToolId,
-    reason: &str,
-) {
+fn write_diagnostics_failed_line(diagnostics_dir: Option<&Path>, tool_id: ToolId, reason: &str) {
     use std::fs::OpenOptions;
     use std::io::Write;
 
@@ -497,8 +487,8 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use modeltap_core::{
-        DeleteError, DeleteOutcome, DiscoveredModel, DisplayLabel, Format, LinkError,
-        LinkOutcome, ModelMeta, ModelStatus,
+        DeleteError, DeleteOutcome, DiscoveredModel, DisplayLabel, Format, LinkError, LinkOutcome,
+        ModelMeta, ModelStatus,
     };
 
     fn fixture_tool_id() -> ToolId {
@@ -536,25 +526,14 @@ mod tests {
             }
             Ok(self.models.clone())
         }
-        async fn link(
-            &self,
-            _src: &Path,
-            _model: &ModelMeta,
-        ) -> Result<LinkOutcome, LinkError> {
+        async fn link(&self, _src: &Path, _model: &ModelMeta) -> Result<LinkOutcome, LinkError> {
             Err(LinkError::NotYetImplemented("test stub".to_string()))
         }
-        async fn delete_one(
-            &self,
-            _model: &ModelMeta,
-        ) -> Result<DeleteOutcome, DeleteError> {
-            Err(DeleteError::Unsupported {
-                tool: self.tool_id,
-            })
+        async fn delete_one(&self, _model: &ModelMeta) -> Result<DeleteOutcome, DeleteError> {
+            Err(DeleteError::Unsupported { tool: self.tool_id })
         }
         async fn delete_all(&self) -> Result<Vec<DeleteOutcome>, DeleteError> {
-            Err(DeleteError::Unsupported {
-                tool: self.tool_id,
-            })
+            Err(DeleteError::Unsupported { tool: self.tool_id })
         }
     }
 
