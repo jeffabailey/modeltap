@@ -51,7 +51,9 @@ impl DiagnosticsDirGuard {
         // at a time. Race-free given the OnceLock initialization below.
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
         let mutex = LOCK.get_or_init(|| std::sync::Mutex::new(()));
-        let guard = mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let guard = mutex
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let previous = std::env::var_os("MODELTAP_DIAGNOSTICS_DIR");
         std::env::set_var("MODELTAP_DIAGNOSTICS_DIR", dir);
         Self {
@@ -168,7 +170,11 @@ fn recover_from_sqlite_corrupt_renames_to_corrupt_suffix_and_returns_fresh_cache
     };
     assert_eq!(reason, RecoveryReason::Corrupted);
 
-    let renamed_name = renamed_to.file_name().unwrap().to_string_lossy().into_owned();
+    let renamed_name = renamed_to
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
     assert!(
         renamed_name.starts_with("cache.sqlite.corrupt-"),
         "renamed_to must use `corrupt-<ts>` suffix, got {renamed_name}"
@@ -219,7 +225,11 @@ fn recover_from_downgrade_renames_to_future_version_suffix() {
         other => panic!("expected RecoveryReason::Downgrade, got {other:?}"),
     }
 
-    let renamed_name = renamed_to.file_name().unwrap().to_string_lossy().into_owned();
+    let renamed_name = renamed_to
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
     assert_eq!(
         renamed_name, "cache.sqlite.future-version-99",
         "downgrade rename must use `future-version-<found>` suffix"
@@ -297,7 +307,11 @@ fn recover_from_migration_failed_renames_to_corrupt_suffix() {
         ),
         "expected Corrupted or MigrationFailed, got {reason:?}"
     );
-    let renamed_name = renamed_to.file_name().unwrap().to_string_lossy().into_owned();
+    let renamed_name = renamed_to
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
     assert!(
         renamed_name.starts_with("cache.sqlite.corrupt-"),
         "corrupt-class recovery must use `corrupt-<ts>` suffix, got {renamed_name}"

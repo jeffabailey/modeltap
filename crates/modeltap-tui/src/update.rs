@@ -1385,7 +1385,7 @@ fn apply_toggle_folder_expansion(mut state: AppState) -> AppState {
 /// shows `, reconciling...` (plural) while [Shift+R] is in flight.
 fn apply_request_refresh(mut state: AppState, scope: RefreshScope) -> AppState {
     match scope {
-        RefreshScope::Tool(tool_id) if tool_id == ToolId("") => {
+        RefreshScope::Tool(ToolId("")) => {
             if let Some(view) = state.current_tool() {
                 let id = view.tool;
                 state.reconciling.insert(id);

@@ -146,8 +146,8 @@ pub async fn inspect_model_impl(
     models_root: PathBuf,
     model_id: ModelId,
 ) -> Result<ModelDetail, InspectError> {
-    let join = tokio::task::spawn_blocking(move || build_model_detail(&models_root, &model_id))
-        .await;
+    let join =
+        tokio::task::spawn_blocking(move || build_model_detail(&models_root, &model_id)).await;
     match join {
         Ok(res) => res,
         Err(join_err) => Err(InspectError::PluginPanic {
@@ -160,26 +160,21 @@ pub async fn inspect_model_impl(
 /// Synchronous core: locate the manifest file for `model_id`, read + parse
 /// it, and project the KV subset. Pure orchestration over the locator +
 /// reader + projector helpers; the helpers carry the actual error semantics.
-fn build_model_detail(
-    models_root: &Path,
-    model_id: &ModelId,
-) -> Result<ModelDetail, InspectError> {
+fn build_model_detail(models_root: &Path, model_id: &ModelId) -> Result<ModelDetail, InspectError> {
     let manifests_dir = models_root.join("manifests");
     let manifest_path = locate_manifest_for_id(&manifests_dir, model_id)?;
-    let raw = std::fs::read_to_string(&manifest_path).map_err(|source| {
-        InspectError::FileReadable {
+    let raw =
+        std::fs::read_to_string(&manifest_path).map_err(|source| InspectError::FileReadable {
             path: manifest_path.clone(),
             source,
-        }
-    })?;
+        })?;
     let parsed: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| InspectError::FormatUnreadable {
             path: manifest_path.clone(),
             detail: format!("manifest JSON parse failed: {e}"),
         })?;
 
-    let (metadata_kv, architecture, parameters_billions) =
-        project_manifest_metadata(&parsed);
+    let (metadata_kv, architecture, parameters_billions) = project_manifest_metadata(&parsed);
 
     Ok(ModelDetail {
         model_id: model_id.clone(),
@@ -317,10 +312,16 @@ fn project_manifest_metadata(
     let parameters_billions = param_size_str.as_deref().and_then(parse_parameter_size);
 
     if let Some(template) = parsed.get("template").and_then(|v| v.as_str()) {
-        kv.insert("template".to_string(), excerpt(template, TEMPLATE_EXCERPT_CHARS));
+        kv.insert(
+            "template".to_string(),
+            excerpt(template, TEMPLATE_EXCERPT_CHARS),
+        );
     }
     if let Some(system) = parsed.get("system").and_then(|v| v.as_str()) {
-        kv.insert("system".to_string(), excerpt(system, TEMPLATE_EXCERPT_CHARS));
+        kv.insert(
+            "system".to_string(),
+            excerpt(system, TEMPLATE_EXCERPT_CHARS),
+        );
     }
 
     // AC-22-6 budget enforcement (defensive): never emit more than the cap.
@@ -358,9 +359,7 @@ fn excerpt(raw: &str, max_chars: usize) -> String {
 /// `B` / `b` => parameters as-billions; `M` / `m` => parameters/1000.
 fn parse_parameter_size(raw: &str) -> Option<f64> {
     let trimmed = raw.trim();
-    let (num_str, scale): (&str, f64) = if let Some(stripped) =
-        trimmed.strip_suffix(['B', 'b'])
-    {
+    let (num_str, scale): (&str, f64) = if let Some(stripped) = trimmed.strip_suffix(['B', 'b']) {
         (stripped, 1.0)
     } else if let Some(stripped) = trimmed.strip_suffix(['M', 'm']) {
         (stripped, 0.001)
@@ -574,7 +573,10 @@ mod tests {
             "metadata_kv must be ≤ {METADATA_MAX_KEYS} keys per AC-22-6; got {}",
             kv.len()
         );
-        assert_eq!(kv.get("config.architecture").map(|s| s.as_str()), Some("llama"));
+        assert_eq!(
+            kv.get("config.architecture").map(|s| s.as_str()),
+            Some("llama")
+        );
         assert_eq!(kv.get("parameters").map(|s| s.as_str()), Some("7B"));
         // template excerpt should appear (newlines collapsed to spaces).
         let tmpl = kv.get("template").expect("template key");
@@ -623,7 +625,10 @@ mod tests {
     fn excerpt_truncates_long_template_and_collapses_newlines() {
         let long = "a\nb\nc".repeat(200);
         let e = excerpt(&long, 50);
-        assert!(e.chars().count() <= 51, "excerpt must respect cap +1 for ellipsis");
+        assert!(
+            e.chars().count() <= 51,
+            "excerpt must respect cap +1 for ellipsis"
+        );
         assert!(!e.contains('\n'), "newlines must be collapsed");
         assert!(e.ends_with('…'), "long input must end with ellipsis");
     }

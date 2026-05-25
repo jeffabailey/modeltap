@@ -1404,6 +1404,7 @@ dependencies = [
  "modeltap-app",
  "modeltap-core",
  "modeltap-store",
+ "modeltap-tui",
  "predicates",
  "proptest",
  "pulldown-cmark",

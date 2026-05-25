@@ -14,8 +14,11 @@
 //! - Last error — `"(none)"` when absent (AC-21-4)
 //! - Plugin version
 //!
-//! The bottom bar (rendered by the shared `bottom_bar` module) carries
-//! `[Esc] back`, `[r] refresh this tool`, `[?] help` (AC-21-8).
+//! The bottom bar (rendered by the shared `bottom_bar` module) carries the
+//! detail-screen shortcuts authored in `keymap::SHORTCUT_TABLE` — Esc, [r],
+//! and the help affordance (AC-21-8). The architecture lint at
+//! `tests/architecture.rs` enforces that the bracketed shortcut tokens
+//! themselves live only in keymap.rs / bottom_bar.rs / help_overlay.rs.
 //!
 //! Per ADR-006 the view layer is pure: this module reads
 //! `&ToolDetailScreenState` and writes ratatui widgets. No I/O, no mutation.
@@ -90,8 +93,8 @@ pub const SEARCH_PATH_USER_CONFIG_LABEL: &str = "(user config)";
 /// │   <path1> (default)                               │
 /// │   <path2> (user config)                           │
 /// └───────────────────────────────────────────────────┘
-/// (bottom bar generated from SHORTCUT_TABLE — `[Esc] back`,
-///  `[r] refresh this tool`, `[?] help`)
+/// (bottom bar generated from SHORTCUT_TABLE — see keymap.rs for the
+///  per-section shortcut list, AC-21-8)
 /// ```
 pub fn render(frame: &mut Frame<'_>, area: Rect, screen: &ToolDetailScreenState, app: &AppState) {
     let chunks = Layout::default()
@@ -111,7 +114,8 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, screen: &ToolDetailScreenState,
     // Bottom bar — sourced from SHORTCUT_TABLE so the labels and dispatch
     // can never drift. The `BarContext` for `Screen::ToolDetail` reuses the
     // `Detail` section because the AC-21-8 shortcuts match the existing
-    // detail-screen set verbatim (`[Esc] back`, `[r]`, `[?] help`).
+    // detail-screen set verbatim (the back / refresh / help affordances
+    // declared in keymap.rs).
     let ctx = BarContext::for_state(app);
     let bar = render_bottom_bar(&ctx, crate::render::colors::no_color_active());
     frame.render_widget(Paragraph::new(bar), chunks[1]);

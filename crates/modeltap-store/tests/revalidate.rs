@@ -20,18 +20,26 @@
 //! 7. `FileStat::matches` — pure comparison: identical quads match, any
 //!    single field difference fails.
 
+use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use modeltap_core::types::ToolId;
-use modeltap_store::types::{CachedFile, FileStat, ValidationResult};
+use modeltap_store::types::{CachedFile, CachedModel, CachedTool, FileStat, ValidationResult};
 use modeltap_store::{Cache, CacheOpenResult};
 
 const TEST_TOOL_ID: ToolId = ToolId("test-tool");
 
 /// Build a fresh tempfile-backed cache; returns the dir handle (kept alive
 /// for the test) and the open `Cache`.
+///
+/// **Step 06-02 fix** — also seeds a parent row in `cache_tools` so the FK
+/// constraint on `cache_model_files.tool_id → cache_tools.tool_id` is
+/// satisfied. The original fixture wrote `cache_model_files` rows without
+/// seeding the tool / model parents, which started failing the moment the
+/// FK PRAGMA went green (mutation testing revealed the silent green-bar
+/// dependency).
 fn fresh_cache() -> (tempfile::TempDir, Cache) {
     let dir = tempfile::tempdir().expect("tempdir");
     let path = dir.path().join("cache.sqlite");
@@ -39,7 +47,53 @@ fn fresh_cache() -> (tempfile::TempDir, Cache) {
         CacheOpenResult::OpenedFresh(c) => c,
         other => panic!("expected OpenedFresh, got {other:?}"),
     };
+    // Seed parent cache_tools row so FK references on cache_model_files
+    // succeed.
+    cache
+        .write_tool(&CachedTool {
+            tool_id: TEST_TOOL_ID,
+            install_path: PathBuf::from("/test-install"),
+            detected_version: None,
+            plugin_version: "test-plugin 0.0.0".to_string(),
+            model_count: 0,
+            disk_usage_bytes: 0,
+            largest_model_id: None,
+            last_scan_at: SystemTime::now(),
+            last_scan_duration_ms: 0,
+            last_error: None,
+            last_error_at: None,
+            search_paths: vec![],
+        })
+        .expect("seed parent cache_tools row");
     (dir, cache)
+}
+
+/// Seed a parent `cache_models` row for `model_id` so subsequent
+/// `cache_model_files` writes satisfy the FK constraint. Idempotent via the
+/// `ON CONFLICT(model_id, tool_id) DO UPDATE` semantics on `write_models`.
+fn seed_parent_model(cache: &Cache, model_id: &str) {
+    cache
+        .write_models(
+            &TEST_TOOL_ID,
+            &[CachedModel {
+                model_id: model_id.to_string(),
+                tool_id: TEST_TOOL_ID,
+                display_name: model_id.to_string(),
+                format: None,
+                quantisation: None,
+                size_bytes: 0,
+                sha256: None,
+                architecture: None,
+                parameters_billions: None,
+                context_length: None,
+                dedup_group_id: None,
+                metadata_kv: BTreeMap::new(),
+                metadata_introspected_at: None,
+                last_seen_at: SystemTime::now(),
+                last_validated_at: None,
+            }],
+        )
+        .expect("seed parent cache_models row");
 }
 
 /// Stat helper — returns (size, mtime, inode, dev) so the seed values
@@ -55,11 +109,10 @@ fn stat_quad(path: &Path) -> (u64, SystemTime, u64, u64) {
 }
 
 /// Seed one `cache_model_files` row whose quad matches the on-disk file.
-fn seed_matching_file(
-    cache: &Cache,
-    model_id: &str,
-    file_path: &Path,
-) {
+/// Idempotently seeds the parent `cache_models` row first so the FK
+/// constraint is satisfied.
+fn seed_matching_file(cache: &Cache, model_id: &str, file_path: &Path) {
+    seed_parent_model(cache, model_id);
     let (size, mtime, inode, dev) = stat_quad(file_path);
     cache
         .write_model_files(&[CachedFile {
@@ -104,6 +157,7 @@ fn verify_against_fs_returns_drift_when_mtime_changes() {
     // Seed the cache row with an mtime SHIFTED into the past so the live
     // file is unambiguously newer. Using the on-disk mtime minus 1h
     // avoids relying on filetime mutation (which would add a dep).
+    seed_parent_model(&cache, "m1");
     let (size, on_disk_mtime, inode, dev) = stat_quad(&file);
     let stale_mtime = on_disk_mtime - Duration::from_secs(3600);
     cache
@@ -145,6 +199,7 @@ fn verify_against_fs_returns_drift_when_size_changes() {
     let (true_size, mtime, inode, dev) = stat_quad(&file);
 
     // Seed with WRONG size — everything else matches.
+    seed_parent_model(&cache, "m1");
     cache
         .write_model_files(&[CachedFile {
             model_id: "m1".to_string(),
@@ -173,6 +228,7 @@ fn verify_against_fs_returns_gone_when_file_missing() {
     let absent = dir.path().join("never-existed.gguf");
     // Synthesize plausible quad values — these never get read because the
     // stat fails first.
+    seed_parent_model(&cache, "m1");
     cache
         .write_model_files(&[CachedFile {
             model_id: "m1".to_string(),

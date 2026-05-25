@@ -383,7 +383,7 @@ pub fn then_dedup_key_and_size_for_drifted_file_is_recomputed_in_cache_models(
     // back. The fixture's post-mutation file was rewritten to a different
     // byte sequence ("mutated-after-seed-bytes-mtime-drift" = 36 bytes
     // vs "initial-bytes-for-mtime-drift" = 29 bytes).
-    let live = std::fs::metadata(&world.fixture.model_file_path()).expect("stat live file");
+    let live = std::fs::metadata(world.fixture.model_file_path()).expect("stat live file");
     assert_eq!(
         row.size_bytes,
         live.len(),

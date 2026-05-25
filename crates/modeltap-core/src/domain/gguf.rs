@@ -320,11 +320,7 @@ mod tests {
     #[test]
     fn parses_string_and_uint32_kv_into_metadata_map() {
         let bytes = build_header(&[
-            (
-                "general.architecture",
-                TYPE_STRING,
-                string_value("llama"),
-            ),
+            ("general.architecture", TYPE_STRING, string_value("llama")),
             (
                 "general.quantization_version",
                 TYPE_STRING,
@@ -340,17 +336,15 @@ mod tests {
                 TYPE_UINT32,
                 4096u32.to_le_bytes().to_vec(),
             ),
-            (
-                "tokenizer.ggml.model",
-                TYPE_STRING,
-                string_value("llama"),
-            ),
+            ("tokenizer.ggml.model", TYPE_STRING, string_value("llama")),
         ]);
         let h = parse_header_bytes(&bytes).expect("header parses");
         assert_eq!(h.version, 3);
         assert_eq!(h.format, "GGUF v3");
         assert_eq!(
-            h.metadata_kv.get("general.architecture").map(|s| s.as_str()),
+            h.metadata_kv
+                .get("general.architecture")
+                .map(|s| s.as_str()),
             Some("llama")
         );
         assert_eq!(
@@ -360,7 +354,9 @@ mod tests {
             Some("Q4_K_M")
         );
         assert_eq!(
-            h.metadata_kv.get("llama.context_length").map(|s| s.as_str()),
+            h.metadata_kv
+                .get("llama.context_length")
+                .map(|s| s.as_str()),
             Some("4096")
         );
     }
@@ -391,11 +387,7 @@ mod tests {
 
     #[test]
     fn truncated_header_never_panics() {
-        let full = build_header(&[(
-            "general.architecture",
-            TYPE_STRING,
-            string_value("mistral"),
-        )]);
+        let full = build_header(&[("general.architecture", TYPE_STRING, string_value("mistral"))]);
         // For every truncation point up to full length, parse must return a
         // Result without panicking.
         for cut in 0..full.len() {
@@ -407,11 +399,7 @@ mod tests {
     fn parse_header_from_file_reads_disk() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("test.gguf");
-        let bytes = build_header(&[(
-            "general.architecture",
-            TYPE_STRING,
-            string_value("phi3"),
-        )]);
+        let bytes = build_header(&[("general.architecture", TYPE_STRING, string_value("phi3"))]);
         std::fs::write(&path, &bytes).unwrap();
         let h = parse_header(&path).expect("parse from disk");
         assert_eq!(

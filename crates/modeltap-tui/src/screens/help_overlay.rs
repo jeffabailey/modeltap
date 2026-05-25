@@ -40,6 +40,12 @@ pub fn render(frame: &mut Frame<'_>, parent_area: Rect) {
 /// Pure: build the body lines for the help overlay grouped by BarSection.
 /// Each section is preceded by a header (Main / Detail / Dialogs); shortcuts
 /// inside a section are pulled from SHORTCUT_TABLE in declaration order.
+///
+/// A trailing "Concepts" glossary block lists the named UX surfaces a user
+/// can encounter (per integration-checkpoints INT-INFO-9 vocabulary sample).
+/// The five terms — "refresh tool", "refresh all", "recovery banner", "tool
+/// detail", "model detail" — appear verbatim so the regression-gate test
+/// (`tests/acceptance/regression_gate.rs`) can substring-grep this output.
 pub fn render_help_lines() -> Vec<Line<'static>> {
     let mut lines: Vec<Line<'static>> = Vec::new();
     lines.push(Line::from(""));
@@ -48,8 +54,33 @@ pub fn render_help_lines() -> Vec<Line<'static>> {
     push_section(&mut lines, "Detail", BarSection::Detail);
     push_section(&mut lines, "Dialogs", BarSection::Dialog);
 
-    // Closing footer.
+    // INT-INFO-9 vocabulary glossary. Single source of truth for the named
+    // UX surfaces a user can encounter — keeps the TUI text consistent with
+    // documentation and JSONL event names. Each entry restates a SHORTCUT_TABLE
+    // affordance OR a non-keystroke surface ("recovery banner") in the user
+    // vocabulary of integration-checkpoints.feature / acceptance-criteria.md.
+    lines.push(Line::from(Span::styled(
+        "Concepts",
+        Style::default().add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(
+        "  refresh tool — re-scan a single tool's inventory ([r])",
+    ));
+    lines.push(Line::from(
+        "  refresh all — re-scan every tool in parallel ([R])",
+    ));
+    lines.push(Line::from(
+        "  recovery banner — yellow row 0 banner when the cache was reset",
+    ));
+    lines.push(Line::from(
+        "  tool detail — per-tool screen (Enter on a tool in the left pane)",
+    ));
+    lines.push(Line::from(
+        "  model detail — per-model screen (Enter on a model in the right pane)",
+    ));
     lines.push(Line::from(""));
+
+    // Closing footer.
     lines.push(Line::from(Span::styled(
         "Press [?] or [Esc] to close",
         Style::default().add_modifier(Modifier::DIM),

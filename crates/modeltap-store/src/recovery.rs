@@ -328,10 +328,19 @@ mod tests {
     #[test]
     fn compact_utc_timestamp_matches_yyyy_mm_dd_t_hhmmss_shape() {
         let ts = compact_utc_timestamp();
-        // Either the real format (YYYY-MM-DDTHHMMSS, 15 chars) or the
-        // "unknown" fallback (which only fires before UNIX_EPOCH).
+        // Real format is YYYY-MM-DDTHHMMSS — 4+1+2+1+2 + 1 + 2+2+2 = 17 chars
+        // (the literal dashes between Y/M/D are kept; only the H:M:S
+        // separators are compacted out per the field-name suffix). The
+        // "unknown" fallback only fires before UNIX_EPOCH.
+        //
+        // Step 06-02: corrected from the original off-by-2 (15) — the
+        // comment described the format correctly but miscounted the chars.
         if ts != "unknown" {
-            assert_eq!(ts.len(), 15, "expected YYYY-MM-DDTHHMMSS (15 chars), got {ts}");
+            assert_eq!(
+                ts.len(),
+                17,
+                "expected YYYY-MM-DDTHHMMSS (17 chars including dashes), got {ts}"
+            );
             assert!(ts.contains('T'), "must contain 'T' separator: {ts}");
         }
     }

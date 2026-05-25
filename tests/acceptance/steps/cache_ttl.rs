@@ -207,22 +207,16 @@ pub fn then_inventory_contains_fresh_tools_models(world: &CacheTtlWorld) {
     let result = world.result();
     let painted_tools: Vec<&str> = result.inventory.entries.iter().map(|e| e.tool.0).collect();
     assert!(
-        painted_tools
-            .iter()
-            .any(|t| *t == DevonCacheStaleToolFixture::FRESH_TOOL_ID_LLAMA_CLI),
+        painted_tools.contains(&DevonCacheStaleToolFixture::FRESH_TOOL_ID_LLAMA_CLI),
         "llama-cli (fresh, 2h) MUST paint; entries: {painted_tools:?}"
     );
     assert!(
-        painted_tools
-            .iter()
-            .any(|t| *t == DevonCacheStaleToolFixture::FRESH_TOOL_ID_HF),
+        painted_tools.contains(&DevonCacheStaleToolFixture::FRESH_TOOL_ID_HF),
         "hf (fresh, 1h) MUST paint; entries: {painted_tools:?}"
     );
     // The stale tool must NOT contribute inventory rows.
     assert!(
-        !painted_tools
-            .iter()
-            .any(|t| *t == DevonCacheStaleToolFixture::STALE_TOOL_ID),
+        !painted_tools.contains(&DevonCacheStaleToolFixture::STALE_TOOL_ID),
         "ollama (stale, 25h) MUST NOT paint; entries: {painted_tools:?}"
     );
 }
@@ -232,9 +226,7 @@ pub fn then_stale_tool_appears_in_stale_tool_ids(world: &CacheTtlWorld) {
     let result = world.result();
     let stale: Vec<&str> = result.stale_tool_ids.iter().map(|t| t.0).collect();
     assert!(
-        stale
-            .iter()
-            .any(|t| *t == DevonCacheStaleToolFixture::STALE_TOOL_ID),
+        stale.contains(&DevonCacheStaleToolFixture::STALE_TOOL_ID),
         "ollama (25h, stale w.r.t. 24h TTL) MUST appear in stale_tool_ids; got {stale:?}"
     );
 }
@@ -244,15 +236,11 @@ pub fn then_fresh_tools_absent_from_stale_tool_ids(world: &CacheTtlWorld) {
     let result = world.result();
     let stale: Vec<&str> = result.stale_tool_ids.iter().map(|t| t.0).collect();
     assert!(
-        !stale
-            .iter()
-            .any(|t| *t == DevonCacheStaleToolFixture::FRESH_TOOL_ID_LLAMA_CLI),
+        !stale.contains(&DevonCacheStaleToolFixture::FRESH_TOOL_ID_LLAMA_CLI),
         "llama-cli (fresh, 2h) MUST NOT appear in stale_tool_ids; got {stale:?}"
     );
     assert!(
-        !stale
-            .iter()
-            .any(|t| *t == DevonCacheStaleToolFixture::FRESH_TOOL_ID_HF),
+        !stale.contains(&DevonCacheStaleToolFixture::FRESH_TOOL_ID_HF),
         "hf (fresh, 1h) MUST NOT appear in stale_tool_ids; got {stale:?}"
     );
 }
@@ -340,7 +328,7 @@ pub fn then_all_three_tools_appear_in_stale_tool_ids(world: &CacheTtlWorld) {
         DevonCacheStaleToolFixture::FRESH_TOOL_ID_HF,
     ] {
         assert!(
-            stale.iter().any(|t| *t == expected),
+            stale.contains(&expected),
             "tool {expected} MUST appear in stale_tool_ids on a transient I/O failure; got {stale:?}"
         );
     }

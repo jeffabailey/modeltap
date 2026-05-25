@@ -85,9 +85,9 @@ pub struct DetailScreenState {
     pub hash_progress_pct: u8,
     /// US-22 / step 03-01 — optional Metadata section payload. `None` means
     /// the screen renders WITHOUT the Metadata section (legacy US-13 path
-    /// + tests that don't exercise model-detail orchestration). `Some(_)`
-    /// means the model-detail orchestrator dispatched the metadata for this
-    /// model_id and the renderer paints the Metadata section per AC-22-4.
+    /// plus tests that don't exercise model-detail orchestration). `Some(_)`
+    ///   means the model-detail orchestrator dispatched the metadata for this
+    ///   model_id and the renderer paints the Metadata section per AC-22-4.
     pub metadata: Option<MetadataSection>,
 }
 

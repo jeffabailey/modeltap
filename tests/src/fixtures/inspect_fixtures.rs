@@ -509,9 +509,9 @@ pub const LM_STUDIO_GGUF_FIXTURE_ID: &str =
 /// Carried on the `InspectFixture` struct via a `lm_studio_root` extension
 /// in `LmStudioGgufFixture` (a thin wrapper that owns the `InspectFixture`
 /// + exposes the lm-studio root path). The other plugins (Ollama / HF) are
-/// parked at nonexistent roots so they `discover()`-NotInstalled and
-/// contribute nothing to the inventory — only the LM Studio path is under
-/// test.
+///   parked at nonexistent roots so they `discover()`-NotInstalled and
+///   contribute nothing to the inventory — only the LM Studio path is under
+///   test.
 pub struct LmStudioGgufFixture {
     pub inner: InspectFixture,
     pub lm_studio_root: PathBuf,

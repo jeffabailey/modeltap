@@ -268,7 +268,7 @@ pub fn run(
                         .collect::<Vec<_>>(),
                     &discovered_for_blocking
                         .iter()
-                        .map(|m| discovered_to_signature(m))
+                        .map(discovered_to_signature)
                         .collect::<Vec<_>>(),
                 );
 

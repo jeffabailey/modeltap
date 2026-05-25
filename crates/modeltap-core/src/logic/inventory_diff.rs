@@ -234,4 +234,64 @@ mod tests {
         );
         assert_eq!(diff.removed_models, vec!["z1".to_string()]);
     }
+
+    // Step 06-02 mutation-kill tests for `InventoryDiff::is_empty`. The
+    // existing tests cover the all-empty case (returns true) but never
+    // exercised the three single-non-empty cases. cargo-mutants flagged
+    // line 73/74/75 `&&` mutations (74→`||`, 75→`||`) and the function-level
+    // `replace -> true` mutation as MISSED. Each of these three tests pins
+    // exactly one of the three lists non-empty so an `||` substitution flips
+    // the return value vs the expected `false`.
+    #[test]
+    fn is_empty_returns_false_when_only_added_models_is_non_empty() {
+        let diff = InventoryDiff {
+            tool_id: ToolId("tool-a"),
+            added_models: vec!["m1".to_string()],
+            removed_models: vec![],
+            modified_models: vec![],
+        };
+        assert!(
+            !diff.is_empty(),
+            "is_empty must be false when added_models has any entry"
+        );
+    }
+
+    #[test]
+    fn is_empty_returns_false_when_only_removed_models_is_non_empty() {
+        let diff = InventoryDiff {
+            tool_id: ToolId("tool-a"),
+            added_models: vec![],
+            removed_models: vec!["m1".to_string()],
+            modified_models: vec![],
+        };
+        assert!(
+            !diff.is_empty(),
+            "is_empty must be false when removed_models has any entry"
+        );
+    }
+
+    #[test]
+    fn is_empty_returns_false_when_only_modified_models_is_non_empty() {
+        let diff = InventoryDiff {
+            tool_id: ToolId("tool-a"),
+            added_models: vec![],
+            removed_models: vec![],
+            modified_models: vec![(
+                "m1".to_string(),
+                ModelDrift {
+                    sha256_changed: true,
+                    size_changed: false,
+                },
+            )],
+        };
+        assert!(
+            !diff.is_empty(),
+            "is_empty must be false when modified_models has any entry"
+        );
+    }
+
+    // The all-empty case is already covered by `empty_inputs_produce_empty_diff`
+    // (which calls `diff.is_empty()` and asserts true); a dedicated test here
+    // would be redundant. Together the four cases pin every `&&` operator and
+    // the function-body literal.
 }

@@ -88,6 +88,14 @@ impl DeleteOneResult {
 ///     call sites.
 ///   - `cache_log_dir`: directory containing `launch.log` for the
 ///     `revalidate.invoked` JSONL emission. Ignored when `cache` is `None`.
+///
+/// Step 06-02: `#[allow(clippy::too_many_arguments)]` — this is a
+/// composition-root action entry point. Each parameter is a distinct
+/// orthogonal seam (plugin port, identity, on-disk identity, action
+/// observability, cache port, log dir); bundling them into a Config
+/// struct would just move the same surface to a builder boundary without
+/// reducing the signature complexity at the actual call site.
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     plugin: &dyn Tool,
     tool_id: ToolId,

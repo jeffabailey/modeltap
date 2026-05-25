@@ -352,9 +352,7 @@ async fn test_inspect_tool_panic_isolation(expected_id: ToolId) {
                 "PluginPanic.tool must equal the plugin's ToolId",
             );
             assert!(
-                message.contains("panicked")
-                    || message.contains("panic")
-                    || !message.is_empty(),
+                message.contains("panicked") || message.contains("panic") || !message.is_empty(),
                 "PluginPanic.message must carry diagnostic context; got: {message}",
             );
         }
@@ -721,9 +719,7 @@ async fn test_inspect_model_panic_isolation(expected_id: ToolId) {
                 "PluginPanic.tool must equal the plugin's ToolId",
             );
             assert!(
-                message.contains("panicked")
-                    || message.contains("panic")
-                    || !message.is_empty(),
+                message.contains("panicked") || message.contains("panic") || !message.is_empty(),
                 "PluginPanic.message must carry diagnostic context; got: {message}",
             );
         }

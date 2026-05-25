@@ -39,6 +39,16 @@ use crate::screens::tool_detail::ToolDetailScreenState;
 /// `PartialEq`. `Eq` was never directly required by any caller; `assert_eq!`
 /// and equality tests in the test suite operate against `PartialEq`.
 #[derive(Debug, Clone, PartialEq)]
+// Step 06-02: `Screen::Detail` carries a ~248-byte `DetailScreenState`
+// payload (model id + registrations + rendering state). clippy's
+// `large_enum_variant` lint flags the size disparity vs. the other
+// variants. Boxing the payload would require updating ~50 call sites
+// across modeltap-app + modeltap-tui tests; the enum is constructed at
+// most once per keystroke (one allocation cost dominated by the I/O
+// surface around it) and `Screen` is never deeply cloned in a hot loop.
+// Allow the lint with a documented justification rather than gold-plate
+// the boxing refactor for marginal stack-size relief.
+#[allow(clippy::large_enum_variant)]
 pub enum Screen {
     /// The default two-pane discovery view.
     Main,

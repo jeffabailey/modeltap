@@ -30,17 +30,9 @@ use serde::Deserialize;
 /// Merged application configuration. Today only the `[cache]` section is
 /// app-level; plugin sections live inside each plugin crate's config loader
 /// and are not represented here.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AppConfig {
     pub cache: CacheConfig,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            cache: CacheConfig::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

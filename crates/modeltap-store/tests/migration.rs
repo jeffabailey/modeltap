@@ -216,3 +216,38 @@ fn models_repo_round_trips_a_cached_model_through_write_models_and_models_for_to
     // Avoid unused variable lint for `SystemTime` import when reading fields.
     let _ = SystemTime::now();
 }
+
+/// Step 06-02 mutation-kill — a CachedModel with an EMPTY metadata_kv map
+/// must round-trip cleanly. The hydrate path at `models.rs:163` has a guard
+/// `Some(s) if !s.is_empty()` which decides whether to invoke
+/// `serde_json::from_str` or fall through to `BTreeMap::new()`. The
+/// `with true` mutation would force a JSON parse on potentially-empty data
+/// (failure on empty string); the `with false` mutation would skip parsing
+/// for every Some(_) variant, losing real data — this test pins the
+/// empty-map case.
+#[test]
+fn models_round_trip_preserves_empty_metadata_kv_through_hydrate_guard() {
+    let cache = Cache::open_in_memory().expect("open_in_memory");
+    let tool = sample_tool();
+    cache.write_tool(&tool).expect("write_tool");
+
+    let model_with_empty_metadata = CachedModel {
+        metadata_kv: BTreeMap::new(),
+        ..sample_model()
+    };
+    cache
+        .write_models(
+            &tool.tool_id,
+            std::slice::from_ref(&model_with_empty_metadata),
+        )
+        .expect("write_models");
+
+    let rows = cache
+        .models_for_tool(&tool.tool_id)
+        .expect("models_for_tool");
+    assert_eq!(rows.len(), 1);
+    assert!(
+        rows[0].metadata_kv.is_empty(),
+        "empty metadata_kv must round-trip through the hydrate guard cleanly"
+    );
+}

@@ -84,9 +84,14 @@ mod tests {
 
     #[test]
     fn banner_text_includes_corrupted_cause_and_renamed_path() {
-        let path = PathBuf::from("/home/devon/.local/share/modeltap/cache.sqlite.corrupt-2026-05-22T120000");
+        let path = PathBuf::from(
+            "/home/devon/.local/share/modeltap/cache.sqlite.corrupt-2026-05-22T120000",
+        );
         let text = banner_text(&RecoveryReason::Corrupted, &path);
-        assert!(text.contains("(corrupted)"), "banner must mention `corrupted` cause: {text}");
+        assert!(
+            text.contains("(corrupted)"),
+            "banner must mention `corrupted` cause: {text}"
+        );
         assert!(
             text.contains("cache.sqlite.corrupt-2026-05-22T120000"),
             "banner must contain the renamed path: {text}"
@@ -116,8 +121,7 @@ mod tests {
     #[test]
     fn banner_text_uses_migration_failure_phrasing() {
         let path = PathBuf::from("/x/cache.sqlite.corrupt-2026-05-22T120000");
-        let text =
-            banner_text(&RecoveryReason::MigrationFailed { from: 0, to: 1 }, &path);
+        let text = banner_text(&RecoveryReason::MigrationFailed { from: 0, to: 1 }, &path);
         assert!(
             text.contains("(migration failure)"),
             "migration-failed banner must mention `migration failure`: {text}"

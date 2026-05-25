@@ -33,13 +33,12 @@ use modeltap_plugin_lm_studio::LmStudioPlugin;
 /// match in the configured search paths; locator returns `Err(FileReadable)`.
 #[tokio::test]
 async fn lm_studio_satisfies_inspect_model_contract() {
-    let fixture = tempfile::tempdir().expect("tempdir for lm-studio inspect_model contract fixture");
+    let fixture =
+        tempfile::tempdir().expect("tempdir for lm-studio inspect_model contract fixture");
     let root = fixture.path().to_path_buf();
 
     // Happy-path GGUF v3 file — five standard KV header entries.
-    let happy_dir = root
-        .join("mistralai")
-        .join("Mistral-7B-Instruct-v0.2-GGUF");
+    let happy_dir = root.join("mistralai").join("Mistral-7B-Instruct-v0.2-GGUF");
     std::fs::create_dir_all(&happy_dir).expect("create happy gguf dir");
     let happy_gguf = happy_dir.join("mistral.Q4_K_M.gguf");
     std::fs::write(&happy_gguf, build_synthetic_gguf_v3()).expect("write happy gguf");
@@ -48,8 +47,7 @@ async fn lm_studio_satisfies_inspect_model_contract() {
     // plugin maps to InspectError::FormatUnreadable.
     let corrupt_dir = root.join("corrupt").join("Model");
     std::fs::create_dir_all(&corrupt_dir).expect("create corrupt gguf dir");
-    std::fs::write(corrupt_dir.join("bad.gguf"), b"NOTAGGUFHEADER")
-        .expect("write corrupt gguf");
+    std::fs::write(corrupt_dir.join("bad.gguf"), b"NOTAGGUFHEADER").expect("write corrupt gguf");
 
     let plugin = LmStudioPlugin::new_with_search_paths(vec![root]);
     run_inspect_model_contract(

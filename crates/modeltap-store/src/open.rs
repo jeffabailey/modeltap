@@ -185,10 +185,7 @@ impl Cache {
     /// Common tail for the three recovery-triggering paths. Renames the
     /// broken file aside via `recovery::recover_and_reopen`, wraps the fresh
     /// connection in a `Cache`, and returns the `OpenedAfterRecovery` variant.
-    fn run_recovery(
-        path: &Path,
-        reason: &RecoveryReason,
-    ) -> Result<CacheOpenResult, CacheError> {
+    fn run_recovery(path: &Path, reason: &RecoveryReason) -> Result<CacheOpenResult, CacheError> {
         let (conn, renamed_to) = recover_and_reopen(path, reason)?;
         Ok(CacheOpenResult::OpenedAfterRecovery {
             reason: reason.clone(),

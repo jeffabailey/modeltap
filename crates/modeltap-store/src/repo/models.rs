@@ -159,6 +159,13 @@ struct RawModelRow {
 fn hydrate_model(raw: RawModelRow) -> Result<CachedModel, CacheError> {
     let tool_id = ToolId(crate::repo::intern::intern_tool_id(&raw.tool_id));
 
+    // MUTATION: cargo-mutants flags `!s.is_empty() -> true` as MISSED.
+    // The write path (`Cache::write_models`) always serializes `metadata_kv`
+    // via `serde_json::to_string`, which renders even an empty `BTreeMap` as
+    // the non-empty literal `"{}"`. A row with an empty `metadata_kv_json`
+    // column would require direct SQL tampering — a defense-in-depth check,
+    // not a behavior the production write path can produce. Equivalent-
+    // mutant in practice.
     let metadata_kv: BTreeMap<String, String> = match raw.metadata_kv_json.as_deref() {
         Some(s) if !s.is_empty() => {
             serde_json::from_str(s).map_err(|e| CacheError::MalformedRow {

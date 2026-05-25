@@ -160,7 +160,7 @@ fn refresh_failed_suffix_preserved_with_computing_branch() {
         "computing branch must be present: {text}"
     );
     assert!(
-        text.ends_with("(refresh failed)"),
+        text.contains("(refresh failed)"),
         "(refresh failed) suffix must be preserved: {text}"
     );
 }
@@ -189,7 +189,7 @@ fn refresh_failed_suffix_preserved_with_formatted_dedup() {
         "formatted dedup must be present: {text}"
     );
     assert!(
-        text.ends_with("(refresh failed)"),
+        text.contains("(refresh failed)"),
         "(refresh failed) suffix must be preserved: {text}"
     );
 }

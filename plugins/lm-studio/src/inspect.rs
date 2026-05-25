@@ -75,11 +75,7 @@ const FORWARDED_GENERAL_KEYS: &[&str] = &[
 /// Suffixes (joined with the file's `general.architecture`) that we lift
 /// into `metadata_kv`. E.g. for `general.architecture = "llama"` we forward
 /// `llama.context_length`, `llama.embedding_length`, `llama.block_count`.
-const FORWARDED_ARCH_SUFFIXES: &[&str] = &[
-    "context_length",
-    "embedding_length",
-    "block_count",
-];
+const FORWARDED_ARCH_SUFFIXES: &[&str] = &["context_length", "embedding_length", "block_count"];
 
 /// Async entry point used by `LmStudioPlugin::inspect_model`. Mirrors the
 /// HF / Ollama shape: sync core in `spawn_blocking` so the file read +
@@ -101,10 +97,8 @@ pub async fn inspect_model_impl(
     search_paths: Vec<PathBuf>,
     model_id: ModelId,
 ) -> Result<ModelDetail, InspectError> {
-    let join = tokio::task::spawn_blocking(move || {
-        build_model_detail(&search_paths, &model_id)
-    })
-    .await;
+    let join =
+        tokio::task::spawn_blocking(move || build_model_detail(&search_paths, &model_id)).await;
     match join {
         Ok(res) => res,
         Err(join_err) => Err(InspectError::PluginPanic {
@@ -131,10 +125,7 @@ fn build_model_detail(
 /// Walk each search path looking for `<root>/<model_id>`. Returns the first
 /// existing path (file OR directory). When `model_id` carries no leading
 /// path separators, the join is `<root>/<model_id>`.
-fn locate_artifact(
-    search_paths: &[PathBuf],
-    model_id: &ModelId,
-) -> Result<PathBuf, InspectError> {
+fn locate_artifact(search_paths: &[PathBuf], model_id: &ModelId) -> Result<PathBuf, InspectError> {
     let id = model_id.as_str();
     for root in search_paths {
         let candidate = root.join(id);
@@ -142,10 +133,7 @@ fn locate_artifact(
             return Ok(candidate);
         }
     }
-    let probed = search_paths
-        .iter()
-        .map(|p| p.join(id))
-        .collect::<Vec<_>>();
+    let probed = search_paths.iter().map(|p| p.join(id)).collect::<Vec<_>>();
     let first = probed.first().cloned().unwrap_or_else(|| PathBuf::from(id));
     Err(InspectError::FileReadable {
         path: first,
@@ -162,10 +150,7 @@ fn locate_artifact(
 /// - Parse errors map to `Err(InspectError::FormatUnreadable)`.
 fn build_from_gguf(path: &Path, model_id: &ModelId) -> Result<ModelDetail, InspectError> {
     let header = gguf::parse_header(path).map_err(|e| map_gguf_error(path, e))?;
-    let architecture = header
-        .metadata_kv
-        .get("general.architecture")
-        .cloned();
+    let architecture = header.metadata_kv.get("general.architecture").cloned();
     let quantisation = header
         .metadata_kv
         .get("general.quantization_version")
@@ -260,8 +245,7 @@ fn build_from_model_json(dir: &Path, model_id: &ModelId) -> Result<ModelDetail, 
             detail: format!("lm-studio model.json parse failed: {e}"),
         })?;
 
-    let (metadata_kv, architecture, quantisation, context_length) =
-        project_model_json(&parsed);
+    let (metadata_kv, architecture, quantisation, context_length) = project_model_json(&parsed);
 
     Ok(ModelDetail {
         model_id: model_id.clone(),
@@ -407,7 +391,7 @@ mod tests {
         let root = temp.path().join("root");
         std::fs::create_dir_all(&root).unwrap();
         let id = ModelId::from("missing.gguf");
-        let err = locate_artifact(&[root.clone()], &id).unwrap_err();
+        let err = locate_artifact(std::slice::from_ref(&root), &id).unwrap_err();
         assert!(matches!(err, InspectError::FileReadable { .. }));
     }
 
@@ -442,8 +426,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(&path, b"NOTAGGUFFILEXXXXX").unwrap();
         let id = ModelId::from("bad.gguf");
-        let err =
-            build_model_detail(std::slice::from_ref(&root), &id).expect_err("must error");
+        let err = build_model_detail(std::slice::from_ref(&root), &id).expect_err("must error");
         assert!(
             matches!(err, InspectError::FormatUnreadable { .. }),
             "bad magic must map to FormatUnreadable; got {err:?}"
@@ -487,8 +470,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("model.json"), "{ not json").unwrap();
         let id = ModelId::from("model-dir");
-        let err =
-            build_model_detail(std::slice::from_ref(&root), &id).expect_err("must error");
+        let err = build_model_detail(std::slice::from_ref(&root), &id).expect_err("must error");
         assert!(
             matches!(err, InspectError::FormatUnreadable { .. }),
             "malformed json must map to FormatUnreadable; got {err:?}"

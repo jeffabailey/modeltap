@@ -163,12 +163,19 @@ fn summary_text_includes_degraded_indicator_when_refresh_failed() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn keymap_dispatches_r_to_retry_refresh() {
+fn keymap_dispatches_r_to_refresh_request() {
+    // Step 05-03 (US-24) repurposed `[r]` from the legacy US-11
+    // RetryRefresh affordance to the general manual-refresh hotkey.
+    // `[r]` now dispatches `Msg::RequestRefresh(RefreshScope::Tool(_))`
+    // with a sentinel ToolId(""); the composition root resolves the
+    // sentinel to state.current_tool() at peek-then-dispatch time. The
+    // contract the keymap layer guarantees is "an `r` keystroke produces a
+    // single-tool refresh request" — which is what this test pins.
     let key = KeyEvent::new(KeyCode::Char('r'), KeyModifiers::NONE);
     let msg = dispatch(key);
     assert!(
-        matches!(msg, Msg::RetryRefresh(_)),
-        "expected Msg::RetryRefresh from 'r' key, got {:?}",
+        matches!(msg, Msg::RequestRefresh(_)),
+        "expected Msg::RequestRefresh from 'r' key, got {:?}",
         msg
     );
 }

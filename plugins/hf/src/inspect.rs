@@ -185,8 +185,7 @@ pub async fn inspect_model_impl(
     hub_root: PathBuf,
     model_id: ModelId,
 ) -> Result<ModelDetail, InspectError> {
-    let join =
-        tokio::task::spawn_blocking(move || build_model_detail(&hub_root, &model_id)).await;
+    let join = tokio::task::spawn_blocking(move || build_model_detail(&hub_root, &model_id)).await;
     match join {
         Ok(res) => res,
         Err(join_err) => Err(InspectError::PluginPanic {
@@ -200,17 +199,13 @@ pub async fn inspect_model_impl(
 /// it, project the KV subset, and lift the typed `ModelDetail` fields. Pure
 /// orchestration over the locator + reader + projector helpers; the helpers
 /// carry the actual error semantics.
-fn build_model_detail(
-    hub_root: &Path,
-    model_id: &ModelId,
-) -> Result<ModelDetail, InspectError> {
+fn build_model_detail(hub_root: &Path, model_id: &ModelId) -> Result<ModelDetail, InspectError> {
     let config_path = locate_config_json_for_id(hub_root, model_id)?;
-    let raw = std::fs::read_to_string(&config_path).map_err(|source| {
-        InspectError::FileReadable {
+    let raw =
+        std::fs::read_to_string(&config_path).map_err(|source| InspectError::FileReadable {
             path: config_path.clone(),
             source,
-        }
-    })?;
+        })?;
     let parsed: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| InspectError::FormatUnreadable {
             path: config_path.clone(),
@@ -247,41 +242,37 @@ fn build_model_detail(
 /// produce no candidate, `config.json` missing). The caller maps the
 /// subsequent `std::fs::read_to_string` error onto the same variant when the
 /// file is found but unreadable.
-fn locate_config_json_for_id(
-    hub_root: &Path,
-    model_id: &ModelId,
-) -> Result<PathBuf, InspectError> {
+fn locate_config_json_for_id(hub_root: &Path, model_id: &ModelId) -> Result<PathBuf, InspectError> {
     let id = model_id.as_str();
-    let (org, repo) = parse_org_repo_from_model_id(id).ok_or_else(|| InspectError::FileReadable {
-        path: hub_root.to_path_buf(),
-        source: std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("hf model_id {id} does not have <org>/<repo> shape"),
-        ),
-    })?;
+    let (org, repo) =
+        parse_org_repo_from_model_id(id).ok_or_else(|| InspectError::FileReadable {
+            path: hub_root.to_path_buf(),
+            source: std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("hf model_id {id} does not have <org>/<repo> shape"),
+            ),
+        })?;
     let model_dir = hub_root.join(format!("models--{org}--{repo}"));
     if !model_dir.exists() {
         return Err(InspectError::FileReadable {
             path: model_dir.clone(),
             source: std::io::Error::new(
                 std::io::ErrorKind::NotFound,
-                format!(
-                    "hf model dir missing for {id}: {}",
-                    model_dir.display()
-                ),
+                format!("hf model dir missing for {id}: {}", model_dir.display()),
             ),
         });
     }
-    let snapshot_dir = resolve_snapshot_dir(&model_dir).ok_or_else(|| InspectError::FileReadable {
-        path: model_dir.join("snapshots"),
-        source: std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!(
-                "hf snapshot dir missing or empty under {}",
-                model_dir.display()
+    let snapshot_dir =
+        resolve_snapshot_dir(&model_dir).ok_or_else(|| InspectError::FileReadable {
+            path: model_dir.join("snapshots"),
+            source: std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!(
+                    "hf snapshot dir missing or empty under {}",
+                    model_dir.display()
+                ),
             ),
-        ),
-    })?;
+        })?;
     let config_path = snapshot_dir.join("config.json");
     if !config_path.exists() {
         return Err(InspectError::FileReadable {
@@ -492,7 +483,10 @@ mod tests {
         let (kv, arch, ctx, params) = project_config_metadata(&parsed);
         assert_eq!(arch.as_deref(), Some("MistralForCausalLM"));
         assert_eq!(ctx, Some(32768));
-        assert!(params.is_some(), "params estimate must be Some when h+l set");
+        assert!(
+            params.is_some(),
+            "params estimate must be Some when h+l set"
+        );
         assert!(
             kv.len() <= METADATA_MAX_KEYS,
             "metadata_kv must be ≤ {METADATA_MAX_KEYS} keys per AC-22-6; got {}",
@@ -508,10 +502,7 @@ mod tests {
             kv.get("num_attention_heads").map(|s| s.as_str()),
             Some("32")
         );
-        assert_eq!(
-            kv.get("num_hidden_layers").map(|s| s.as_str()),
-            Some("32")
-        );
+        assert_eq!(kv.get("num_hidden_layers").map(|s| s.as_str()), Some("32"));
         assert_eq!(
             kv.get("max_position_embeddings").map(|s| s.as_str()),
             Some("32768")
@@ -520,8 +511,7 @@ mod tests {
 
     #[test]
     fn project_config_metadata_handles_missing_fields_gracefully() {
-        let parsed: serde_json::Value =
-            serde_json::from_str(r#"{"vocab_size":32000}"#).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(r#"{"vocab_size":32000}"#).unwrap();
         let (kv, arch, ctx, params) = project_config_metadata(&parsed);
         assert!(kv.is_empty(), "absent fields => empty kv");
         assert_eq!(arch, None);
@@ -531,10 +521,9 @@ mod tests {
 
     #[test]
     fn project_config_metadata_joins_multiple_architectures_with_comma() {
-        let parsed: serde_json::Value = serde_json::from_str(
-            r#"{"architectures":["MistralForCausalLM","MistralModel"]}"#,
-        )
-        .unwrap();
+        let parsed: serde_json::Value =
+            serde_json::from_str(r#"{"architectures":["MistralForCausalLM","MistralModel"]}"#)
+                .unwrap();
         let (kv, arch, _ctx, _params) = project_config_metadata(&parsed);
         assert_eq!(
             kv.get("architectures").map(|s| s.as_str()),
@@ -642,10 +631,7 @@ mod tests {
     #[test]
     fn build_model_detail_returns_format_unreadable_on_malformed_json() {
         let temp = tempfile::tempdir().unwrap();
-        let snapshot = temp
-            .path()
-            .join("models--org--repo")
-            .join("snapshots/rev1");
+        let snapshot = temp.path().join("models--org--repo").join("snapshots/rev1");
         std::fs::create_dir_all(&snapshot).unwrap();
         std::fs::write(snapshot.join("config.json"), "{ not json").unwrap();
         let id = ModelId::from("org/repo/model.safetensors");
@@ -659,10 +645,7 @@ mod tests {
     #[test]
     fn build_model_detail_returns_file_readable_when_config_json_missing() {
         let temp = tempfile::tempdir().unwrap();
-        let snapshot = temp
-            .path()
-            .join("models--org--repo")
-            .join("snapshots/rev1");
+        let snapshot = temp.path().join("models--org--repo").join("snapshots/rev1");
         std::fs::create_dir_all(&snapshot).unwrap();
         // No config.json written.
         let id = ModelId::from("org/repo");

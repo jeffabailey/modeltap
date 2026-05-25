@@ -98,6 +98,13 @@ modeltap-app = { path = "../crates/modeltap-app" }
 # (Unix `utimensat`, macOS `utimes`, Linux `utimensat`). Test-only dependency
 # — never reaches a production binary.
 filetime = "0.2"
+# tool-model-info-sqlite-cache step 06-02: regression_gate.rs imports the
+# `modeltap_tui::screens::help_overlay::render_help_lines` pure function so
+# the INT-INFO-9 vocabulary check runs against the SAME data path the TUI
+# renderer uses — a refactor that swaps the data source cannot let the
+# regression test silently drift. Path-dep keeps this in lockstep with the
+# rest of the workspace.
+modeltap-tui = { path = "../crates/modeltap-tui" }
 
 # One acceptance scenario per [[test]] block. Each block points at the file
 # under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
@@ -257,6 +264,26 @@ path = "acceptance/cache_revalidate.rs"
 [[test]]
 name = "release_build_check"
 path = "acceptance/release_build_check.rs"
+
+# tool-model-info-sqlite-cache step 06-02 — Phase 06 finalize regression gate.
+# Four regression invariants on static artefacts (no subprocess, no async):
+#   1. Parent modeltap-tui master-acceptance.feature non-@skip scenario
+#      count >= 90 (pinned baseline; a drop means a parent scenario was
+#      removed or accidentally @skip-tagged).
+#   2. Sibling folder-group-bulk-delete.feature carries >= 1 scenario tagged
+#      with each of @milestone-1..=@milestone-6 (M1..M6 coverage invariant).
+#   3. tool-model-info-sqlite-cache/sha256-persistence.feature still carries
+#      exactly 3 scenarios, each tagged BOTH @release-3 AND @skip (US-27
+#      deferral pin per ADR-018).
+#   4. INT-INFO-9 vocabulary sample — modeltap_tui::screens::help_overlay::
+#      render_help_lines output contains the 5 named UX surfaces verbatim
+#      ("refresh tool", "refresh all", "recovery banner", "tool detail",
+#      "model detail").
+# Test crate already depends on modeltap-tui transitively via modeltap-app;
+# but the help-overlay test needs a direct path-dep, added in [dev-dependencies].
+[[test]]
+name = "regression_gate"
+path = "acceptance/regression_gate.rs"
 
 [[test]]
 name = "release_process_validate_tag"

@@ -136,9 +136,7 @@ impl Cache {
             // BEGIN IMMEDIATE under `Connection::transaction_with_behavior`
             // (TransactionBehavior::Immediate).
             let begin_at = Instant::now();
-            let tx = conn.transaction_with_behavior(
-                rusqlite::TransactionBehavior::Immediate,
-            )?;
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let write_wait = begin_at.elapsed();
 
             tx.execute(
@@ -204,12 +202,13 @@ impl Cache {
                 )?;
 
                 for model in models {
-                    let metadata_kv_json = serde_json::to_string(&model.metadata_kv).map_err(
-                        |e| CacheError::MalformedRow {
-                            table: "cache_models",
-                            detail: format!("serialize metadata_kv_json: {e}"),
-                        },
-                    )?;
+                    let metadata_kv_json =
+                        serde_json::to_string(&model.metadata_kv).map_err(|e| {
+                            CacheError::MalformedRow {
+                                table: "cache_models",
+                                detail: format!("serialize metadata_kv_json: {e}"),
+                            }
+                        })?;
                     let metadata_introspected_at = model
                         .metadata_introspected_at
                         .as_ref()
@@ -321,9 +320,7 @@ impl Cache {
 
         self.with_conn_mut(|conn| {
             let begin_at = Instant::now();
-            let tx = conn.transaction_with_behavior(
-                rusqlite::TransactionBehavior::Immediate,
-            )?;
+            let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let write_wait = begin_at.elapsed();
 
             // 1. UPSERT cache_tools row.
@@ -417,12 +414,13 @@ impl Cache {
                 )?;
 
                 for model in models {
-                    let metadata_kv_json = serde_json::to_string(&model.metadata_kv).map_err(
-                        |e| CacheError::MalformedRow {
-                            table: "cache_models",
-                            detail: format!("serialize metadata_kv_json: {e}"),
-                        },
-                    )?;
+                    let metadata_kv_json =
+                        serde_json::to_string(&model.metadata_kv).map_err(|e| {
+                            CacheError::MalformedRow {
+                                table: "cache_models",
+                                detail: format!("serialize metadata_kv_json: {e}"),
+                            }
+                        })?;
                     let metadata_introspected_at = model
                         .metadata_introspected_at
                         .as_ref()
@@ -827,5 +825,194 @@ mod tests {
             !stale_eligible,
             "1s after the scan, a 0-ttl window has already closed"
         );
+    }
+
+    // ---- Step 06-02 mutation-kill tests for `parse_iso8601_utc` -----------
+    //
+    // cargo-mutants flagged three boundary mutants in parse_iso8601_utc:
+    //
+    //   - line 717 `if unix < 0` → `==` / `<=` — the pre-epoch reject branch.
+    //   - line 723 `... + Duration::from_millis(frac_ms as u64)` → `-` —
+    //     the fractional-millisecond accumulator that turns "2026-…:56.789Z"
+    //     into the correct +789 ms offset (a `-` swap would produce a
+    //     non-monotonic time).
+    //
+    // The previous suite tested parse_iso8601_utc only INDIRECTLY through
+    // round-tripping cache_tools rows (where the input strings are always
+    // post-epoch and the fractional ms part rarely diverges from 0). Direct
+    // tests at the function boundary pin both branches.
+
+    #[test]
+    fn parse_iso8601_utc_rejects_pre_epoch_timestamps() {
+        // 1969-12-31T23:59:59Z is unambiguously before UNIX_EPOCH.
+        let result = parse_iso8601_utc("1969-12-31T23:59:59Z", "cache_tools.last_scan_at");
+        assert!(
+            result.is_err(),
+            "pre-epoch timestamp must be rejected; got {result:?}"
+        );
+        match result.unwrap_err() {
+            CacheError::MalformedRow { detail, .. } => {
+                assert!(
+                    detail.contains("pre-epoch"),
+                    "MalformedRow detail must name the failure cause; got: {detail}"
+                );
+            }
+            other => panic!("expected MalformedRow, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_iso8601_utc_accepts_zero_unix_timestamp() {
+        // 1970-01-01T00:00:00Z is exactly UNIX_EPOCH (unix_timestamp == 0).
+        // The mutation `< → <=` would reject this; we must accept it.
+        let result =
+            parse_iso8601_utc("1970-01-01T00:00:00Z", "cache_tools.last_scan_at").expect("parse");
+        assert_eq!(
+            result, UNIX_EPOCH,
+            "1970-01-01T00:00:00Z must parse to UNIX_EPOCH (0s past)",
+        );
+    }
+
+    #[test]
+    fn parse_iso8601_utc_adds_fractional_millis_not_subtracts() {
+        // Build a timestamp whose fractional part is unambiguously non-zero;
+        // a `+ → -` mutation on the Duration accumulator would land it
+        // 789 ms EARLIER than the expected moment, flipping equality. Use
+        // 2026-01-01T00:00:00.789Z so both round-trip arithmetic and the
+        // canonical epoch-second math are easy to verify.
+        let parsed = parse_iso8601_utc("2026-01-01T00:00:00.789Z", "cache_tools.last_scan_at")
+            .expect("parse");
+        let expected_secs: u64 = 1_767_225_600; // 2026-01-01T00:00:00Z
+        let expected = UNIX_EPOCH + Duration::from_secs(expected_secs) + Duration::from_millis(789);
+        assert_eq!(
+            parsed, expected,
+            "fractional-millis must be ADDED to the epoch-second base, not subtracted",
+        );
+        // Distinguish from the mutated subtraction outcome
+        // (expected_secs - 0.789 = expected_secs - 1 second + 211 ms).
+        let mutated_outcome =
+            UNIX_EPOCH + Duration::from_secs(expected_secs) - Duration::from_millis(789);
+        assert_ne!(
+            parsed, mutated_outcome,
+            "parsed time must not equal the `-` mutation outcome",
+        );
+    }
+
+    // ---- Step 06-02 mutation-kill tests for tool_id mismatch validation ---
+    //
+    // cargo-mutants flagged two parallel mutants for the validation loop:
+    //
+    //   - reconcile_tool         line 122 `!= -> ==`
+    //   - atomic_reconcile_write line 310 `!= -> ==`
+    //
+    // The `!=` operator is the validation that catches a model whose tool_id
+    // disagrees with the destination tool. Flipping it to `==` would (a) let
+    // the FK constraint downstream fail at INSERT time instead of at the
+    // application-layer gate, and (b) flip the failure case for matched
+    // tool_ids — every legitimate model would now be rejected. Both tests
+    // below pin both ends of the contract.
+
+    fn build_tool(tool_id: ToolId) -> CachedTool {
+        CachedTool {
+            tool_id,
+            install_path: std::path::PathBuf::from("/test"),
+            detected_version: None,
+            plugin_version: "test 0.0.0".into(),
+            model_count: 0,
+            disk_usage_bytes: 0,
+            largest_model_id: None,
+            last_scan_at: SystemTime::now(),
+            last_scan_duration_ms: 0,
+            last_error: None,
+            last_error_at: None,
+            search_paths: vec![],
+        }
+    }
+
+    fn build_model(model_id: &str, tool_id: ToolId) -> crate::types::CachedModel {
+        use std::collections::BTreeMap;
+        crate::types::CachedModel {
+            model_id: model_id.into(),
+            tool_id,
+            display_name: model_id.into(),
+            format: None,
+            quantisation: None,
+            size_bytes: 0,
+            sha256: None,
+            architecture: None,
+            parameters_billions: None,
+            context_length: None,
+            dedup_group_id: None,
+            metadata_kv: BTreeMap::new(),
+            metadata_introspected_at: None,
+            last_seen_at: SystemTime::now(),
+            last_validated_at: None,
+        }
+    }
+
+    #[test]
+    fn reconcile_tool_rejects_models_with_mismatched_tool_id() {
+        let cache = Cache::open_in_memory().expect("open in-memory cache");
+        let tool = build_tool(ToolId("ollama"));
+        let model_wrong_tool = build_model("mistral:7b", ToolId("hf"));
+
+        let result = cache.reconcile_tool(&tool, std::slice::from_ref(&model_wrong_tool));
+        assert!(
+            result.is_err(),
+            "reconcile_tool MUST reject a model whose tool_id disagrees with tool.tool_id"
+        );
+        match result.unwrap_err() {
+            CacheError::MalformedRow { detail, .. } => {
+                assert!(
+                    detail.contains("does not match reconcile_tool target"),
+                    "detail must name the mismatch; got {detail}",
+                );
+            }
+            other => panic!("expected MalformedRow, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn atomic_reconcile_write_rejects_models_with_mismatched_tool_id_and_writes_rows_on_match() {
+        let cache = Cache::open_in_memory().expect("open in-memory cache");
+        let tool = build_tool(ToolId("ollama"));
+
+        // Mismatch path — must return MalformedRow.
+        let model_wrong_tool = build_model("mistral:7b", ToolId("hf"));
+        let mismatch_result =
+            cache.atomic_reconcile_write(&tool, std::slice::from_ref(&model_wrong_tool));
+        assert!(
+            mismatch_result.is_err(),
+            "atomic_reconcile_write MUST reject a model whose tool_id disagrees with tool.tool_id"
+        );
+        match mismatch_result.unwrap_err() {
+            CacheError::MalformedRow { detail, .. } => {
+                assert!(
+                    detail.contains("does not match atomic_reconcile_write target"),
+                    "detail must name the mismatch; got {detail}",
+                );
+            }
+            other => panic!("expected MalformedRow, got {other:?}"),
+        }
+
+        // Match path — must write the row and return a Duration. The mutation
+        // `replace -> Ok(Default::default())` would skip the body entirely,
+        // leaving the cache empty. Verify via a follow-up query.
+        let model_matching = build_model("mistral:7b", ToolId("ollama"));
+        let ok_result = cache.atomic_reconcile_write(&tool, std::slice::from_ref(&model_matching));
+        assert!(
+            ok_result.is_ok(),
+            "atomic_reconcile_write MUST succeed for a matched tool_id; got {ok_result:?}"
+        );
+        let rows = cache
+            .models_for_tool(&tool.tool_id)
+            .expect("models_for_tool query");
+        assert_eq!(
+            rows.len(),
+            1,
+            "atomic_reconcile_write must persist the model row; \
+             a `replace -> Default::default()` mutation would leave the table empty"
+        );
+        assert_eq!(rows[0].model_id, "mistral:7b");
     }
 }

@@ -15,7 +15,7 @@
 //!   The mutation orchestrator may proceed.
 //! - [`ValidationResult::Drift { fresh }`] — at least one file's quad
 //!   differs from cache. The orchestrator must dispatch `Tool::inspect_model`
-//!   + `Cache::write_models` to refresh, then flag the dialog for
+//!   plus `Cache::write_models` to refresh, then flag the dialog for
 //!   re-confirmation (AC-26-6).
 //! - [`ValidationResult::Gone`]     — at least one file `stat()` returns
 //!   `ErrorKind::NotFound`. The orchestrator must abort the action and
@@ -65,10 +65,7 @@ impl Cache {
     /// resolution. This matches the store-side invariant that the path
     /// column is the authoritative reference (downstream writers MUST
     /// canonicalise before writing).
-    pub fn verify_against_fs(
-        &self,
-        model_id: &ModelId,
-    ) -> Result<ValidationResult, CacheError> {
+    pub fn verify_against_fs(&self, model_id: &ModelId) -> Result<ValidationResult, CacheError> {
         let rows = self.files_for_model(model_id)?;
         if rows.is_empty() {
             return Ok(ValidationResult::Match);
@@ -245,6 +242,13 @@ fn mtime_to_epoch_ns(t: &SystemTime) -> Result<i64, CacheError> {
     // u128 ns total, cast down. `i64::MAX` ns is ~292 years past epoch —
     // well beyond any realistic filesystem mtime, but we guard anyway.
     let ns: u128 = duration.as_nanos();
+    // MUTATION: cargo-mutants flags `> -> ==` / `> -> >=` here as MISSED.
+    // The guard fires only on mtimes 292+ years past UNIX_EPOCH; no naturally-
+    // occurring filesystem mtime can satisfy it, and the test would need to
+    // forge a `SystemTime` with a `Duration` exceeding `i64::MAX` nanoseconds
+    // (an unsigned 128-bit value the standard library cannot construct without
+    // unsafe arithmetic). Equivalent-mutant in practice — the operator change
+    // only matters for an input no real filesystem can produce.
     if ns > i64::MAX as u128 {
         return Err(CacheError::MalformedRow {
             table: "cache_model_files.mtime_epoch_ns",
@@ -255,6 +259,13 @@ fn mtime_to_epoch_ns(t: &SystemTime) -> Result<i64, CacheError> {
 }
 
 fn epoch_ns_to_system_time(ns: i64) -> Result<SystemTime, CacheError> {
+    // MUTATION: cargo-mutants flags `< -> ==` / `< -> <=` here as MISSED.
+    // The guard fires only when a negative `cache_model_files.mtime_epoch_ns`
+    // is read out of SQLite. Per the schema this column is written by
+    // `mtime_to_epoch_ns` above (whose own guard keeps the output in the
+    // [0, i64::MAX] range); a negative value requires direct SQL tampering
+    // — a defense-in-depth check, not a behaviour the production write path
+    // can produce. Equivalent-mutant in practice.
     if ns < 0 {
         return Err(CacheError::MalformedRow {
             table: "cache_model_files.mtime_epoch_ns",

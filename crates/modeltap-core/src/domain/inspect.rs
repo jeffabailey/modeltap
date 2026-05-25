@@ -174,3 +174,55 @@ pub enum InspectError {
     #[error("format unreadable at {path}: {detail}", path = path.display())]
     FormatUnreadable { path: PathBuf, detail: String },
 }
+
+#[cfg(test)]
+mod tests {
+    //! Step 06-02 mutation-kill tests. cargo-mutants flagged two MISSED mutants
+    //! against `ModelId` (an architectural newtype whose accessors had no
+    //! direct test):
+    //!
+    //!   - `ModelId::as_str -> &str with ""` / `"xyzzy"` — the existing suite
+    //!     used `ModelId::from("…")` indirectly via cache / detail scenarios
+    //!     but never round-tripped through `as_str()`. Replacing the body with
+    //!     a constant would slip past acceptance tests because most call sites
+    //!     pass the `as_str()` result straight into a SQLite `bind_named` or a
+    //!     hash-map key — bug-shaped data, but not caught at the right layer.
+    //!   - `<impl Display for ModelId>::fmt -> Ok(default)` — same shape; the
+    //!     Display impl is consumed indirectly via `format!("{}", model_id)`
+    //!     deep inside render code and never exercised at the type level.
+    //!
+    //! Both tests are port-to-port at the `ModelId` driving port (the type's
+    //! public API IS the port — pure-data domain type per `nw-tdd-methodology`
+    //! "Pure domain functions ARE their own driving ports").
+    use super::*;
+
+    #[test]
+    fn model_id_as_str_returns_the_underlying_string_verbatim() {
+        let id = ModelId::from("mistral:7b-instruct-q4_K_M");
+        assert_eq!(
+            id.as_str(),
+            "mistral:7b-instruct-q4_K_M",
+            "as_str must surface the exact construction-time string"
+        );
+        // Non-empty distinguishing case kills the `with \"\"` mutation.
+        assert!(!id.as_str().is_empty(), "as_str must not collapse to empty");
+        // A different literal kills the `with \"xyzzy\"` mutation.
+        assert_ne!(id.as_str(), "xyzzy");
+    }
+
+    #[test]
+    fn model_id_display_writes_the_inner_string() {
+        let id = ModelId::from("meta-llama/Llama-3-8B");
+        let rendered = format!("{id}");
+        assert_eq!(
+            rendered, "meta-llama/Llama-3-8B",
+            "Display must write the inner String, not the default value"
+        );
+        // Distinguish from the `Ok(Default::default())` mutation which yields
+        // an empty string.
+        assert!(
+            !rendered.is_empty(),
+            "Display::fmt must not produce empty output"
+        );
+    }
+}
