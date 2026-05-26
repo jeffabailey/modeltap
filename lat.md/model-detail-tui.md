@@ -1,6 +1,8 @@
 # Model Detail TUI Surface
 
-Pressing Enter on a right-pane model row opens a per-model detail screen rendered by [[crates/modeltap-tui/src/screens/detail.rs]] — the same `Screen::Detail` from US-13 that step 03-01 extends with a Metadata section.
+Pressing **`i`** on a right-pane model row opens a per-model detail screen rendered by [[crates/modeltap-tui/src/screens/detail.rs]] — the same `Screen::Detail` from US-13 that step 03-01 extends with a Metadata section.
+
+Pre-fix the production keymap had no path to this screen (no production code path ever constructed `Msg::OpenDetail`); the bugfix wires `[i]` through `Msg::OpenInfo` and `lift_open_info_in_main`. See the "Production `[i]` dispatch" section in [[tool-detail-tui]] for the full peek-translate pattern — the right-pane branch of the same lift builds a `DetailScreenState` from live AppState (`current_tool().model_ids[selected_row]` as the target id, cross-tool registrations walked from `real_tools_iter`).
 
 The Metadata section renders `BTreeMap<String, String>` from `ModelDetail.metadata_kv` as aligned key-value pairs with a dim header reading `"Metadata (from <source>, introspected <N> ago)"` per AC-22-4.
 

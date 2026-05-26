@@ -135,6 +135,40 @@ pub const SHORTCUT_TABLE: &[Shortcut] = &[
         msg: Msg::RequestRefresh(RefreshScope::All),
         sections: &[BarSection::Main, BarSection::Detail],
     },
+    // [i] info — bugfix (2026-05-26): production hotkey opening the
+    // focus-appropriate detail screen. Pre-fix, `Msg::OpenToolDetail` /
+    // `Msg::OpenDetail` were only constructed behind `MODELTAP_HEADLESS_*`
+    // env-var seams in `headless.rs`; production users had no path to either
+    // screen even though both screens shipped (US-21 / US-22) and their
+    // renderers were wired into `view`.
+    //
+    // The keymap stays layer-pure: it dispatches the payload-free
+    // `Msg::OpenInfo`. The composition root (`interactive::translate_key` ->
+    // `lift_open_info_in_main`) inspects `state.focus` at peek-then-dispatch
+    // time and rewrites the Msg into `OpenToolDetail(tool_id)` (left pane) or
+    // `OpenDetail(detail)` (right pane, with `DetailScreenState` synthesised
+    // from real `AppState`). Mirrors the `RequestRefresh(RefreshScope)`
+    // sentinel pattern that step 05-03 established.
+    //
+    // Gating: `[i]` is silently no-op while any dialog is open per the same
+    // `dispatch_in_dialog` swallow that `[r]` relies on — `Char(_)` becomes
+    // `Msg::DialogTextInput` while a typed-input dialog is up, so this entry
+    // never fires there.
+    Shortcut {
+        key: KeyEvent::new(KeyCode::Char('i'), KeyModifiers::NONE),
+        label: "[i] info",
+        msg: Msg::OpenInfo,
+        // Bar-label is dispatch-only (no BarSection::Main listing) so the
+        // bottom bar stays within the 100-col headless terminal budget —
+        // adding "[i] info  " (10 cols) here would push `[q] quit` off the
+        // right edge of the 100-col test terminal. Same precedent as the
+        // `[Enter] expand/collapse` entry below: the dispatch fires from
+        // SHORTCUT_TABLE regardless of `sections`, and users discover the
+        // affordance via the `[?]` help overlay (which groups by all
+        // shortcuts whose `sections` would otherwise include them — see
+        // help_overlay's Concepts glossary for the `[i]`-mnemonic entries).
+        sections: &[],
+    },
     // ----- Detail view ----------------------------------------------------
     Shortcut {
         key: KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),

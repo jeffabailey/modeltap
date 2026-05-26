@@ -73,10 +73,10 @@ pub fn render_help_lines() -> Vec<Line<'static>> {
         "  recovery banner — yellow row 0 banner when the cache was reset",
     ));
     lines.push(Line::from(
-        "  tool detail — per-tool screen (Enter on a tool in the left pane)",
+        "  tool detail — per-tool info screen ([i] in the left pane)",
     ));
     lines.push(Line::from(
-        "  model detail — per-model screen (Enter on a model in the right pane)",
+        "  model detail — per-model info screen ([i] in the right pane)",
     ));
     lines.push(Line::from(""));
 

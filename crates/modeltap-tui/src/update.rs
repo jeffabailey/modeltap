@@ -331,6 +331,13 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
         // path keeps working unchanged.
         Msg::Unify => (handle_unify_from_main(state), UpdateEffect::default()),
         Msg::DeleteFromOne => (state, UpdateEffect::default()),
+        // [i] info — the composition root's `lift_open_info_in_main` rewrites
+        // this Msg into `Msg::OpenToolDetail(_)` or `Msg::OpenDetail(_)` based
+        // on focus before the pure update runs. If the lift could not resolve
+        // a target (synthetic [All Unified] slot, empty right pane, dialog
+        // open) the Msg reaches `update` unchanged and this arm absorbs it as
+        // a no-op — same shape as `Msg::DeleteFromOne` above.
+        Msg::OpenInfo => (state, UpdateEffect::default()),
         // ----- US-05b single-model delete dialog (step 03-06; ADR-009) ------
         Msg::OpenDeleteOneDialog(dialog) => (
             AppState {

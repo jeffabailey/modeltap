@@ -246,6 +246,34 @@ pub enum Msg {
     CloseToolDetail,
 
     // -----------------------------------------------------------------------
+    // [i] info — production hotkey opening the appropriate detail screen
+    // (tool vs model) based on which pane has focus.
+    //
+    // Bug context: US-21 / US-22 detail screens shipped with their renderers
+    // and `Msg::OpenToolDetail` / `Msg::OpenDetail` Msgs, but no production
+    // keybinding ever constructed either Msg outside the
+    // `MODELTAP_HEADLESS_*` env-var seams. Users had no path to either
+    // screen. The fix introduces a payload-free `Msg::OpenInfo` that the
+    // composition root translates into the focus-appropriate Msg at
+    // peek-then-dispatch time — same pattern as `RequestRefresh(RefreshScope)`
+    // (step 05-03), where the keymap stays a pure `KeyEvent -> Msg`
+    // translation and the composition root resolves the scope from AppState.
+    //
+    // The keymap (`crates/modeltap-tui/src/keymap.rs`) dispatches `[i]` to
+    // this variant; `crates/modeltap-app/src/interactive.rs::lift_open_info_in_main`
+    // rewrites it into `Msg::OpenToolDetail(tool_id)` (left-pane focus) or
+    // `Msg::OpenDetail(detail)` (right-pane focus, with the
+    // `DetailScreenState` synthesised from real `AppState` — not env-vars).
+    // -----------------------------------------------------------------------
+    /// User pressed `[i]` on the main screen. Payload-free request to open
+    /// the focus-appropriate detail screen — the composition root translates
+    /// this into `Msg::OpenToolDetail` or `Msg::OpenDetail` before the pure
+    /// `update` runs. If the lift cannot resolve a target (synthetic
+    /// `[All Unified]` slot, empty right pane, dialog open) the Msg passes
+    /// through unchanged and `update()` treats it as a no-op.
+    OpenInfo,
+
+    // -----------------------------------------------------------------------
     // US-08 help overlay + cross-step shortcut placeholders.
     // -----------------------------------------------------------------------
     /// User pressed `?`. Layer the help overlay on top of the current screen

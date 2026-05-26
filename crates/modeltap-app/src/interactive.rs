@@ -438,7 +438,8 @@ fn translate_key(state: &AppState, key: KeyEvent) -> Msg {
     let active_tool = state.current_tool().map(|t| t.tool);
     let raw = keymap::dispatch_with_active_tool(key, state.focus, active_tool.as_ref());
     let raw = lift_delete_one_in_main(state, raw);
-    lift_delete_one_in_detail(state, raw)
+    let raw = lift_delete_one_in_detail(state, raw);
+    lift_open_info_in_main(state, raw)
 }
 
 /// On the main screen, lift `Msg::DeleteFromOne` (no-op in pure update) into
@@ -526,6 +527,129 @@ fn lift_delete_one_in_detail(state: &AppState, msg: Msg) -> Msg {
     let dialog =
         DeleteOneConfirmState::for_model(reg.tool, detail.model.id.clone(), size_bytes, was_shared);
     Msg::OpenDeleteOneDialog(dialog)
+}
+
+/// On the main screen, lift `Msg::OpenInfo` (the payload-free `[i]` dispatch
+/// from the keymap) into the focus-appropriate detail-screen request:
+///
+/// - **Left pane focus** → `Msg::OpenToolDetail(tool_id)` for the
+///   currently-selected real tool. Synthetic slots (e.g. `[All Unified]`)
+///   make `state.current_tool()` return `None`; in that case the lift
+///   returns `Msg::OpenInfo` unchanged so `update`'s no-op arm absorbs it.
+/// - **Right pane focus** → `Msg::OpenDetail(detail)` with a
+///   `DetailScreenState` synthesised from real `AppState` (current tool's
+///   model id at the highlighted row, cross-tool registrations walked from
+///   `state.real_tools_iter()`). When the highlighted row has no model
+///   (empty right pane / out-of-range cursor) the Msg passes through
+///   unchanged.
+///
+/// Outside `Screen::Main` — or while ANY dialog is open — the lift is a
+/// pass-through so production cannot accidentally fire a detail-screen open
+/// while the user is filling in a unify/zap/delete-one confirmation. Same
+/// dialog-gating shape as `lift_delete_one_in_main`.
+///
+/// Bug context: pre-fix, `Msg::OpenToolDetail` / `Msg::OpenDetail` were
+/// constructed ONLY behind `MODELTAP_HEADLESS_TOOL_DETAIL` /
+/// `MODELTAP_HEADLESS_DETAIL_REGS` env-var seams in `headless.rs`. The
+/// production peek sites at the top of `run()` (Msg::OpenToolDetail at
+/// line 250, Msg::OpenDetail at line 284) were dead code. This lift makes
+/// them live.
+///
+/// The synthesised `DetailScreenState` carries:
+/// - `model`: a `DetailModelView` with id from `model_ids[selected_row]`,
+///   size from `model_sizes_bytes[selected_row]`. The `format`,
+///   `format_quant`, `display_label`, `status` fields are best-effort
+///   defaults — the model-detail orchestrator (dispatched by the peek at
+///   line 284) refreshes these via `inspect_model()` on the next tick.
+/// - `registrations`: a `Vec<DetailRegistration>` walked from
+///   `real_tools_iter()`. Any tool whose `model_ids` contains the target
+///   id contributes one registration. Production path is `PathBuf::new()`
+///   (we don't carry per-row paths in `ToolView` today); the orchestrator
+///   keys off `(tool_id, model_id)` and never opens these paths, so the
+///   empty `PathBuf` is harmless. `inode` is `None` — the unification
+///   classifier conservatively treats missing-inode rows as separate
+///   copies, which is correct behaviour for the loading state until the
+///   hash pool / inode cache populates richer data.
+/// - `content_hash`: `None` — the screen renders "computing dedup key..."
+///   until the hash pool produces a value; same loading-state behaviour
+///   as the legacy US-13 flow.
+fn lift_open_info_in_main(state: &AppState, msg: Msg) -> Msg {
+    use modeltap_core::logic::unification_status::{DetailModelView, DetailRegistration};
+    use modeltap_core::{DisplayLabel, Format, ModelStatus};
+    use modeltap_tui::screens::detail::DetailScreenState;
+
+    if !matches!(msg, Msg::OpenInfo) {
+        return msg;
+    }
+    if !matches!(state.current_screen, Screen::Main) {
+        return msg;
+    }
+    if state.zap_dialog.is_some()
+        || state.unify_dialog.is_some()
+        || state.delete_one_dialog.is_some()
+    {
+        return msg;
+    }
+    match state.focus {
+        modeltap_tui::app_state::FocusPane::Left => {
+            // Synthetic [All Unified] slot returns None → no tool to open;
+            // pass the Msg through to update's no-op arm.
+            let Some(tool_view) = state.current_tool() else {
+                return msg;
+            };
+            Msg::OpenToolDetail(tool_view.tool)
+        }
+        modeltap_tui::app_state::FocusPane::Right => {
+            let Some(tool_view) = state.current_tool() else {
+                return msg;
+            };
+            let Some(model_id) = tool_view.model_ids.get(state.selected_row) else {
+                return msg;
+            };
+            let target_id = model_id.clone();
+            let size_bytes = tool_view
+                .model_sizes_bytes
+                .get(state.selected_row)
+                .copied()
+                .unwrap_or(0);
+            // Walk every real tool's `model_ids` and emit a DetailRegistration
+            // for each match — same cross-tool semantics the headless seam
+            // achieves via the JSON env-var, but driven by live AppState. We
+            // do NOT carry per-row paths in ToolView today; the empty PathBuf
+            // is acceptable because the model-detail orchestrator keys off
+            // (tool_id, model_id) only and never opens the path itself.
+            let registrations: Vec<DetailRegistration> = state
+                .real_tools_iter()
+                .filter_map(|tv| {
+                    if tv.model_ids.iter().any(|id| id == &target_id) {
+                        Some(DetailRegistration {
+                            tool: tv.tool,
+                            path: std::path::PathBuf::new(),
+                            inode: None,
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            if registrations.is_empty() {
+                // Defensive — the highlighted row's tool should always be a
+                // match. Fall through to the no-op arm if it isn't (e.g., a
+                // race with refresh that removed the row).
+                return msg;
+            }
+            let model_view = DetailModelView {
+                id: target_id.clone(),
+                format: Format::Other,
+                format_quant: None,
+                canonical_size_bytes: size_bytes,
+                display_label: DisplayLabel::from(target_id),
+                status: ModelStatus::Healthy,
+            };
+            let detail = DetailScreenState::new(model_view, registrations, None);
+            Msg::OpenDetail(detail)
+        }
+    }
 }
 
 /// Interpret an `UpdateEffect`. Mirrors the production-relevant subset of
@@ -1277,6 +1401,195 @@ mod tests {
         assert!(
             matches!(result, Msg::ToggleHelp),
             "the lift only acts on Msg::DeleteFromOne; other msgs pass through. got {result:?}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // `lift_open_info_in_main` — production [i] hotkey contract.
+    //
+    // These tests pin the production fix for the latent unreachability bug
+    // (companion to f96a280): pre-fix, no production code path constructed
+    // `Msg::OpenToolDetail` or `Msg::OpenDetail` — both were only emitted by
+    // the `MODELTAP_HEADLESS_*` env-var seams in `headless.rs`, so the
+    // peek-then-dispatch sites at the top of `run()` (interactive.rs:250,
+    // :284) were dead code.
+    //
+    // The fix adds `Msg::OpenInfo` (payload-free) + this composition-root
+    // lift. The keymap stays layer-pure; the lift resolves focus into the
+    // concrete detail-screen open Msg.
+    //
+    // Pre-fix these tests fail at compile-time (no Msg::OpenInfo / no lift
+    // fn). Post-fix they pass and pin the contract.
+    // -----------------------------------------------------------------------
+    use modeltap_core::ToolStatus;
+    use modeltap_tui::app_state::{FocusPane, ToolView};
+
+    fn tool_view(tool: &'static str, model_ids: &[&str], sizes: &[u64]) -> ToolView {
+        ToolView {
+            tool: ToolId(tool),
+            status: ToolStatus::Ok,
+            model_ids: model_ids.iter().map(|s| s.to_string()).collect(),
+            model_sizes_bytes: sizes.to_vec(),
+        }
+    }
+
+    #[test]
+    fn lift_open_info_in_main_with_left_focus_opens_tool_detail_for_selected_tool() {
+        // Two real tools; selection on the second one (alphabetically `ollama`
+        // sorts after `hf`).
+        let mut state = AppState::new_with_default_selection(vec![
+            tool_view("hf", &["a"], &[100]),
+            tool_view("ollama", &["b"], &[200]),
+        ]);
+        state.focus = FocusPane::Left;
+        state.selected_tool = 1; // points at `ollama` after the alphabetical sort
+
+        let result = lift_open_info_in_main(&state, Msg::OpenInfo);
+
+        match result {
+            Msg::OpenToolDetail(tool_id) => assert_eq!(
+                tool_id,
+                ToolId("ollama"),
+                "left-pane [i] must open the currently-selected tool's detail screen, \
+                 got {tool_id:?}"
+            ),
+            other => panic!("expected Msg::OpenToolDetail; got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lift_open_info_in_main_with_right_focus_opens_model_detail_for_highlighted_row() {
+        // Single tool `hf` with two model rows. Right-pane focus + cursor on
+        // row 1 must open model detail for "b".
+        let mut state =
+            AppState::new_with_default_selection(vec![tool_view("hf", &["a", "b"], &[100, 200])]);
+        state.focus = FocusPane::Right;
+        state.selected_tool = 0;
+        state.selected_row = 1;
+
+        let result = lift_open_info_in_main(&state, Msg::OpenInfo);
+
+        match result {
+            Msg::OpenDetail(detail) => {
+                assert_eq!(
+                    detail.model.id, "b",
+                    "right-pane [i] must open model detail for the highlighted row's \
+                     model id, got {:?}",
+                    detail.model.id
+                );
+                assert_eq!(
+                    detail.model.canonical_size_bytes, 200,
+                    "size must come from model_sizes_bytes[selected_row]"
+                );
+                // Single-tool registration → one entry pointing at `hf`.
+                assert_eq!(
+                    detail.registrations.len(),
+                    1,
+                    "single-tool model must surface exactly one registration"
+                );
+                assert_eq!(detail.registrations[0].tool, ToolId("hf"));
+            }
+            other => panic!("expected Msg::OpenDetail; got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lift_open_info_in_main_right_focus_aggregates_cross_tool_registrations() {
+        // A model id ("shared") registered with TWO tools must surface BOTH
+        // registrations so the detail screen's unification-status engine can
+        // classify it correctly.
+        let mut state = AppState::new_with_default_selection(vec![
+            tool_view("hf", &["shared"], &[1024]),
+            tool_view("ollama", &["shared", "ollama-only"], &[1024, 2048]),
+        ]);
+        state.focus = FocusPane::Right;
+        // After alphabetical sort the slots are [hf, ollama]; select `hf` and
+        // highlight its only row ("shared").
+        state.selected_tool = 0;
+        state.selected_row = 0;
+
+        let result = lift_open_info_in_main(&state, Msg::OpenInfo);
+
+        match result {
+            Msg::OpenDetail(detail) => {
+                assert_eq!(detail.model.id, "shared");
+                let tools: Vec<_> = detail.registrations.iter().map(|r| r.tool).collect();
+                assert!(
+                    tools.contains(&ToolId("hf")) && tools.contains(&ToolId("ollama")),
+                    "cross-tool registrations must include every real tool whose \
+                     model_ids contains the target id; got {tools:?}"
+                );
+                assert_eq!(detail.registrations.len(), 2);
+            }
+            other => panic!("expected Msg::OpenDetail with cross-tool regs; got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn lift_open_info_in_main_passes_through_when_dialog_open() {
+        let mut state = AppState::new_with_default_selection(vec![tool_view("hf", &["a"], &[100])]);
+        state.focus = FocusPane::Left;
+        // Open a dialog — [i] must NOT fire while the user is filling in a
+        // confirmation. Use the zap dialog as the canary; the lift gates on
+        // any dialog being open.
+        state.zap_dialog = Some(
+            modeltap_tui::dialogs::zap_confirm::ZapConfirmState::for_tool(
+                ToolId("hf"),
+                1,
+                100,
+                100,
+                0,
+            ),
+        );
+
+        let result = lift_open_info_in_main(&state, Msg::OpenInfo);
+
+        assert!(
+            matches!(result, Msg::OpenInfo),
+            "dialog-open [i] must pass through unchanged (no detail screen open while \
+             a confirmation is in flight); got {result:?}"
+        );
+    }
+
+    #[test]
+    fn lift_open_info_in_main_passes_through_when_not_on_main_screen() {
+        let mut state = AppState::new_with_default_selection(vec![tool_view("hf", &["a"], &[100])]);
+        state.current_screen = Screen::Detail(detail_state_with_two_regs());
+
+        let result = lift_open_info_in_main(&state, Msg::OpenInfo);
+
+        assert!(
+            matches!(result, Msg::OpenInfo),
+            "off-Main screens must pass [i] through unchanged; got {result:?}"
+        );
+    }
+
+    #[test]
+    fn lift_open_info_in_main_passes_through_on_unrelated_msg() {
+        let state = AppState::new_with_default_selection(vec![tool_view("hf", &["a"], &[100])]);
+
+        let result = lift_open_info_in_main(&state, Msg::ToggleHelp);
+
+        assert!(
+            matches!(result, Msg::ToggleHelp),
+            "the lift only acts on Msg::OpenInfo; other msgs pass through. got {result:?}"
+        );
+    }
+
+    #[test]
+    fn lift_open_info_in_main_right_focus_empty_pane_passes_through() {
+        // Tool with zero model rows; right-pane [i] must NOT crash and must
+        // pass through (no model to open).
+        let mut state = AppState::new_with_default_selection(vec![tool_view("hf", &[], &[])]);
+        state.focus = FocusPane::Right;
+        state.selected_tool = 0;
+        state.selected_row = 0;
+
+        let result = lift_open_info_in_main(&state, Msg::OpenInfo);
+
+        assert!(
+            matches!(result, Msg::OpenInfo),
+            "empty right pane: [i] must pass through; got {result:?}"
         );
     }
 }

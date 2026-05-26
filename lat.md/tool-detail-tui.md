@@ -1,6 +1,8 @@
 # Tool Detail TUI Surface
 
-Pressing Enter on a left-pane row opens a per-tool detail screen rendered by [[crates/modeltap-tui/src/screens/tool_detail.rs]].
+Pressing **`i`** on a left-pane row opens a per-tool detail screen rendered by [[crates/modeltap-tui/src/screens/tool_detail.rs]].
+
+Pre-fix, the production keymap had no path to either detail screen — `Msg::OpenToolDetail` and `Msg::OpenDetail` were only ever constructed behind `MODELTAP_HEADLESS_TOOL_DETAIL` / `MODELTAP_HEADLESS_DETAIL_REGS` env-var seams in `headless.rs`, so users had no way to reach the rendered screens even though both shipped. The keymap now dispatches `[i]` to a payload-free `Msg::OpenInfo` that the composition root translates into the focus-appropriate detail-screen open Msg — see "Msg dispatch" below.
 
 The screen is the user-facing surface of US-21 — discovery root, detected version, search paths, model count, disk usage, last scan timestamp, last error, plugin version. The view layer is pure: it reads `&ToolDetailScreenState` and writes ratatui widgets with no I/O.
 
@@ -43,3 +45,15 @@ The keymap dispatches Esc → `Msg::CloseToolDetail`, `r` → a refresh Msg (ful
 Both paths follow the same shape: resolve the `&dyn Tool` from the live plugin registry by `tool_id`, locate the open `&Cache` (held in the app's runtime state since the warm-start path opened it), then `tokio::spawn` the async [[crates/modeltap-app/src/orchestration/open_tool_detail.rs]] orchestration. The spawned task posts `Msg::ToolDetailReady(Box<ToolDetail>)` back through the existing msg channel once `inspect_tool()` returns and the cache merge completes.
 
 The headless variant differs in one detail: the keymap binds Enter to `Msg::OpenToolDetail` directly, while the interactive variant goes through `ContextFilter::LeftPaneFocus`. Both end up at the same dispatch site so the orchestration only knows one caller pattern.
+
+## Production `[i]` dispatch — `Msg::OpenInfo` translation (bugfix, 2026-05-26)
+
+The production `[i]` hotkey is mapped in [[crates/modeltap-tui/src/keymap.rs]] to a payload-free `Msg::OpenInfo`.
+
+[[crates/modeltap-app/src/interactive.rs]]'s `lift_open_info_in_main` inspects `state.focus` at peek-then-dispatch time and rewrites the Msg before the pure update runs. `FocusPane::Left` produces `Msg::OpenToolDetail(state.current_tool().tool)`. `FocusPane::Right` produces `Msg::OpenDetail(detail)` with a `DetailScreenState` synthesised from live AppState (target model id from `model_ids[selected_row]`, cross-tool registrations walked from `real_tools_iter`).
+
+This mirrors the `RefreshScope` peek-translate precedent that step 05-03 established (see [[crates/modeltap-tui/src/msg.rs]] for the `RequestRefresh(RefreshScope)` doc-comment). The keymap stays layer-pure — it knows nothing about AppState focus or model lists.
+
+The `[i]` Shortcut carries `sections: &[]` so the bar text stays within the 100-col headless terminal budget — discovery is via the `[?]` help overlay's Concepts glossary, same precedent as the `[Enter] expand/collapse` entry.
+
+The MODELTAP_HEADLESS_TOOL_DETAIL env-var lift in [[crates/modeltap-app/src/headless.rs]]'s `lift_enter_in_left_pane_to_tool_detail` continues to serve the acceptance-test seam (Enter + env-var → OpenToolDetail) — it is orthogonal to the production `[i]` path.
