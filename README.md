@@ -34,6 +34,104 @@ cargo install --path crates/modeltap-app
 
 (Windows users: install WSL2 first, then run the above inside your WSL shell.)
 
+## Inventory cache
+
+On every launch, `modeltap` paints from a local SQLite cache of the
+inventory discovered on the previous launch, then runs a background reconcile
+to refresh it. Warm-paint completes in well under 150 ms even when the live
+tool directories take seconds to walk.
+
+### Where the cache lives
+
+| OS | Default path | Override |
+|---|---|---|
+| macOS | `~/Library/Application Support/modeltap/cache.sqlite` | `MODELTAP_CACHE_PATH=/path/to/cache.sqlite` |
+| Linux / WSL | `$XDG_DATA_HOME/modeltap/cache.sqlite` (or `~/.local/share/modeltap/cache.sqlite` when `XDG_DATA_HOME` is unset) | `MODELTAP_CACHE_PATH=/path/to/cache.sqlite` |
+
+The path resolver and PRAGMA invariants are documented in `lat.md/warm-start.md`
+and `lat.md/modeltap-store.md`.
+
+### What's stored
+
+Four tables — `cache_meta`, `cache_tools`, `cache_models`, `cache_model_files` —
+hold the per-tool last scan timestamp, every discovered model row, and one
+row per on-disk file (mtime, size, inode, device) so drift can be detected
+without rehashing. SHA-256 dedup keys are present but sparse (computed lazily;
+persistence across runs is deferred to a future release).
+
+The cache is **never authoritative for destructive actions**. Before any
+unify / zap / delete operation, a pre-mutate revalidator re-stats the
+target files and either proceeds, re-introspects on drift, or refuses on
+"file gone." This is the K5 invariant — see ADR-015 and the R9
+architecture lint in `crates/modeltap-app/tests/architecture.rs`.
+
+### Refreshing the cache
+
+| Key | Scope |
+|---|---|
+| `r` | Reconcile the selected tool |
+| `Shift+R` | Reconcile every tool |
+
+The summary bar shows provenance (`as of 2 min ago`) with a `refreshing
+<tool>…` or `reconciling…` suffix while a reconcile is in flight.
+
+### Opting out
+
+Two ways to disable the cache for a single launch or permanently:
+
+```sh
+modeltap --no-cache                    # one-shot bypass; never reads or writes the cache
+```
+
+```toml
+# ~/.modeltap/config.toml
+[cache]
+enabled = false                        # permanent opt-out; same behavior as --no-cache
+```
+
+`--no-cache` overrides the config file. With the cache disabled, every
+launch walks every tool directory live — the v0.2.x stateless behavior.
+
+### Tuning per-tool freshness
+
+Rows older than the TTL window are reconciled on launch; rows inside the
+window paint instantly from cache and reconcile in the background.
+
+```toml
+# ~/.modeltap/config.toml
+[cache]
+tool_ttl_seconds = 86400               # default: 24 h
+```
+
+Shorten this for rapidly changing tool inventories; lengthen it if your
+tools rarely change and you want maximum warm-paint hit rate.
+
+### Inspecting the cache by hand
+
+The cache is a plain SQLite file in WAL mode. The `sqlite3` CLI can open
+it read-only without contending with a running `modeltap` process:
+
+```sh
+# macOS
+sqlite3 -readonly "$HOME/Library/Application Support/modeltap/cache.sqlite" \
+  "SELECT tool_id, last_scan_at FROM cache_tools;"
+
+# Linux / WSL
+sqlite3 -readonly "${XDG_DATA_HOME:-$HOME/.local/share}/modeltap/cache.sqlite" \
+  "SELECT tool_id, last_scan_at FROM cache_tools;"
+```
+
+If you ever need to nuke the cache to force a clean rediscovery, deleting
+the file is safe — `modeltap` recreates it on next launch (and falls back
+to a cold-start scan if it can't).
+
+### When the cache is corrupted or version-skewed
+
+If `cache.sqlite` is unreadable, on a schema version newer than the binary
+understands, or migration fails, the TUI shows a recovery banner and falls
+back to cold-start. No data is lost — the source of truth is always each
+tool's own directory.
+
 ## Continuous integration
 
 The CI matrix (`.github/workflows/ci.yml`) runs `cargo build` + `cargo test`
