@@ -181,6 +181,7 @@ fn partial_success_toast_shows_per_target_outcomes_and_retry_footer() {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &ollama)
         .env("HF_HOME", &hf)
@@ -283,6 +284,7 @@ fn total_failure_toast_shows_zero_of_n_and_glyph_remains_equals() {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &ollama)
         .env("HF_HOME", &hf)

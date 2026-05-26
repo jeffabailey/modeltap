@@ -125,6 +125,7 @@ fn modeltap_headless(fix: &Fixture) -> (Command, TempDir, PathBuf) {
     let mut cmd = Command::cargo_bin("modeltap").expect("modeltap bin");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         .env("HF_HOME", &fix.hf_home)
         // Pin every non-HF tool to a non-existent path so the discovery pass
@@ -573,6 +574,7 @@ fn parent_walking_skeleton_smoke_still_passes_after_folder_delete_introduced() {
     let assert = cmd
         .env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         // Empty inventory: every tool's dir points nowhere. This matches the
         // parent's @walking-skeleton "boots-with-nothing-installed" expectation

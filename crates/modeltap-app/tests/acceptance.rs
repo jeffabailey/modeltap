@@ -80,4 +80,11 @@ mod acceptance {
     // ---------------------------------------------------------------------
     pub mod folder_grouping_collapse_expand;
     pub mod folder_grouping_visible;
+
+    // ---------------------------------------------------------------------
+    // Production-default warm-start regression: ensures the default cache
+    // path is actually opened on launches where MODELTAP_CACHE_PATH is
+    // unset (i.e. every real user launch). See bugfix commit for context.
+    // ---------------------------------------------------------------------
+    pub mod cache_production_default;
 }

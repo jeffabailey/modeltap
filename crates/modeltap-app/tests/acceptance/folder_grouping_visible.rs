@@ -133,6 +133,7 @@ fn modeltap_headless(fix: &DevonHfBartowskiFixture) -> (Command, TempDir) {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         // Generous width so long folder-header lines are not truncated.
         .env("MODELTAP_TERM_COLS", "140")
         .env("HF_HOME", &fix.hf_home)

@@ -33,6 +33,7 @@ fn modeltap_headless_at(ollama: &PathBuf, hf: &PathBuf) -> (Command, TempDir, Pa
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", ollama)
         .env("HF_HOME", hf)

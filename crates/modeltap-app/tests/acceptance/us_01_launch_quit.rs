@@ -33,7 +33,8 @@ fn modeltap_headless() -> (Command, TempDir) {
 
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
-        .env("MODELTAP_LOG_DIR", &log_dir);
+        .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"));
     (cmd, temp)
 }
 
@@ -217,6 +218,7 @@ fn unwritable_log_dir_does_not_crash() {
     let assert = cmd
         .env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "100")
         .arg("--quit-after-paint")
         .timeout(Duration::from_secs(5))

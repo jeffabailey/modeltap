@@ -161,6 +161,7 @@ fn modeltap_headless(fix: &TwoRepoFixture) -> (Command, TempDir) {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "140")
         .env("MODELTAP_TERM_ROWS", "60")
         .env("HF_HOME", &fix.hf_home)

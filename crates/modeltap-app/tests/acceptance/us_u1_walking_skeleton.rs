@@ -130,6 +130,7 @@ fn modeltap_headless(fix: &WalkingSkeletonFixture) -> (Command, TempDir, PathBuf
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
         .env("HF_HOME", &fix.hf_home)

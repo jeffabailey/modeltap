@@ -74,6 +74,7 @@ fn modeltap_headless_unique(fix: &UniqueFixture) -> (Command, TempDir) {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", &fix.ollama_dir)
         .env("HF_HOME", "/nonexistent/no-such-hf")
@@ -104,6 +105,7 @@ fn modeltap_headless_empty() -> (Command, TempDir) {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_OLLAMA_DIR", "/nonexistent/no-such-ollama")
         .env("HF_HOME", "/nonexistent/no-such-hf")

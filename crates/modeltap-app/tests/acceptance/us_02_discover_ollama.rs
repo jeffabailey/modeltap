@@ -61,6 +61,7 @@ fn modeltap_headless_with_ollama(ollama_dir: Option<&Path>) -> (Command, TempDir
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "100")
         // Pin the other plugins at non-existent paths so the test isolates
         // from any real Ollama / llama-cli / HF / lm-studio installs on the

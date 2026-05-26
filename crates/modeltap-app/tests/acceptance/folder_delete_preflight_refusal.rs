@@ -176,6 +176,7 @@ fn modeltap_headless(fix: &Fixture) -> (Command, TempDir, PathBuf) {
     let mut cmd = Command::cargo_bin("modeltap").expect("modeltap bin");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         // Wider terminal so the refusal banner header — which puts the
         // user-facing refusal message in the `target` slot — renders without
         // being truncated by the right-pane width. Production TUIs are

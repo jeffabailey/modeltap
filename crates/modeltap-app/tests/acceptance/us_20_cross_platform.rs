@@ -43,6 +43,7 @@ fn modeltap_with_platform(platform: &str) -> (Command, TempDir, PathBuf) {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "120")
         .env("MODELTAP_FORCE_PLATFORM", platform)
         // Quiet down all plugin search dirs so each scenario runs fast and

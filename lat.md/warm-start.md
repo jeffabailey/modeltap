@@ -66,6 +66,8 @@ The `dirs::data_dir()` crate resolves to `$HOME/Library/Application Support` on 
 
 The 24h default keeps the warm-paint window forgiving for the common case (Devon's daily TUI launch sees a near-empty stale list); operators with rapidly changing tool inventories can shorten it via `~/.modeltap/config.toml`'s `[cache] tool_ttl_seconds`.
 
+[[crates/modeltap-app/tests/acceptance/cache_production_default.rs|`cache_production_default.rs`]] is the regression test that pins `HOME` (and `XDG_DATA_HOME` for Linux parity) to a tempdir, runs `modeltap --quit-after-paint` with NO `MODELTAP_CACHE_PATH` override, and asserts the platform-default cache file appears non-empty. It exists to catch a 2026-05-18 latent bug where the launch path short-circuited warm-start to `None` whenever the env override was unset — i.e. every production launch — bypassing the resolver entirely. The three call sites in [[crates/modeltap-app/src/main.rs|main.rs]] (warm-start gate, writeback gate, `tool_detail_cache_path` gate) all now branch on `cache_enabled` alone; the resolver itself owns the three-tier fallback.
+
 ## Launch metrics instrumentation
 
 Step 04-05 (closes Phase 04) introduces [[crates/modeltap-app/src/instrumentation/launch_metrics.rs|`LaunchMetrics`]], a single JSONL facade for the four `launch.*` duration events the cache-state-model and integration-checkpoints acceptance suites read out of `<log_dir>/launch.log`.

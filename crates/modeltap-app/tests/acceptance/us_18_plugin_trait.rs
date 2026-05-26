@@ -48,6 +48,7 @@ fn modeltap_headless() -> (Command, TempDir) {
     let mut cmd = Command::cargo_bin("modeltap").expect("cargo bin modeltap");
     cmd.env("MODELTAP_HEADLESS", "1")
         .env("MODELTAP_LOG_DIR", &log_dir)
+        .env("MODELTAP_CACHE_PATH", log_dir.join("cache.sqlite"))
         .env("MODELTAP_TERM_COLS", "100")
         // Point every plugin at a non-existent root so `discover()` returns
         // `NotInstalled` and the test does NOT depend on the host's real
