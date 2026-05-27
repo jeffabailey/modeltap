@@ -7,13 +7,21 @@
 # the bump, creates the new tag, and (unless --no-push) pushes both. The
 # tag-push triggers `.github/workflows/release.yml`.
 #
+# Resume mode: if Cargo.toml's `[workspace.package].version` is already
+# greater than the latest released tag, a previous invocation got partway
+# through (xtask release-prep bumped Cargo.toml + CHANGELOG.md, then a CI
+# parity gate failed). Re-running the script auto-detects this state and
+# skips `cargo xtask release-prep` — it commits whatever is dirty, tags,
+# and pushes. Pass `--restart` to override and force a fresh cut.
+#
 # Usage:
-#   ./cut-release.sh                # patch bump (default)
+#   ./cut-release.sh                # patch bump (default; resume-aware)
 #   ./cut-release.sh --minor        # minor bump
 #   ./cut-release.sh --major        # major bump
 #   ./cut-release.sh --version 1.2.3   # explicit override
 #   ./cut-release.sh --no-push      # commit + tag locally, skip push
 #   ./cut-release.sh --yes          # skip the confirmation prompt
+#   ./cut-release.sh --restart      # refuse resume even if Cargo.toml is ahead
 #
 # Exit codes:
 #   0  success
@@ -28,6 +36,7 @@ bump="patch"        # one of: major | minor | patch | explicit
 explicit_version=""
 do_push=1
 assume_yes=0
+force_restart=0
 
 while (( $# )); do
   case $1 in
@@ -37,6 +46,7 @@ while (( $# )); do
     --version) bump="explicit"; explicit_version=${2:?--version requires X.Y.Z}; shift ;;
     --no-push) do_push=0    ;;
     --yes|-y)  assume_yes=1 ;;
+    --restart) force_restart=1 ;;
     -h|--help)
       cat <<'EOF'
 cut-release.sh — one-shot release driver.
@@ -47,13 +57,20 @@ bump Cargo.toml + regenerate CHANGELOG.md + run CI parity gates, commits
 the bump, creates the new tag, and (unless --no-push) pushes both. The
 tag-push triggers .github/workflows/release.yml.
 
+Resume mode: if Cargo.toml's workspace.package.version is already greater
+than the latest released tag, a previous run got partway through (xtask
+bumped the version + CHANGELOG, then a gate failed). Re-running auto-
+detects this and skips xtask release-prep — useful when the gate failure
+was a real test/lint fix that you've now resolved by hand.
+
 Usage:
-  ./cut-release.sh                   patch bump (default)
+  ./cut-release.sh                   patch bump (default; resume-aware)
   ./cut-release.sh --minor           minor bump
   ./cut-release.sh --major           major bump
   ./cut-release.sh --version 1.2.3   explicit override
   ./cut-release.sh --no-push         commit + tag locally, skip push
   ./cut-release.sh --yes             skip the confirmation prompt
+  ./cut-release.sh --restart         refuse resume even if Cargo.toml is ahead
 
 Exit codes:
   0  success
@@ -100,14 +117,45 @@ fi
 
 IFS=. read -r maj min pat <<<"$current"
 
+# ---- resume detection ------------------------------------------------------
+# If Cargo.toml's workspace version is strictly greater than the latest
+# released tag, a previous invocation already ran xtask release-prep (which
+# bumps Cargo.toml + regenerates CHANGELOG.md) and then aborted — almost
+# always because a CI parity gate failed. The user is now resuming after
+# hand-fixing the failure. In that case the version is already chosen; we
+# just need to commit + tag + push.
+
+resume_mode=0
+workspace_version=$(grep -E '^version[[:space:]]*=' Cargo.toml | head -1 | sed -E 's/^version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/')
+
+if [[ -n $workspace_version && $workspace_version != "$current" ]]; then
+  # Compare semver-style: workspace > current?
+  highest=$(printf '%s\n%s\n' "$current" "$workspace_version" | sort -V | tail -1)
+  if [[ $highest == "$workspace_version" && $workspace_version != "$current" ]]; then
+    if (( force_restart )); then
+      echo "Cargo.toml is at $workspace_version (ahead of $current), but --restart was passed." >&2
+      echo "Revert Cargo.toml + CHANGELOG.md manually before restarting, e.g.:" >&2
+      echo "  git checkout Cargo.toml CHANGELOG.md Cargo.lock" >&2
+      exit 2
+    fi
+    resume_mode=1
+    echo "resume mode: Cargo.toml is already at $workspace_version (ahead of $current)"
+    echo "             skipping cargo xtask release-prep — committing + tagging only"
+  fi
+fi
+
 # ---- compute next version --------------------------------------------------
 
-case $bump in
-  major)    next="$((maj + 1)).0.0" ;;
-  minor)    next="$maj.$((min + 1)).0" ;;
-  patch)    next="$maj.$min.$((pat + 1))" ;;
-  explicit) next=$explicit_version ;;
-esac
+if (( resume_mode )); then
+  next=$workspace_version
+else
+  case $bump in
+    major)    next="$((maj + 1)).0.0" ;;
+    minor)    next="$maj.$((min + 1)).0" ;;
+    patch)    next="$maj.$min.$((pat + 1))" ;;
+    explicit) next=$explicit_version ;;
+  esac
+fi
 
 # Sanity: explicit must be parseable.
 if ! [[ $next =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
@@ -142,8 +190,16 @@ fi
 # release-prep does the heavy lifting: Cargo.toml bump, CHANGELOG regen,
 # fmt + clippy + test gates. PATH=/usr/bin avoids the pyenv `cc` shim on
 # macOS dev machines (CI runners are unaffected).
+#
+# In resume mode we skip release-prep entirely (Cargo.toml + CHANGELOG.md
+# are already at the target version from a previous partial run). The user
+# is responsible for re-running gates locally; we do not silently bypass
+# them here because resuming usually means a known gate failed and the user
+# has just fixed it — they know what's safe.
 
-PATH=/usr/bin:$PATH cargo xtask release-prep --version "$next"
+if (( ! resume_mode )); then
+  PATH=/usr/bin:$PATH cargo xtask release-prep --version "$next"
+fi
 
 git commit -am "chore(release): $new_tag"
 
