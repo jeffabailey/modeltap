@@ -62,7 +62,7 @@ inventory via `discover()` and revalidates each model before invoking
 
 ## Phase 06 finalize regression gate
 
-`tests/acceptance/regression_gate.rs` pins four cross-feature invariants:
+`tests/acceptance/regression_gate.rs` pins five cross-feature invariants:
 
 1. Parent `modeltap-tui/distill/features/master-acceptance.feature` non-`@skip`
    scenario count `>= 90` (US-01..US-20 + US-05b coverage baseline).
@@ -73,6 +73,12 @@ inventory via `discover()` and revalidates each model before invoking
 4. INT-INFO-9 vocabulary sample — `modeltap_tui::screens::help_overlay::
    render_help_lines()` output contains "refresh tool", "refresh all",
    "recovery banner", "tool detail", "model detail" verbatim.
+5. AC-22-7 sentinel pin — `tests/acceptance/model_detail.rs` contains the
+   live value of `modeltap_app::orchestration::open_tool_detail::
+   INSPECT_PANIC_SENTINEL` as a substring. Catches the drift class that
+   broke the un-introspectable scenario when step 03-02 added Ollama's
+   `inspect_model` override (FileReadable → INSPECT_PANIC_SENTINEL,
+   not Unsupported → METADATA_UNSUPPORTED_SENTINEL).
 
 Mutation-testing kill rate gate (CLAUDE.md §"Mutation Testing Strategy"):
 `modeltap-core::{domain::inspect, logic::inventory_diff}` and

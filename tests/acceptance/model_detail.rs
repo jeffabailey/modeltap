@@ -33,21 +33,12 @@
 //! - Re-introspect-updates-provenance: `#[ignore]` until step 03-02 (needs
 //!   Ollama `inspect_model` override + cache writeback verification).
 //! - Un-introspectable-partial-info: ACTIVE in this step. Exercises the
-//!   trait-default `Err(InspectError::Unsupported)` → `merge` →
-//!   `METADATA_UNSUPPORTED_SENTINEL` path through the production Ollama
-//!   plugin, asserting (a) the sentinel renders in the Metadata section,
-//!   (b) other panels (Registered with, Size on disk) still render, and
-//!   (c) the process exits cleanly.
-//!
-//! Note on the AC-22-7 sentinel-text deviation: the source `.feature` line
-//! asserts `(introspection failed -- see diagnostics.log)`. That literal is
-//! emitted only for `InspectError::FormatUnreadable` / `PluginPanic`. Step
-//! 03-02 lands the plugin overrides that hit that path; this step's
-//! production-plugin baseline (every plugin uses the trait default
-//! `Unsupported`) emits `(metadata unsupported for this tool)` instead.
-//! Both sentinels satisfy AC-22-7's intent (`partial info gracefully` +
-//! "screen does not crash" + "other panels still render"); the literal
-//! tightens to the .feature wording when 03-02's overrides land.
+//!   `Err(InspectError::FileReadable)` → `merge` → `INSPECT_PANIC_SENTINEL`
+//!   path through the production Ollama plugin's `inspect_model` override
+//!   (locator returns `FileReadable` when no manifest matches the model id),
+//!   asserting (a) the sentinel renders in the Metadata section, (b) other
+//!   panels (Registered with, Size on disk) still render, and (c) the
+//!   process exits cleanly.
 
 #[path = "steps/model_detail_steps.rs"]
 mod model_detail_steps;
@@ -193,24 +184,29 @@ fn re_introspect_updates_the_metadata_provenance_and_refreshes_the_cache() {
 }
 
 /// AC-22-7: Model detail for an un-introspectable file shows partial info
-/// gracefully. Exercises the trait-default `Err(InspectError::Unsupported)`
-/// → `merge` → `METADATA_UNSUPPORTED_SENTINEL` path through the production
-/// Ollama plugin (which has no `inspect_model` override in step 03-01).
+/// gracefully. Exercises the `Err(InspectError::FileReadable)` → `merge` →
+/// `INSPECT_PANIC_SENTINEL` path through the production Ollama plugin's
+/// `inspect_model` override (step 03-02 part 1). The override's locator
+/// walks `<MODELTAP_OLLAMA_DIR>/manifests/` for a file whose path projects
+/// to the requested id; with no matching manifest it returns `FileReadable`,
+/// which `merge` maps to `INSPECT_PANIC_SENTINEL`.
 ///
-/// The fixture writes a non-GGUF binary file under the Ollama tree. The
+/// The fixture writes a non-GGUF binary file directly under the Ollama tree
+/// (NOT under `manifests/`), so the locator's walk finds no match. The
 /// scripted `<enter>` opens the detail screen via
 /// `MODELTAP_HEADLESS_DETAIL_REGS`; the orchestrator calls
-/// `plugin.inspect_model(...)`, which returns `Err(Unsupported)`; the merge
-/// layer falls back to the sentinel; the renderer paints
-/// "(metadata unsupported for this tool)" in the Metadata section while
-/// every other panel (Registered with: ollama → <path>, the model id,
-/// status, dedup-key block) renders normally.
+/// `plugin.inspect_model(...)`, which returns `Err(FileReadable)`; the merge
+/// layer falls back to the panic sentinel; the renderer paints
+/// "(inspection failed -- see diagnostics.log)" in the Metadata section
+/// while every other panel (Registered with: ollama → <path>, the model id,
+/// status, dedup-key block) renders normally — matching the source
+/// `.feature` line's literal wording.
 ///
 /// Assertions:
 /// 1. The process exits cleanly (no panic, no crash).
-/// 2. The Metadata section contains the sentinel string.
-/// 3. The "Registered with" panel renders (proving other panels are
-///    unaffected by the Unsupported branch).
+/// 2. The Metadata section contains the panic sentinel string.
+/// 3. The "Registrations:" panel renders (proving other panels are
+///    unaffected by the error branch).
 /// 4. The process is alive at quit time (`q` reaches the quit handler).
 #[test]
 fn model_detail_for_an_un_introspectable_file_shows_partial_info_gracefully() {
@@ -218,13 +214,13 @@ fn model_detail_for_an_un_introspectable_file_shows_partial_info_gracefully() {
     let result = launch_modeltap_and_navigate_to_model_detail(&fixture);
 
     assert_no_crash(&result);
-    assert_frame_contains(&result, "(metadata unsupported for this tool)");
+    assert_frame_contains(&result, "(inspection failed -- see diagnostics.log)");
     // AC-22-7 "other panels still render": the detail screen's
-    // `Registered with` panel must appear with the Ollama registration the
+    // `Registrations:` panel must appear with the Ollama registration the
     // REGS payload synthesised. The substring match is on the panel header
     // (rendered verbatim by `crates/modeltap-tui/src/screens/detail.rs`),
     // proving the renderer reached the other-panels code path after the
-    // Unsupported branch finished the Metadata section.
-    assert_frame_contains(&result, "Registered with");
+    // error branch finished the Metadata section.
+    assert_frame_contains(&result, "Registrations:");
     assert_process_alive(&result);
 }

@@ -24,15 +24,18 @@
 //! scenarios all require plugin overrides of `inspect_model` that no
 //! production plugin ships in this step).
 //!
-//! Plugin route: AC-22-7 is driven through the Ollama plugin's
-//! trait-default `inspect_model` (returns `Err(InspectError::Unsupported)`),
-//! which the orchestrator's merge maps to `METADATA_UNSUPPORTED_SENTINEL`
-//! ("(metadata unsupported for this tool)"). The `MODELTAP_HEADLESS_DETAIL_REGS`
-//! JSON payload's `tool` field uses `"ollama"` because the headless
-//! synthesizer's whitelist accepts `{ollama, hf, lm-studio}` only (see
+//! Plugin route: AC-22-7 is driven through the Ollama plugin's production
+//! `inspect_model` override (step 03-02 part 1), whose locator returns
+//! `Err(InspectError::FileReadable)` when no manifest under
+//! `<MODELTAP_OLLAMA_DIR>/manifests/` matches the requested id. The
+//! orchestrator's merge maps that to `INSPECT_PANIC_SENTINEL`
+//! ("(inspection failed -- see diagnostics.log)") — the literal wording the
+//! source `.feature` line asserts. The `MODELTAP_HEADLESS_DETAIL_REGS` JSON
+//! payload's `tool` field uses `"ollama"` because the headless synthesizer's
+//! whitelist accepts `{ollama, hf, lm-studio}` only (see
 //! `synthesize_detail_from_env` in `crates/modeltap-app/src/headless.rs`).
-//! No new env-var seam is added — the Unsupported default body already
-//! exercises the partial-info-graceful render that AC-22-7 specifies.
+//! No new env-var seam is added — the FileReadable branch exercises the
+//! partial-info-graceful render that AC-22-7 specifies.
 
 #![allow(dead_code)] // The four #[ignore]'d scenarios in the driver leave
                      // some helpers unused until step 03-02 picks them up.
@@ -78,9 +81,10 @@ impl LaunchResult {
 /// end to end. The `MODELTAP_HEADLESS_DETAIL_REGS` JSON payload synthesises
 /// a `DetailScreenState` registered with the Ollama plugin against the
 /// fixture's un-introspectable model path; the production Ollama plugin's
-/// trait-default `inspect_model` returns `Err(InspectError::Unsupported)`,
-/// which the orchestrator's merge maps to the `METADATA_UNSUPPORTED_SENTINEL`
-/// rendered in the Metadata section.
+/// `inspect_model` override (step 03-02 part 1) walks `manifests/` and
+/// returns `Err(InspectError::FileReadable)` because no manifest matches the
+/// `"unintrospectable-model"` id, which the orchestrator's merge maps to
+/// the `INSPECT_PANIC_SENTINEL` rendered in the Metadata section.
 ///
 /// The lift `MODELTAP_HEADLESS_DETAIL_REGS` env-var documented in
 /// `headless.rs::synthesize_detail_from_env` is the only seam that triggers
@@ -182,10 +186,10 @@ pub fn launch_modeltap_and_navigate_to_model_detail(fixture: &InspectFixture) ->
 /// `Then the screen does not crash`
 ///
 /// AC-22-7 invariant: the orchestrator's `inspect_model` merge handles the
-/// `Err(InspectError::Unsupported)` branch cleanly. The process must
+/// `Err(InspectError::FileReadable)` branch cleanly. The process must
 /// therefore exit with status 0 (the headless harness drives the scripted
-/// `q` quit naturally) — a non-zero exit would indicate the Unsupported
-/// branch escaped the merge layer and unwound the modeltap process itself.
+/// `q` quit naturally) — a non-zero exit would indicate the error branch
+/// escaped the merge layer and unwound the modeltap process itself.
 ///
 /// We assert success here rather than later because a non-zero exit
 /// invalidates every other assertion: if the process aborted mid-render
@@ -204,11 +208,10 @@ pub fn assert_no_crash(result: &LaunchResult) {
 ///
 /// Substring-greps the captured stdout (the headless harness prints every
 /// painted frame). After the `<enter>` the detail screen renders; its
-/// Metadata section contains `METADATA_UNSUPPORTED_SENTINEL`. The frame
-/// painted before `<esc>` is the one we assert on, but ANY frame containing
-/// the substring satisfies the assertion (the sentinel is unique and only
-/// appears when the orchestrator's `merge()` path took the Unsupported
-/// branch).
+/// Metadata section contains `INSPECT_PANIC_SENTINEL`. The frame painted
+/// before `<esc>` is the one we assert on, but ANY frame containing the
+/// substring satisfies the assertion (the sentinel is unique and only
+/// appears when the orchestrator's `merge()` path took an `Err(_)` branch).
 pub fn assert_frame_contains(result: &LaunchResult, needle: &str) {
     assert!(
         result.stdout.contains(needle),

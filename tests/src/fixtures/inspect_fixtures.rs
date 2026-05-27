@@ -185,22 +185,18 @@ impl InspectFixture {
 /// detail-screen panel (Registered with, Size on disk, Dedup key, Status)
 /// renders normally — matching AC-22-7's "partial info gracefully" intent.
 ///
-/// Note on the AC-22-7 literal wording: the source `.feature` text asserts
-/// against `(introspection failed -- see diagnostics.log)`, which the
-/// orchestrator emits only for `InspectError::FormatUnreadable` /
-/// `PluginPanic`. Step 03-02 lands the plugin override that hits that path;
-/// this step ships the partial-info-graceful render via the Unsupported
-/// seam (default trait body), which is the production behaviour every
-/// plugin exhibits until 03-02. The AC-22-7 intent ("screen does not
-/// crash" + "other panels still render") is fully exercised either way; the
-/// sentinel text is the only delta.
-///
-/// Layout: a minimal Ollama tree with a `manifests/` directory + a synthetic
-/// model file referenced by the test's `MODELTAP_HEADLESS_DETAIL_REGS`
-/// payload. The `inspect_model` path returns `Unsupported`; no I/O is
-/// performed against the on-disk file by the plugin, so its content is
-/// irrelevant — we still write a non-empty byte sequence so the file's
-/// metadata (size, mtime) renders the Size-on-disk panel deterministically.
+/// Layout: a minimal Ollama tree with an empty `manifests/` directory + a
+/// synthetic model file referenced by the test's
+/// `MODELTAP_HEADLESS_DETAIL_REGS` payload. The Ollama plugin's
+/// `inspect_model` override walks `manifests/` looking for a file whose path
+/// projects to the requested id (`"unintrospectable-model"`); with no
+/// matching manifest it returns `Err(InspectError::FileReadable)`, which the
+/// orchestrator's `merge` maps to `INSPECT_PANIC_SENTINEL` —
+/// `(inspection failed -- see diagnostics.log)`, the literal wording the
+/// source `.feature` line asserts. The on-disk model file content is
+/// irrelevant to the assertion path; we still write a non-empty byte
+/// sequence so the file's metadata (size, mtime) renders the Size-on-disk
+/// panel deterministically.
 pub fn devon_model_unintrospectable_fixture() -> InspectFixture {
     let temp = TempDir::new().expect("create devon-model-unintrospectable tempdir");
     setup_common_tree(temp.path());
@@ -209,16 +205,18 @@ pub fn devon_model_unintrospectable_fixture() -> InspectFixture {
     // NotInstalled (no models surface from production discover, only the
     // synthetic detail-regs payload reaches the orchestrator). The detail
     // screen's `Registered with` panel paints from the regs payload, the
-    // Metadata section paints `METADATA_UNSUPPORTED_SENTINEL`.
+    // Metadata section paints `INSPECT_PANIC_SENTINEL` (the locator's
+    // FileReadable error reaches merge's catch-all `Err(_)` arm).
     let ollama_dir = temp.path().join("ollama-root");
     std::fs::create_dir_all(ollama_dir.join("manifests")).expect("create ollama-root/manifests");
 
-    // Place the un-introspectable model file under the Ollama tree. The
+    // Place the un-introspectable model file under the Ollama tree (NOT
+    // under `manifests/` — that's what makes the locator's walk find no
+    // matching manifest and return FileReadable). The
     // `MODELTAP_HEADLESS_DETAIL_REGS` payload points at this path so the
     // detail screen has a registered-tool entry to render. Content is a
-    // non-GGUF byte sequence — the plugin's default `inspect_model` never
-    // reads it (returns Unsupported unconditionally), but a future test that
-    // probes file readability will see a real file.
+    // non-GGUF byte sequence — the plugin's `inspect_model` never reads it
+    // (it errors out at locate-manifest before reaching the file).
     let model_path = ollama_dir.join("unintrospectable-model.bin");
     std::fs::write(&model_path, b"\x00\x01\x02not-a-gguf-header")
         .expect("seed unintrospectable model file");
