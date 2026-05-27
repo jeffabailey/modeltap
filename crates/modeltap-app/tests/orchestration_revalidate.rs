@@ -16,6 +16,7 @@
 //! lands in step 05-04 cucumber. This dispatch verifies the orchestrator
 //! contract via direct invocation.
 
+use std::collections::BTreeMap;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
@@ -24,7 +25,7 @@ use serde_json::Value;
 
 use modeltap_app::orchestration::revalidate::{self, PreMutateOutcome};
 use modeltap_core::types::ToolId;
-use modeltap_store::types::CachedFile;
+use modeltap_store::types::{CachedFile, CachedModel, CachedTool};
 use modeltap_store::{Cache, CacheOpenResult};
 
 const TEST_TOOL_ID: ToolId = ToolId("test-tool");
@@ -49,7 +50,56 @@ fn stat_quad(path: &Path) -> (u64, SystemTime, u64, u64) {
     )
 }
 
+/// Seed the parent `cache_tools` + `cache_models` rows so a subsequent
+/// `write_model_files` call satisfies the composite FK
+/// (`cache_model_files.(model_id, tool_id) REFERENCES cache_models`). The
+/// store crate sets `PRAGMA foreign_keys = ON` per connection in
+/// `Cache::open` (see `crates/modeltap-store/src/open.rs:222`), so without
+/// these parent rows SQLite rejects the file insert with extended_code 787
+/// — "FOREIGN KEY constraint failed".
+fn seed_parent_rows(cache: &Cache, model_id: &str) {
+    cache
+        .write_tool(&CachedTool {
+            tool_id: TEST_TOOL_ID,
+            install_path: std::path::PathBuf::from("/test-tool"),
+            detected_version: None,
+            plugin_version: "0.0.0".to_string(),
+            model_count: 1,
+            disk_usage_bytes: 0,
+            largest_model_id: None,
+            last_scan_at: SystemTime::now(),
+            last_scan_duration_ms: 0,
+            last_error: None,
+            last_error_at: None,
+            search_paths: Vec::new(),
+        })
+        .expect("write_tool");
+    cache
+        .write_models(
+            &TEST_TOOL_ID,
+            &[CachedModel {
+                model_id: model_id.to_string(),
+                tool_id: TEST_TOOL_ID,
+                display_name: model_id.to_string(),
+                format: None,
+                quantisation: None,
+                size_bytes: 0,
+                sha256: None,
+                architecture: None,
+                parameters_billions: None,
+                context_length: None,
+                dedup_group_id: None,
+                metadata_kv: BTreeMap::new(),
+                metadata_introspected_at: None,
+                last_seen_at: SystemTime::now(),
+                last_validated_at: None,
+            }],
+        )
+        .expect("write_models");
+}
+
 fn seed_matching_file(cache: &Cache, model_id: &str, file_path: &Path) {
+    seed_parent_rows(cache, model_id);
     let (size, mtime, inode, dev) = stat_quad(file_path);
     cache
         .write_model_files(&[CachedFile {
@@ -114,6 +164,7 @@ async fn pre_mutate_returns_drift_when_mtime_diverges() {
     let (size, on_disk_mtime, inode, dev) = stat_quad(&file);
     // Seed with a stale mtime (1h before on-disk).
     let stale = on_disk_mtime - Duration::from_secs(3600);
+    seed_parent_rows(&cache, "m1");
     cache
         .write_model_files(&[CachedFile {
             model_id: "m1".to_string(),
@@ -157,6 +208,7 @@ async fn pre_mutate_returns_drift_when_mtime_diverges() {
 async fn pre_mutate_returns_gone_when_file_absent() {
     let (dir, cache) = fresh_cache();
     let absent = dir.path().join("never-existed.gguf");
+    seed_parent_rows(&cache, "m1");
     cache
         .write_model_files(&[CachedFile {
             model_id: "m1".to_string(),
@@ -321,6 +373,7 @@ async fn pre_mutate_outcome_field_distinguishes_proceed_drift_gone() {
         let file = dir.path().join("drift.gguf");
         std::fs::write(&file, b"x").unwrap();
         let (size, mtime, inode, dev) = stat_quad(&file);
+        seed_parent_rows(&cache, "md");
         cache
             .write_model_files(&[CachedFile {
                 model_id: "md".to_string(),
@@ -346,6 +399,7 @@ async fn pre_mutate_outcome_field_distinguishes_proceed_drift_gone() {
     {
         let (dir, cache) = fresh_cache();
         let absent = dir.path().join("absent.gguf");
+        seed_parent_rows(&cache, "mg");
         cache
             .write_model_files(&[CachedFile {
                 model_id: "mg".to_string(),

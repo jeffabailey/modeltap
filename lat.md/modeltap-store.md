@@ -14,11 +14,13 @@ The new constraint is two-part: paint from cache fast on warm-start (≤ 100 ms 
 
 ## Cache open and PRAGMA invariants
 
-[[crates/modeltap-store/src/open.rs]] opens or creates the cache file at the caller-resolved path. Three PRAGMAs are set before any other query runs.
+[[crates/modeltap-store/src/open.rs]] opens or creates the cache file at the caller-resolved path. Four PRAGMAs are set before any other query runs.
 
 `journal_mode=WAL` allows two `modeltap` processes (Devon's running TUI + an ad-hoc CLI invocation) to read concurrently without blocking each other. Required by AC-23-2 and the US-26 concurrent-process scenarios.
 
 `busy_timeout=5000` is the only concurrency mechanism the crate uses. No file locks, no advisory locks, no PID detection. Writers serialize via SQLite's own busy-wait.
+
+`foreign_keys=ON` enforces the composite FK from `cache_model_files.(model_id, tool_id)` to `cache_models` and the column FK from `cache_models.tool_id` to `cache_tools`. SQLite defaults to OFF per connection — we set it per-open. Test fixtures that call `write_model_files` MUST seed the parent `cache_tools` + `cache_models` rows first or SQLite rejects with extended_code 787 / "FOREIGN KEY constraint failed" (see [[crates/modeltap-app/tests/orchestration_revalidate.rs|`seed_parent_rows`]] for the canonical helper).
 
 `user_version` is read after open and routes the connection to the migrator if low. Three results: `OpenedFresh` (no file), `OpenedExisting` (at expected version), or `OpenedAfterMigration` (rolled forward). The composition root distinguishes these because the warm-start UX differs.
 
