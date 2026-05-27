@@ -2,6 +2,61 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.7]
+
+### Added
+
+- inspect domain types and Tool trait extension (Step 01-01)
+- new crate with Cache::open, schema migration, ToolsRepo/ModelsRepo CRUD (Step 01-02)
+- in-process TestTool plugin + MODELTAP_TEST_PLUGINS registry seam (Step 01-03)
+- warm-start orchestration and cache-path resolver (Step 01-04)
+- walking-skeleton M1 scenario green — Phase 01 exit gate (Step 01-05)
+- tool detail orchestration with merge logic and unit tests (Step 02-01 part 2/3)
+- tool detail Msg dispatch + cucumber acceptance (Step 02-01 part 3/3 — CLOSES)
+- Ollama + HF inspect_tool overrides + user-config search paths + reconcile last_error capture (Step 02-02 CLOSES)
+- inspect_tool panic-isolation orchestrator boundary (Step 02-03 part 2/3)
+- model detail Metadata section + open_model_detail orchestration scaffolding (Step 03-01 part 1/N)
+- Msg::OpenModelDetail + Msg::ReintrospectModel dispatch wiring (Step 03-01 part 2/N)
+- Ollama inspect_model manifest reader + un-ignore 2 model-detail scenarios (Step 03-02 part 1/N)
+- HF inspect_model config.json reader + un-ignore 1 model-detail scenario (Step 03-02 part 2/N)
+- GGUF v3 header parser + lm-studio inspect_model + un-ignore GGUF scenario (Step 03-02 part 3/N)
+- Cache::open recovery routine for SQLITE_CORRUPT / downgrade / migration failure (Step 04-01)
+- --no-cache CLI flag + cache.enabled config opt-out + DirManifest invariant (Step 04-02)
+- per-tool TTL eligibility + XDG_DATA_HOME path + transient I/O fallback (Step 04-03)
+- concurrent-process WAL + busy_timeout scenarios + MODELTAP_DEBUG_HOLD_WRITE_LOCK_MS seam (Step 04-04)
+- launch metrics instrumentation + K-INFO budget cucumber — CLOSES Phase 04 (Step 04-05)
+- background reconcile orchestrator with atomic per-tool writes + last-known-good + silent-ack (Step 05-01)
+- Cache::verify_against_fs + FileStat::matches + revalidator fixtures (Step 05-02 part 1/2)
+- pre-mutate revalidator + 4-site wiring CLOSES Step 05-02 (K5 invariant)
+- US-24 manual refresh hotkeys + US-25 summary-bar provenance (Step 05-03)
+- pre-mutate drift re-introspect + gone auto-refresh + cache-state-model scenarios — CLOSES Step 05-04 (Phase 05 done)
+- architecture lints R7 + R8 + R9 + release-build absence checks — CLOSES Step 06-01
+- mutation kill-rate ≥ 80% + parent regression gate + lat.md + CHANGELOG — CLOSES Step 06-02 (Phase 06 + DELIVER done)
+
+### Fixed
+
+- promote async-trait to feature-gated regular dep (Step 01-03 follow-up)
+- production warm-start now opens default cache file (main.rs guard removed) + 38-test isolation
+- production keymap [i] opens tool/model detail (was unreachable outside test harness)
+
+### Documentation
+
+- tool-model-info-sqlite-cache feature closure (US-21..US-26 cache + K5 pre-mutate)
+- document inventory cache (location, opt-out, refresh, schema)
+
+### Misc
+
+- If a git tree falls in a forest and no one is around to hear it, does it make a sound?
+- If a git tree falls in a forest and no one is around to hear it, does it make a sound?
+- inspect_tool plugin-contract harness + 5 plugin tests (Step 02-03 part 1/2)
+- If a git tree falls in a forest and no one is around to hear it, does it make a sound?
+- INT-INFO-8 panic-isolation cucumber scenario (Step 02-03 part 3/3 - CLOSES)
+- model-detail cucumber driver — 1 active + 4 deferred scenarios (Step 03-01 part 3/3 — CLOSES)
+- inspect_model contract harness + INT-INFO-8 inspect_model panic isolation (Step 03-03 — CLOSES)
+- clean tool-model-info-sqlite-cache session markers post-finalize
+- add run.sh build-and-run helper
+- If a git tree falls in a forest and no one is around to hear it, does it make a sound?
+
 ## [Unreleased]
 
 ### Added

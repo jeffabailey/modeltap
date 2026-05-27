@@ -1418,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-app"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1460,7 +1460,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-core"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "inventory",
@@ -1474,7 +1474,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-plugin-atomic-chat"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "dirs",
@@ -1492,7 +1492,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-plugin-atomic-chat-fixture"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "inventory",
@@ -1502,7 +1502,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-plugin-gpt4all"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "dirs",
@@ -1519,7 +1519,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-plugin-hf"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "inventory",
@@ -1536,7 +1536,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-plugin-lm-studio"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "inventory",
@@ -1553,7 +1553,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-plugin-ollama"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "async-trait",
  "inventory",
@@ -1572,7 +1572,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-store"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "modeltap-core",
  "rusqlite",
@@ -1586,7 +1586,7 @@ dependencies = [
 
 [[package]]
 name = "modeltap-tui"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "crossterm",
  "image",
