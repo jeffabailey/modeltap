@@ -1,0 +1,8 @@
+crates/modeltap-store/src/revalidate.rs:250:11: replace > with == in mtime_to_epoch_ns
+crates/modeltap-store/src/revalidate.rs:250:11: replace > with >= in mtime_to_epoch_ns
+crates/modeltap-store/src/revalidate.rs:260:11: replace < with == in epoch_ns_to_system_time
+crates/modeltap-store/src/revalidate.rs:260:11: replace < with <= in epoch_ns_to_system_time
+crates/modeltap-store/src/repo/models.rs:163:20: replace match guard !s.is_empty() with true in hydrate_model
+crates/modeltap-store/src/repo/tools.rs:719:13: replace < with == in parse_iso8601_utc
+crates/modeltap-store/src/repo/tools.rs:719:13: replace < with <= in parse_iso8601_utc
+crates/modeltap-store/src/repo/tools.rs:725:54: replace + with - in parse_iso8601_utc

@@ -1,9 +1,15 @@
-xtask/src/cargo_toml.rs:26:9: replace <impl serde::Serialize for Version>::serialize -> Result<S::Ok, S::Error> with Ok(Default::default())
-xtask/src/cargo_toml.rs:33:9: replace <impl std::str::FromStr for Version>::from_str -> Result<Self, Self::Err> with Ok(Default::default())
-xtask/src/cargo_toml.rs:80:9: replace <impl std::error::Error for VersionError>::source -> Option<&(dyn std::error::Error +'static)> with Some(Box::leak(Box::new(Default::default())))
-xtask/src/cargo_toml.rs:93:5: replace parse_workspace_version -> Result<Version, VersionError> with Ok(Default::default())
-xtask/src/formula.rs:43:9: replace TargetKind::from_triple -> Option<Self> with Some(Default::default())
-xtask/src/formula.rs:68:9: replace TargetKind::all -> [TargetKind; 4] with [Default::default(); 4]
-xtask/src/formula.rs:130:9: replace <impl std::error::Error for FormulaError>::source -> Option<&(dyn std::error::Error +'static)> with Some(Box::leak(Box::new(Default::default())))
-xtask/src/formula.rs:139:9: replace <impl From<tera::Error> for FormulaError>::from -> Self with Default::default()
-xtask/src/lint.rs:88:5: replace lint -> Result<LintReport, LintError> with Ok(Default::default())
+crates/modeltap-store/src/revalidate.rs:74:9: replace Cache::verify_against_fs -> Result<ValidationResult, CacheError> with Ok(Default::default())
+crates/modeltap-store/src/revalidate.rs:109:9: replace Cache::files_for_model -> Result<Vec<CachedFile>, CacheError> with Ok(vec![Default::default()])
+crates/modeltap-store/src/revalidate.rs:196:5: replace stat_file -> Result<FileStat, StatError> with Ok(Default::default())
+crates/modeltap-store/src/revalidate.rs:223:5: replace hydrate_file -> Result<CachedFile, CacheError> with Ok(Default::default())
+crates/modeltap-store/src/revalidate.rs:260:5: replace epoch_ns_to_system_time -> Result<SystemTime, CacheError> with Ok(Default::default())
+crates/modeltap-store/src/revalidate.rs:268:19: replace + with * in epoch_ns_to_system_time
+crates/modeltap-store/src/types.rs:140:9: replace <impl From<&CachedFile> for FileStat>::from -> Self with Default::default()
+crates/modeltap-store/src/repo/models.rs:105:9: replace Cache::models_for_tool -> Result<Vec<CachedModel>, CacheError> with Ok(vec![Default::default()])
+crates/modeltap-store/src/repo/models.rs:160:5: replace hydrate_model -> Result<CachedModel, CacheError> with Ok(Default::default())
+crates/modeltap-store/src/repo/tools.rs:502:9: replace Cache::tools -> Result<Vec<CachedTool>, CacheError> with Ok(vec![Default::default()])
+crates/modeltap-store/src/repo/tools.rs:550:5: replace hydrate_tool -> Result<CachedTool, CacheError> with Ok(Default::default())
+crates/modeltap-store/src/repo/tools.rs:591:5: replace leak_tool_id -> ToolId with Default::default()
+crates/modeltap-store/src/repo/tools.rs:629:5: replace parse_iso8601_utc -> Result<SystemTime, CacheError> with Ok(Default::default())
+crates/modeltap-store/src/repo/tools.rs:725:54: replace + with * in parse_iso8601_utc
+crates/modeltap-store/src/repo/tools.rs:725:19: replace + with * in parse_iso8601_utc
