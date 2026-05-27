@@ -65,8 +65,7 @@ fn read_jsonl_event(log_dir: &Path, event_name: &str) -> Option<u64> {
     raw.lines()
         .filter(|l| !l.trim().is_empty())
         .filter_map(|l| serde_json::from_str::<Value>(l).ok())
-        .filter(|v| v.get("event").and_then(|e| e.as_str()) == Some(event_name))
-        .next_back()
+        .rfind(|v| v.get("event").and_then(|e| e.as_str()) == Some(event_name))
         .and_then(|v| v.get("duration_ms").and_then(|d| d.as_u64()))
 }
 
