@@ -129,3 +129,15 @@ The keymap `[r]` binding migrated off `Msg::RetryRefresh` to `Msg::RequestRefres
 The four scenarios in [[tests/acceptance/manual_refresh.rs]] are `#[ignore]`d pending a launch.log timing seam — behavioural coverage for step 05-03 lives in the unit tests inside `view::provenance::tests`, `keymap::tests`, and `render::summary_bar::tests` instead.
 
 Interim production path: the [[crates/modeltap-app/src/interactive.rs|interactive]] dispatcher currently invokes `refresh::refresh_tool_incremental` per target (in-process discovery walk) and synthesises a `Msg::ReconcileCompleted { has_diff: false }` per success. A follow-up will swap that for a real `orchestration::reconcile::run(scope, plugins, config)` dispatch once `PluginFactory.make` returns `Arc<dyn Tool + Send + Sync>` across all 7 plugin crates — the orchestrator's signature requires the upcast that `Box<dyn Tool>` cannot provide. The user-visible suffix transition (AC-24-2 / AC-24-7) is unaffected; the cache-writeback half (US-26 silent-ack indicator) remains driven by the post-warm-paint orchestrator from step 05-01.
+
+## Bottom-bar width policy (bugfix, 2026-05-27)
+
+The Main bar uses a cascading width-aware drop + a conditional `[r]` label so the 100-col headless terminal budget always preserves `[?] help` + `[q] quit` and US-11.AC-2's `"[r] retry"` wording.
+
+Step 05-03 added `[r] refresh` + `[R] refresh-all` without pruning anything else; the rendered width overflowed 100 cols and silently clipped `[?] help` + `[q] quit`. The v0.2.7 release pipeline's `cargo test --workspace --locked` gate caught it via three acceptance tests (`us_01_launch_quit::devon_launches_and_sees_two_pane_layout`, `us_08_bottom_bar::unavailable_shortcuts_are_dimmed_in_bottom_bar`, `us_11_updated_totals::refresh_failure_shows_degraded_indicator`).
+
+[[crates/modeltap-tui/src/render/bottom_bar.rs|`dropped_entries(ctx)`]] is the cascading width-aware drop policy. When `max_width` is set AND the section is Main AND the bar overflows, it progressively omits the lowest-priority entries until the remainder fits: `[F] folder-delete` → `[R] refresh-all` → `[z] zap tool` → `[d] delete-from-one`. Beyond these four every remaining entry is load-bearing UX (navigation arrows, `[u] unify`, `[r] refresh/retry`, `[?] help`, `[q] quit`) so the cascade stops there.
+
+[[crates/modeltap-tui/src/render/bottom_bar.rs|`label_for(entry, ctx)`]] is the single rendered-label override. Two entries swap their `SHORTCUT_TABLE` label at render time: the Up-arrow row uses `up_down_bar_label(ctx.focus)` (focus-aware "tools" vs "models"), and the `[r]` row renders `"[r] retry"` instead of `"[r] refresh"` when `ctx.has_refresh_failures` is true — same key, same `Msg::RequestRefresh`, label only — restoring US-11.AC-2 wording without re-introducing the legacy hidden state.
+
+Detail and Help bars never overflow at supported widths, so both the cascade and the `[r]` label override are scoped to the Main bar.

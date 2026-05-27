@@ -113,9 +113,11 @@ impl<'a> BarContext<'a> {
 /// Top-level frame entry point: render the bar widget into `area`.
 ///
 /// Threads `area.width` into the `BarContext` so the bar can omit the
-/// lowest-priority shortcut (`[F] folder-delete`) when the full Main set
-/// would overflow at the terminal width — keeping `[q] quit` visible on
-/// 100-col headless terminals (US-01 / INT-FGD-8 regression gate).
+/// lowest-priority shortcuts (cascading: `[F] folder-delete`, then
+/// `[R] refresh-all`, then `[z] zap tool`, then `[d] delete-from-one`)
+/// when the full Main set would overflow at the terminal width — keeping
+/// `[q] quit` and `[?] help` visible on 100-col headless terminals
+/// (US-01 / US-08 / INT-FGD-8 regression gate).
 pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     let mut ctx = BarContext::for_state(state);
     ctx.max_width = Some(area.width);
@@ -128,12 +130,13 @@ pub fn render(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
 /// unit-tested at port granularity (US-08 B2..B5).
 ///
 /// When `ctx.max_width` is `Some(w)` and the rendered Main bar would exceed
-/// `w` columns, the lowest-priority entry (`[F] folder-delete`) is omitted
-/// so the higher-priority `[?] help` and `[q] quit` shortcuts remain
+/// `w` columns, [`dropped_entries`] cascades through the priority list
+/// (`[F]` → `[R]` → `[z]` → `[d]`), dropping entries until the remainder
+/// fits, so the higher-priority `[?] help` and `[q] quit` shortcuts remain
 /// visible. Callers that want every applicable shortcut regardless of
 /// width leave `max_width = None` (the default from `for_state`).
 pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static> {
-    let drop_folder_delete = should_drop_folder_delete(ctx);
+    let dropped = dropped_entries(ctx);
     let mut spans: Vec<Span<'static>> = Vec::new();
     let active = Style::default().add_modifier(Modifier::DIM);
     let unavailable = Style::default()
@@ -145,18 +148,7 @@ pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static>
         if !entry.sections.contains(&ctx.section) {
             continue;
         }
-        // Step 05-03 (US-24): [r] migrated from US-11 retry-on-failure to
-        // unconditional manual refresh. The bar entry is therefore always
-        // visible; the legacy gating on `has_refresh_failures` is dropped
-        // because the user can press [r] at any time to reconcile the
-        // selected tool against its plugin. `has_refresh_failures` still
-        // drives the summary-bar "(refresh failed)" indicator (separate
-        // surface, separate code path).
-        // Width-aware drop: omit [F] folder-delete entirely when the full
-        // bar would not fit in the available terminal width. The Main bar
-        // is the only section dense enough to overflow at 100 cols; Detail
-        // / Help bars are shorter and unaffected.
-        if drop_folder_delete && is_folder_delete_entry(entry) {
+        if dropped.skips(entry) {
             continue;
         }
         if !first {
@@ -169,64 +161,113 @@ pub fn render_bottom_bar(ctx: &BarContext<'_>, _no_color: bool) -> Line<'static>
         } else {
             unavailable
         };
-        // Focus-aware Up/Down label: the SHORTCUT_TABLE Up row carries the
-        // legacy "[up/down] models" label (authored when only the right pane
-        // accepted Up/Down). With focus-aware dispatch, the same key now
-        // navigates tools when the left pane has focus — substitute the
-        // truthful per-focus label here so the bar matches dispatch reality.
-        let label = if entry.key.code == crossterm::event::KeyCode::Up
-            && entry.key.modifiers == crossterm::event::KeyModifiers::NONE
-        {
-            up_down_bar_label(ctx.focus)
-        } else {
-            entry.label
-        };
-        spans.push(Span::styled(label, style));
+        spans.push(Span::styled(label_for(entry, ctx), style));
     }
     Line::from(spans)
 }
 
-/// True when the bar would overflow `ctx.max_width` AND dropping
-/// `[F] folder-delete` is the appropriate relief valve. The drop is
-/// scoped to the Main section since the Detail and Help bars do not
-/// include the entry; the Help section already always fits.
-fn should_drop_folder_delete(ctx: &BarContext<'_>) -> bool {
-    let max = match ctx.max_width {
-        Some(w) => w,
-        None => return false,
-    };
-    if ctx.section != BarSection::Main {
-        return false;
+/// Pick the rendered label for a shortcut in the given context.
+///
+/// Two entries swap their `SHORTCUT_TABLE` label at render time:
+///
+/// 1. Up-arrow row carries the legacy `"[up/down] models"` label (authored
+///    when only the right pane accepted Up/Down). Focus-aware dispatch now
+///    routes Up/Down to tool navigation when the left pane has focus, so
+///    [`up_down_bar_label`] returns the truthful per-focus label.
+/// 2. `[r]` row carries `"[r] refresh"` (step 05-03 / US-24). US-11.AC-2
+///    requires the bar to advertise `"[r] retry"` when one or more tools
+///    are in the refresh-failed state — same key, same `Msg`, label only.
+fn label_for(entry: &Shortcut, ctx: &BarContext<'_>) -> &'static str {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    if entry.key.code == KeyCode::Up && entry.key.modifiers == KeyModifiers::NONE {
+        up_down_bar_label(ctx.focus)
+    } else if is_r_refresh_entry(entry) && ctx.has_refresh_failures {
+        "[r] retry"
+    } else {
+        entry.label
     }
-    full_bar_width(ctx) > max as usize
 }
 
-/// Compute the plain-text width the bar WOULD render at given the current
-/// context — i.e. the sum of every applicable label plus the 2-char
-/// separators between them. Used solely by `should_drop_folder_delete`
-/// to decide whether to omit `[F] folder-delete`.
-fn full_bar_width(ctx: &BarContext<'_>) -> usize {
+/// Width-aware drop policy for the Main bar.
+///
+/// The Main bar lists more shortcuts than fit at 100 columns once step
+/// 05-03 added `[r] refresh` + `[R] refresh-all`. We progressively omit
+/// the least-essential entries until the remaining set fits the terminal
+/// width budget, in this priority order (lowest-priority dropped first):
+///
+///   1. `[F] folder-delete` — secondary HF-only action.
+///   2. `[R] refresh-all`   — convenience over `[r]` applied per-tool.
+///   3. `[z] zap tool`      — destructive bulk action (still has dialog).
+///   4. `[d] delete-from-one` — destructive specific action (still has dialog).
+///
+/// Beyond these four, every remaining entry is load-bearing UX:
+/// navigation arrows, `[u] unify`, `[r] refresh/retry`, `[?] help`, and
+/// `[q] quit` (universal escape hatches). Detail and Help bars never
+/// overflow at supported widths, so the cascade is scoped to Main.
+fn dropped_entries(ctx: &BarContext<'_>) -> DroppedSet {
+    let max = match ctx.max_width {
+        Some(w) => w as usize,
+        None => return DroppedSet::default(),
+    };
+    if ctx.section != BarSection::Main {
+        return DroppedSet::default();
+    }
+    let mut dropped = DroppedSet::default();
+    if bar_width_with(ctx, &dropped) <= max {
+        return dropped;
+    }
+    dropped.folder_delete = true;
+    if bar_width_with(ctx, &dropped) <= max {
+        return dropped;
+    }
+    dropped.refresh_all = true;
+    if bar_width_with(ctx, &dropped) <= max {
+        return dropped;
+    }
+    dropped.zap_tool = true;
+    if bar_width_with(ctx, &dropped) <= max {
+        return dropped;
+    }
+    dropped.delete_one = true;
+    dropped
+}
+
+#[derive(Default, Debug, Clone, Copy)]
+struct DroppedSet {
+    folder_delete: bool,
+    refresh_all: bool,
+    zap_tool: bool,
+    delete_one: bool,
+}
+
+impl DroppedSet {
+    fn skips(&self, entry: &Shortcut) -> bool {
+        (self.folder_delete && is_folder_delete_entry(entry))
+            || (self.refresh_all && is_refresh_all_entry(entry))
+            || (self.zap_tool && is_zap_tool_entry(entry))
+            || (self.delete_one && is_delete_one_entry(entry))
+    }
+}
+
+/// Compute the plain-text width the bar would render at, given the current
+/// context AND the set of entries to omit. The sum is over every applicable
+/// label (post-`label_for` substitution) plus a 2-char separator between
+/// adjacent entries.
+fn bar_width_with(ctx: &BarContext<'_>, dropped: &DroppedSet) -> usize {
     let mut total = 0usize;
     let mut first = true;
     for entry in SHORTCUT_TABLE {
         if !entry.sections.contains(&ctx.section) {
             continue;
         }
-        // Step 05-03 (US-24): [r] is unconditionally visible now (see render
-        // block above). The width calculation must include it on every paint
-        // so `should_drop_folder_delete` measures the truthful bar width.
-        let label_len = if entry.key.code == crossterm::event::KeyCode::Up
-            && entry.key.modifiers == crossterm::event::KeyModifiers::NONE
-        {
-            up_down_bar_label(ctx.focus).len()
-        } else {
-            entry.label.len()
-        };
+        if dropped.skips(entry) {
+            continue;
+        }
         if !first {
-            total += 2; // "  " separator
+            total += 2;
         }
         first = false;
-        total += label_len;
+        total += label_for(entry, ctx).len();
     }
     total
 }
@@ -238,6 +279,26 @@ fn full_bar_width(ctx: &BarContext<'_>) -> usize {
 fn is_folder_delete_entry(entry: &Shortcut) -> bool {
     use crossterm::event::{KeyCode, KeyModifiers};
     entry.key.code == KeyCode::Char('F') && entry.key.modifiers.contains(KeyModifiers::SHIFT)
+}
+
+fn is_refresh_all_entry(entry: &Shortcut) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    entry.key.code == KeyCode::Char('R') && entry.key.modifiers.contains(KeyModifiers::SHIFT)
+}
+
+fn is_zap_tool_entry(entry: &Shortcut) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    entry.key.code == KeyCode::Char('z') && entry.key.modifiers == KeyModifiers::NONE
+}
+
+fn is_delete_one_entry(entry: &Shortcut) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    entry.key.code == KeyCode::Char('d') && entry.key.modifiers == KeyModifiers::NONE
+}
+
+fn is_r_refresh_entry(entry: &Shortcut) -> bool {
+    use crossterm::event::{KeyCode, KeyModifiers};
+    entry.key.code == KeyCode::Char('r') && entry.key.modifiers == KeyModifiers::NONE
 }
 
 /// Convert a rendered bar `Line` to plain text (concatenation of spans).
@@ -313,6 +374,8 @@ fn no_color_active() -> bool {
     crate::render::colors::no_color_active()
 }
 
-// Step 05-03 (US-24) removed the legacy `is_retry_entry` predicate that
-// hid `[r]` while no refresh failures were pending. The hotkey is now
-// manual refresh and is always visible in Main + Detail.
+// Step 05-03 (US-24) made `[r]` an unconditional manual-refresh hotkey,
+// always visible in Main + Detail. The 2026-05-27 follow-up restored the
+// `[r] retry` label (but not the hidden state) when `has_refresh_failures`
+// is true — same key, same `Msg::RequestRefresh`, label only — so the bar
+// matches the surfaced degraded state per US-11.AC-2.
