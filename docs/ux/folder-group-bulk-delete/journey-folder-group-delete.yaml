@@ -1,0 +1,287 @@
+journey:
+  name: "Delete a Hugging Face Folder Group"
+  goal: "In a single keystroke + typed confirmation, delete every file in an HF cache repo folder (<author>/<repo>/) — including sidecar files — with per-file shared/unique accounting that preserves cross-tool hardlinks."
+  persona: "Devon Park — local-AI power user, has audited many quants in one HF repo and now wants the whole repo gone."
+  brownfield_extension_of: "docs/feature/modeltap-tui/discuss/journey-cleanup-and-unify.yaml"
+
+  emotional_arc:
+    start: "Mildly annoyed — HF cache has 20 quants of one model and the existing [d] would force 20 confirmations."
+    middle: "Recognised and deliberate — TUI surfaces the folder group as a unit; the dialog itemises sidecars and shared/unique split."
+    end: "Satisfied and in-control — bytes reclaimed and bytes retained reported; cross-tool hardlinks preserved."
+
+steps:
+  - id: 1
+    name: "Recognise the folder group"
+    command: "Navigate to Hugging Face in left pane; observe folder-header rows in right pane"
+
+    tui_mockup: |
+      +- modeltap ---------------------------------------------------------------+
+      | Tools                | Models in Hugging Face (54 files, 92.4 GB)        |
+      |   Ollama        12   |                                                   |
+      |   llama-cli     6    | [-] bartowski/Llama-3.2-1B-Instruct-GGUF          |
+      | > Hugging Face  54   |     21 files, 14.7 GB  (20 unique, 1 shared)      |
+      |   LM Studio     9    |     * Llama-3.2-1B-Instruct-IQ3_M.gguf  657 MB    |
+      |                      |     o Llama-3.2-1B-Instruct-Q4_K_M.gguf 808 MB    |
+      |                      |       (also in: Ollama)                           |
+      |                      |     ... 18 more files ...                         |
+      |                      |     . README.md                          24 KB    |
+      |                      |     . Llama-3.2-1B-Instruct.imatrix      1.3 MB   |
+      |                      |                                                   |
+      |                      | [+] meta-llama/Llama-3-8B-Instruct                |
+      |                      |     1 file, 16.0 GB                               |
+      +--------------------------------------------------------------------------+
+      | [<-/->] tools  [up/down] rows  [Enter] expand  [u] unify                 |
+      | [d] delete-one  [F] folder-delete  [z] zap tool  [?] help [q] quit       |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "folder_group.path"
+        source: "core::group_by_hf_repo(plugin.list_models())"
+        displayed_as: "${folder_group.path}"
+        consumers: ["folder header row", "folder-delete dialog title", "post-action summary"]
+      - name: "folder_group.file_count"
+        source: "len(folder_group.models + folder_group.sidecars)"
+        displayed_as: "${folder_group.file_count}"
+        consumers: ["folder header row", "folder-delete dialog header"]
+      - name: "folder_group.total_bytes"
+        source: "sum(model.size for m in models) + sum(sidecar.size for s in sidecars)"
+        displayed_as: "${folder_group.total_bytes}"
+        consumers: ["folder header row", "folder-delete dialog"]
+      - name: "folder_group.unique_count"
+        source: "core::classify_unique_vs_shared(folder_group, inventory)"
+        displayed_as: "${folder_group.unique_count}"
+        consumers: ["folder header row", "folder-delete dialog 'unique to HF' line"]
+      - name: "folder_group.shared_count"
+        source: "core::classify_unique_vs_shared(folder_group, inventory)"
+        displayed_as: "${folder_group.shared_count}"
+        consumers: ["folder header row", "folder-delete dialog 'also in: <tool>' line"]
+      - name: "folder_group.sidecars[]"
+        source: "HF plugin: non-model files in the repo directory tree (README.md, .imatrix, .gguf.urls, refs/, blobs/ for this repo's snapshot)"
+        displayed_as: "${folder_group.sidecars[]}"
+        consumers: ["folder header row (sidecar rows)", "folder-delete dialog sidecar list"]
+
+    emotional_state:
+      entry: "Cache is a mess — 20 quants of one model lost in a flat list."
+      exit: "Oriented — TUI groups the quants into one logical unit I can target."
+
+    integration_checkpoint: |
+      folder_group.file_count == count(model children + sidecar children) when expanded.
+      folder_group.total_bytes == sum(child sizes).
+      Folder aggregates roll up into the existing tool.disk_usage (parent registry artifact).
+      Indicator on each child file (*, o, !, ?) uses the same compute_compatibility() machinery as US-09.
+
+    gherkin: |
+      Scenario: Hugging Face right pane shows folder-group headers
+        Given Devon has an HF cache with bartowski/Llama-3.2-1B-Instruct-GGUF containing 20 .gguf files and 3 sidecars (README.md, .imatrix, .gguf.urls)
+        And one of those .gguf files (Llama-3.2-1B-Instruct-Q4_K_M.gguf) is also hardlinked into Ollama
+        When Devon selects Hugging Face in the left pane
+        Then the right pane shows a folder header "[+] bartowski/Llama-3.2-1B-Instruct-GGUF" with "21 files, 14.7 GB (20 unique, 1 shared)"
+        And expanding the header lists 20 model rows with *, o, !, or ? indicators and 3 dim "." sidecar rows
+        And the folder aggregates roll up into the Hugging Face row's existing tool.disk_usage value
+
+  - id: 2
+    name: "Press [F] on the folder header"
+    command: "Shift+F (with cursor on the folder header row)"
+
+    tui_mockup: |
+      +- Delete folder group: bartowski/Llama-3.2-1B-Instruct-GGUF ---------------+
+      |                                                                           |
+      | THIS WILL DELETE 21 FILES (14.7 GB) FROM Hugging Face.                    |
+      |                                                                           |
+      | Folder path:  ~/.cache/huggingface/hub/models--bartowski--                |
+      |               Llama-3.2-1B-Instruct-GGUF/                                 |
+      |                                                                           |
+      | Contents:                                                                 |
+      |   20 model files (.gguf)                                                  |
+      |     -- 19 only registered with Hugging Face (will be permanently deleted) |
+      |     --  1 also registered with Ollama (HF registration removed; file      |
+      |         preserved, Ollama copy unaffected)                                |
+      |   3 sidecar files (README.md, .imatrix, .gguf.urls)                       |
+      |     -- all swept with the folder                                          |
+      |                                                                           |
+      | Disk impact:                                                              |
+      |   Reclaim:  14.0 GB (unique files + sidecars)                             |
+      |   Retained: 0.7 GB  (1 file kept alive by Ollama hardlink)                |
+      |                                                                           |
+      | Type the folder path to confirm:                                          |
+      |   [ bartowski/Llama-3.2-1B-Instruct-GGUF                              ]   |
+      |                                                                           |
+      | Running tools detected: ollama (PID 4421)  -- file open: 1 of 21          |
+      |                                                                           |
+      | [Esc] cancel                                                              |
+      +---------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "folder_group.absolute_path"
+        source: "HF plugin: ~/.cache/huggingface/hub/models--<author>--<repo>/ (or HF_HOME-relative)"
+        displayed_as: "${folder_group.absolute_path}"
+        consumers: ["folder-delete dialog", "execution unlink loop"]
+      - name: "folder_group.unique_files[]"
+        source: "core::classify_unique_vs_shared(folder_group, inventory).unique"
+        displayed_as: "${folder_group.unique_files[]}"
+        consumers: ["folder-delete dialog itemisation"]
+      - name: "folder_group.shared_files[]"
+        source: "core::classify_unique_vs_shared(folder_group, inventory).shared"
+        displayed_as: "${folder_group.shared_files[]}"
+        consumers: ["folder-delete dialog itemisation", "post-action retained accounting"]
+      - name: "folder_group.bytes_to_reclaim"
+        source: "sum(size for f in unique_files) + sum(size for s in sidecars)"
+        displayed_as: "${folder_group.bytes_to_reclaim}"
+        consumers: ["folder-delete dialog Reclaim line", "post-action message"]
+      - name: "folder_group.bytes_to_retain"
+        source: "sum(size for f in shared_files)"
+        displayed_as: "${folder_group.bytes_to_retain}"
+        consumers: ["folder-delete dialog Retained line", "post-action message"]
+      - name: "running_tools[]"
+        source: "core::detect_running_tools() (reused from parent journey)"
+        displayed_as: "${running_tools[]}"
+        consumers: ["folder-delete dialog Running tools line"]
+
+    emotional_state:
+      entry: "Delete the whole thing."
+      exit: "I see precisely what will and won't be lost, including the .gguf that Ollama hardlinks."
+
+    integration_checkpoint: |
+      bytes_to_reclaim + bytes_to_retain == folder_group.total_bytes (within rounding).
+      Per-file unique-vs-shared classification uses the same compute_compatibility() machinery
+      as US-09; no second implementation.
+      Typed-confirmation string is byte-exact match against folder_group.path.
+
+    gherkin: |
+      Scenario: Pressing [F] on a folder header opens the typed-confirmation dialog
+        Given Devon's cursor is on the folder header "bartowski/Llama-3.2-1B-Instruct-GGUF"
+        And the folder contains 20 .gguf files (19 unique, 1 shared with Ollama) and 3 sidecars
+        When Devon presses Shift+F
+        Then a modal dialog opens titled "Delete folder group: bartowski/Llama-3.2-1B-Instruct-GGUF"
+        And the dialog shows 19 unique + 1 shared + 3 sidecars breakdown
+        And the dialog shows Reclaim 14.0 GB and Retained 0.7 GB
+        And the dialog shows the running-tool warning if ollama is running with a file open
+        And the dialog asks Devon to type "bartowski/Llama-3.2-1B-Instruct-GGUF" to confirm
+
+  - id: 3
+    name: "Confirm and execute"
+    command: "Type the author/repo path and press Enter"
+
+    tui_mockup: |
+      +- Deleting folder: bartowski/Llama-3.2-1B-Instruct-GGUF ------------------+
+      |                                                                          |
+      |  Removing files...                                                       |
+      |  [################################------]  16 / 21                       |
+      |                                                                          |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "last_action.files_deleted_count"
+        source: "result of execution loop"
+        displayed_as: "${last_action.files_deleted_count}"
+        consumers: ["post-action summary"]
+      - name: "last_action.files_failed[]"
+        source: "result of execution loop"
+        displayed_as: "${last_action.files_failed[]}"
+        consumers: ["post-action partial-failure summary"]
+      - name: "last_action.bytes_reclaimed"
+        source: "sum(file.size for f in successfully_deleted unique files + sidecars)"
+        displayed_as: "${last_action.bytes_reclaimed}"
+        consumers: ["post-action summary", "summary bar delta (reuses parent artifact)"]
+      - name: "last_action.bytes_retained"
+        source: "sum(file.size for f in shared files whose HF registration was removed)"
+        displayed_as: "${last_action.bytes_retained}"
+        consumers: ["post-action summary"]
+
+    emotional_state:
+      entry: "I authored this delete by typing the path."
+      exit: "It is happening; I see progress."
+
+    integration_checkpoint: |
+      Files are unlinked per-file. unique files free their inode; shared files only lose the HF path
+      (other tool's hardlink keeps the inode alive). Sidecars are unique-equivalent (no other tool
+      registers them) and are unlinked. After all files, the now-empty
+      models--<author>--<repo>/ directory tree is removed. Partial failures do NOT roll back —
+      successfully deleted files stay deleted; failed files re-list on next inventory rebuild.
+
+    gherkin: |
+      Scenario: Typed-confirmation executes the folder delete
+        Given the folder-delete dialog is open for bartowski/Llama-3.2-1B-Instruct-GGUF
+        And no tool is holding any file open
+        When Devon types "bartowski/Llama-3.2-1B-Instruct-GGUF" and presses Enter
+        Then 19 unique .gguf files are unlinked from the HF cache
+        And 1 shared .gguf file has only its HF path unlinked (the Ollama-side hardlink keeps the inode alive)
+        And 3 sidecar files (README.md, .imatrix, .gguf.urls) are unlinked
+        And the now-empty models--bartowski--Llama-3.2-1B-Instruct-GGUF/ directory tree is removed
+        And modeltap reports "Reclaimed 14.0 GB, Retained 0.7 GB"
+
+  - id: 4
+    name: "Verify post-action summary"
+    command: "TUI returns to main view automatically"
+
+    tui_mockup: |
+      +- modeltap ---------------------------------------------------------------+
+      | Tools                | Last action: folder-delete                        |
+      |   Ollama        12   |   bartowski/Llama-3.2-1B-Instruct-GGUF (success)  |
+      |   llama-cli     6    |                                                   |
+      | > Hugging Face  33   |   21 of 21 files removed.                         |
+      |   LM Studio     9    |   Reclaimed: 14.0 GB                              |
+      |                      |   Retained: 0.7 GB (1 file also linked in Ollama) |
+      |  Total: 60 models    |                                                   |
+      |  Disk: 77.7 GB       |   [+] meta-llama/Llama-3-8B-Instruct               |
+      |  Dedup-able: ...     |       1 file, 16.0 GB                              |
+      +--------------------------------------------------------------------------+
+      | [<-/->] tools  [up/down] rows  [Enter] expand  [u] unify                 |
+      | [d] delete-one  [F] folder-delete  [z] zap tool  [?] help [q] quit       |
+      +--------------------------------------------------------------------------+
+
+    shared_artifacts:
+      - name: "total.disk_usage"
+        source: "parent registry — recomputed per US-11"
+        displayed_as: "${total.disk_usage}"
+        consumers: ["summary bar"]
+      - name: "tool.disk_usage (Hugging Face)"
+        source: "parent registry — recomputed after action"
+        displayed_as: "${tool.disk_usage}"
+        consumers: ["left pane Hugging Face row", "right pane header"]
+
+    emotional_state:
+      entry: "Did it work?"
+      exit: "Yes — and the Ollama side is intact, which I was worried about."
+
+    integration_checkpoint: |
+      new total.disk_usage == old total.disk_usage - last_action.bytes_reclaimed (within rounding).
+      Folder header disappears from right pane on success.
+      Any *-marked file in another tool that was hardlinked to a deleted-but-shared .gguf
+      MUST still resolve via stat (inode survives).
+
+    gherkin: |
+      Scenario: Post-action summary shows reclaimed and retained
+        Given the folder delete just completed successfully
+        When the TUI returns to main view
+        Then the right pane shows "Last action: folder-delete bartowski/Llama-3.2-1B-Instruct-GGUF (success)"
+        And the right pane shows "21 of 21 files removed."
+        And the right pane shows "Reclaimed: 14.0 GB" and "Retained: 0.7 GB (1 file also linked in Ollama)"
+        And the summary bar's total.disk_usage decreases by 14.0 GB within 500ms
+        And the folder header no longer appears in the right pane
+
+integration_validation:
+  shared_artifact_consistency:
+    - artifact: "folder_group.path"
+      must_match_across: [1, 2, 3, 4]
+      failure_message: "Folder path inconsistency between display, typed-confirm, and post-action message — typing-to-confirm broken."
+    - artifact: "folder_group.unique_count + folder_group.shared_count"
+      must_match_across: [1, 2]
+      failure_message: "Per-file classification disagrees between header row and dialog — confidence-undermining."
+    - artifact: "bytes_to_reclaim / bytes_reclaimed"
+      must_match_across: [2, 3, 4]
+      failure_message: "Promised reclaim does not match actual reclaim — user cannot trust the dialog."
+
+  cross_journey_invariants:
+    - invariant: "Folder aggregates roll up into tool.disk_usage (existing parent artifact)"
+      involved_steps: [1, 4]
+      failure_mode: "Summary bar drift — total.disk_usage no longer equals sum of tool.disk_usage"
+    - invariant: "Per-file shared/unique classification uses compute_compatibility() (US-09 machinery)"
+      involved_steps: [1, 2]
+      failure_mode: "Two indicator engines, two truths, drift inevitable"
+    - invariant: "After folder-delete, an Ollama-side hardlink to a previously-shared .gguf still resolves"
+      involved_steps: [3, 4]
+      failure_mode: "Cross-tool inode preservation broken — Ollama copy silently corrupted"
+    - invariant: "Sidecars (README.md, .imatrix, .gguf.urls) are always swept with the folder"
+      involved_steps: [2, 3]
+      failure_mode: "HF cache left in inconsistent state — orphan sidecars with no parent repo"
