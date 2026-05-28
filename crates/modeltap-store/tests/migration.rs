@@ -79,8 +79,9 @@ fn open_path(path: &Path) -> CacheOpenResult {
 }
 
 #[test]
-fn expected_schema_version_constant_is_one() {
-    assert_eq!(EXPECTED_SCHEMA_VERSION, 1);
+fn expected_schema_version_constant_is_two() {
+    // Bumped from 1 to 2 by migration 0002 (US-27 cache_sha256 table).
+    assert_eq!(EXPECTED_SCHEMA_VERSION, 2);
 }
 
 #[test]
@@ -100,7 +101,7 @@ fn fresh_db_user_version_0_migration_runs_and_lands_user_version_1() {
     assert_eq!(
         cache.user_version().expect("user_version query"),
         EXPECTED_SCHEMA_VERSION,
-        "PRAGMA user_version must equal 1 after fresh-DB migration"
+        "PRAGMA user_version must equal EXPECTED_SCHEMA_VERSION after fresh-DB migration"
     );
     assert!(
         path.exists(),
@@ -123,7 +124,10 @@ fn already_migrated_db_re_open_is_a_no_op() {
     let second = open_path(&path);
     match second {
         CacheOpenResult::OpenedExisting(cache) => {
-            assert_eq!(cache.user_version().expect("user_version"), 1);
+            assert_eq!(
+                cache.user_version().expect("user_version"),
+                EXPECTED_SCHEMA_VERSION
+            );
         }
         other => panic!("expected OpenedExisting on re-open, got {other:?}"),
     }

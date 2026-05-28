@@ -1,0 +1,189 @@
+{
+  "roadmap": {
+    "project_id": "sha256-persistence",
+    "release": "Release 3 (US-27)",
+    "created_at": "2026-05-27T00:00:00Z",
+    "total_steps": 7,
+    "scope": "feature-slice",
+    "parent_feature": "tool-model-info-sqlite-cache",
+    "driver_story": "US-27 — SHA256 hash persistence across launches",
+    "adrs": ["ADR-018", "ADR-015", "ADR-013", "ADR-017", "ADR-002"],
+    "distill_source": "docs/feature/sha256-persistence/distill/features/sha256-persistence.feature",
+    "notes": "DISCUSS/DESIGN/DISTILL already complete in parent feature workspace. This roadmap covers DELIVER only. 3 acceptance scenarios are @skip; DELIVER un-skips them one at a time as each slice goes green. Migration 0002 is purely additive (adds cache_sha256 table). cache_models.sha256 (Tier 2) already shipped in Release 2; this adds Tier 3 (file-level cache_sha256) + opt-in flag + cache verify CLI."
+  },
+  "mutation_gate": {
+    "strategy": "per-feature",
+    "threshold": 0.80,
+    "targets": [
+      "crates/modeltap-store/src/repo/sha256.rs",
+      "crates/modeltap-store/src/verify.rs"
+    ]
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Walking skeleton — SHA256 persists across launches when file unchanged (AC-27-1/2/7)",
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Migration 0002 + cache_sha256 table + schema-version bump",
+          "criteria": [
+            "RED: modeltap-store test asserts cache_sha256 table exists after Cache::open on a fresh DB (PRAGMA user_version = 2).",
+            "RED: forward-migration test — a v1 DB (user_version=1, populated cache_models) migrates to v2 with zero data loss in cache_models/cache_tools.",
+            "GREEN: crates/modeltap-store/migrations/0002_add_sha256_persistence.sql creates cache_sha256(path PK, mtime_epoch_ns, size_bytes, inode, dev, content_hash TEXT, computed_at TEXT) + index on (inode, dev).",
+            "GREEN: migrate.rs EXPECTED_SCHEMA_VERSION = 2 and migrations() registers M::up(0002).",
+            "cargo fmt -p modeltap-store && clippy -p modeltap-store -- -D warnings && test -p modeltap-store green.",
+            "Step-ID: 01-01 trailer."
+          ],
+          "test_file": "crates/modeltap-store/tests/migration_0002.rs",
+          "files_to_modify": [
+            "crates/modeltap-store/migrations/0002_add_sha256_persistence.sql",
+            "crates/modeltap-store/src/migrate.rs",
+            "crates/modeltap-store/tests/migration_0002.rs"
+          ],
+          "implementation_notes": "DDL per ADR-018 §Release 3: path is PK; store (mtime,size,inode,dev) validity quad + content_hash (lowercase hex TEXT) + computed_at (ISO-8601 UTC). rusqlite_migration bumps user_version to 2 automatically. Additive only — no ALTER on existing tables.",
+          "deps": []
+        },
+        {
+          "id": "01-02",
+          "name": "CachedSha256 type + Sha256Repo CRUD (get_by_path, upsert, validity-quad)",
+          "criteria": [
+            "RED: store unit test round-trips a CachedSha256 row (upsert then get_by_path returns equal value, hex lowercase preserved).",
+            "RED: get_by_path on unknown path returns None.",
+            "GREEN: CachedSha256 type in types.rs; repo/sha256.rs with upsert_sha256, get_sha256_by_path, invalidate_sha256(path), all_sha256 (for verify).",
+            "GREEN: FileStat-quad reuse — CachedSha256 carries a FileStat for matches() comparison.",
+            "cargo fmt/clippy/test -p modeltap-store green."
+          ],
+          "test_file": "crates/modeltap-store/tests/sha256_repo.rs",
+          "files_to_modify": [
+            "crates/modeltap-store/src/types.rs",
+            "crates/modeltap-store/src/repo/sha256.rs",
+            "crates/modeltap-store/src/repo/mod.rs",
+            "crates/modeltap-store/tests/sha256_repo.rs"
+          ],
+          "implementation_notes": "Mirror repo/models.rs structure (RawRow + hydrate + with_conn_mut transaction). Reuse types::FileStat for the quad. content_hash stored as ContentHash hex (lowercase) per tech-stack memory.",
+          "deps": ["01-01"]
+        },
+        {
+          "id": "01-03",
+          "name": "[cache] persist_sha256 opt-in flag (default false)",
+          "criteria": [
+            "RED: config test — default persist_sha256 is false; explicit `persist_sha256 = true` parses; absent key keeps default.",
+            "GREEN: CacheConfig.persist_sha256: bool added to config.rs + CacheSection; default false.",
+            "Existing config tests stay green (opt-out semantics for `enabled` unchanged).",
+            "cargo fmt/clippy/test -p modeltap-app green."
+          ],
+          "test_file": "crates/modeltap-app/src/config.rs",
+          "files_to_modify": ["crates/modeltap-app/src/config.rs"],
+          "implementation_notes": "Default false per ADR-018 (flip to true in a later release after dogfooding). Add #[serde(default)] persist_sha256: Option<bool> to CacheSection.",
+          "deps": ["01-02"]
+        },
+        {
+          "id": "01-04",
+          "name": "Warm-start Tier-3 seed + hash-pool Tier-3 writeback + un-skip AC-27-1",
+          "criteria": [
+            "RED: acceptance scenario 'SHA256 hash persists across launches when the file is unchanged' un-skipped and drives the modeltap binary across two launches; second launch shows dedup key with NO hash.computed event in launch.log for the unchanged file.",
+            "GREEN: when persist_sha256=true, warm-start loads cache_sha256 rows whose validity quad matches current stat into the in-process Sha256Cache (Tier 3 -> Tier 1 seed).",
+            "GREEN: on Msg::HashComputed, writeback to cache_sha256 (best-effort, spawn_blocking) in addition to existing Tier-2 cache_models.sha256.",
+            "GREEN: provenance line reads 'dedup key computed <N> days ago' from computed_at.",
+            "cargo fmt/clippy green; AC-27-1 scenario + parent regression green."
+          ],
+          "test_file": "crates/modeltap-acceptance/tests/sha256_persistence.rs",
+          "files_to_modify": [
+            "crates/modeltap-app/src/orchestration/warm_start.rs",
+            "crates/modeltap-app/src/hash_pool_wiring.rs",
+            "crates/modeltap-app/src/sha256_cache.rs",
+            "crates/modeltap-acceptance/tests/sha256_persistence.rs",
+            "docs/feature/sha256-persistence/distill/features/sha256-persistence.feature"
+          ],
+          "implementation_notes": "Tier-3 read must verify the (mtime,size,inode,dev) quad against a fresh stat before seeding Tier-1 (stale rows are skipped, not seeded). Writeback is best-effort (R10): a write failure MUST NOT block the action. sha256_cache.rs stays in-process; persistence lives in the store; wiring bridges them.",
+          "deps": ["01-03"]
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Invalidation on stat-quad drift (AC-27-2/3/4)",
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Quad-drift invalidation + re-queue + (computing...) + un-skip scenario 2",
+          "criteria": [
+            "RED: acceptance scenario 'SHA256 hash invalidates when (mtime,size,inode,dev) differs' un-skipped; mtime drift invalidates the cached hash, queues a fresh computation via the pool, and the dedup key shows '(computing...)' until done.",
+            "GREEN: at SHA256 lookup, a Tier-3 row whose quad mismatches the fresh stat is invalidated (row deleted/NULLed) and a HashJob is enqueued.",
+            "GREEN: @property invariant — for any quad mismatch the cached value is never seeded into Tier 1 (proptest or table-driven).",
+            "cargo fmt/clippy green; scenario 2 + parent regression green."
+          ],
+          "test_file": "crates/modeltap-acceptance/tests/sha256_persistence.rs",
+          "files_to_modify": [
+            "crates/modeltap-store/src/repo/sha256.rs",
+            "crates/modeltap-app/src/orchestration/warm_start.rs",
+            "crates/modeltap-app/src/hash_pool_wiring.rs",
+            "docs/feature/sha256-persistence/distill/features/sha256-persistence.feature"
+          ],
+          "implementation_notes": "Reuse FileStat::matches for the quad check. '(computing...)' reuses the existing HashProgress render path. Invalidation must be idempotent.",
+          "deps": ["01-04"]
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "modeltap cache verify subcommand (AC-27-5)",
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "cache verify CLI: rehash all, report drift, update cache, diagnostics.log + un-skip scenario 3",
+          "criteria": [
+            "RED: acceptance scenario 'modeltap cache verify rehashes everything and reports drift' un-skipped; 2 silently-replaced files (same mtime/size, different content) are detected, listed in stdout, cache updated, and diagnostics.log records 'cache_verify drift_count=2'.",
+            "GREEN: clap subcommand `modeltap cache verify` in main.rs dispatching to a verify routine in modeltap-store (verify.rs) that recomputes every cache_sha256 row's hash and compares.",
+            "GREEN: drift entries printed to stdout; cache_sha256 updated with recomputed values; ~/.modeltap/diagnostics.log appended with drift_count.",
+            "GREEN: `modeltap cache` family is non-TUI (headless exit), does not launch the event loop.",
+            "cargo fmt/clippy green; scenario 3 + parent regression green."
+          ],
+          "test_file": "crates/modeltap-acceptance/tests/sha256_persistence.rs",
+          "files_to_modify": [
+            "crates/modeltap-app/src/main.rs",
+            "crates/modeltap-store/src/verify.rs",
+            "crates/modeltap-store/src/lib.rs",
+            "docs/feature/sha256-persistence/distill/features/sha256-persistence.feature"
+          ],
+          "implementation_notes": "Verify recomputes content_hash (not just the quad) — this is the deliberate full rehash that catches same-mtime/size content swaps. Use the existing Sha2Hasher. diagnostics.log path = ~/.modeltap/diagnostics.log (respect HOME override seam used by other tests).",
+          "deps": ["02-01"]
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "R10 lint + mutation gate + lat.md + final CI",
+      "default_agent": "nw-software-crafter",
+      "default_deps_strategy": "sequential",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "R10 best-effort-writeback lint + release-build seam absence + mutation >=80% + lat.md + workspace CI",
+          "criteria": [
+            "R10 architecture test: SHA256 writeback paths are best-effort (a write error does not propagate to the user-facing action result).",
+            "Release-build absence check for any test-only env seam introduced (strings target/release/modeltap clean).",
+            "cargo mutants on repo/sha256.rs + verify.rs >= 80% kill rate (production code).",
+            "lat.md updated: new modeltap-store sha256 section + cache_sha256 tier in modeltap-store.md; lat check passes.",
+            "All 3 sha256-persistence scenarios green (no @skip remaining); cargo fmt --all && clippy --workspace --all-targets -- -D warnings && test --workspace green."
+          ],
+          "test_file": "crates/modeltap-acceptance/tests/architecture.rs",
+          "files_to_modify": [
+            "crates/modeltap-acceptance/tests/architecture.rs",
+            "lat.md/modeltap-store.md",
+            "CHANGELOG.md"
+          ],
+          "implementation_notes": "R10 lands as an architecture-lint extension per ADR-018. Mutation gate per CLAUDE.md per-feature. Final workspace-wide gate before push per CLAUDE.md.",
+          "deps": ["03-01"]
+        }
+      ]
+    }
+  ]
+}
