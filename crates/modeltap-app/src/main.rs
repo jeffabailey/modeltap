@@ -67,7 +67,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Instant;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use modeltap_core::{ToolId, ToolStatus};
 use modeltap_tui::{check_terminal_width, install_panic_hook, AppState, ToolView};
 
@@ -95,6 +95,25 @@ struct Cli {
     /// Equivalent to `[cache] enabled = false` (AC-23-8 / AC-23-9).
     #[arg(long)]
     no_cache: bool,
+
+    /// Non-TUI maintenance subcommands. When absent, modeltap launches the TUI.
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+    /// Inventory-cache maintenance.
+    Cache {
+        #[command(subcommand)]
+        action: CacheAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CacheAction {
+    /// Recompute every persisted SHA256 and report content drift (US-27).
+    Verify,
 }
 
 fn main() -> ExitCode {
@@ -113,6 +132,22 @@ fn main() -> ExitCode {
     }
 
     let cli = Cli::parse();
+
+    // Non-TUI subcommands run + exit before any TUI / runtime / logger setup.
+    if let Some(Commands::Cache {
+        action: CacheAction::Verify,
+    }) = &cli.command
+    {
+        let cache_env_override = std::env::var_os("MODELTAP_CACHE_PATH");
+        let cache_file = match cache_path::resolve(None, cache_env_override.as_deref()) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("modeltap cache verify: cannot resolve cache path: {e}");
+                return ExitCode::from(1);
+            }
+        };
+        return ExitCode::from(modeltap_app::cache_verify::run_cache_verify(&cache_file) as u8);
+    }
 
     let headless_env = std::env::var("MODELTAP_HEADLESS").ok().as_deref() == Some("1");
     let headless = cli.headless || headless_env;

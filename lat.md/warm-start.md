@@ -54,6 +54,14 @@ AC-27-1 is verified end-to-end by [[tests/acceptance/ui_navigate_shortcuts.rs]] 
 
 AC-27-2 (invalidation on quad drift) is the inverse leg in the same file (`sha256_invalidates_and_rehashes_when_the_file_changes`): the model file is rewritten between launches so the size element of the `(mtime,size,inode,dev)` quad drifts; `seed_sha256_cache` skips the now-stale row, the pool recomputes, and the writeback overwrites it — so launch 2 DOES emit `hash.computed`. Invalidation is by-overwrite (the `path`-PK upsert), not an explicit `invalidate_sha256` delete; the stale value is never seeded into Tier 1, so it can never be read.
 
+### `modeltap cache verify` (US-27 AC-27-5)
+
+The quad-check is a fast heuristic that a same-`(mtime,size,inode,dev)` content swap slips past; `modeltap cache verify` is the full-re-hash escape hatch.
+
+[[crates/modeltap-app/src/cache_verify.rs]] is a non-TUI `cache` clap subcommand (dispatched in [[crates/modeltap-app/src/main.rs]] before any runtime/logger/TUI setup) that re-hashes every `cache_sha256` row's full content and compares it to the stored hash.
+
+`verify_cache(cache, hasher)` is the pure-of-stdout core (returns a `VerifyReport { checked, skipped, drifted }`): each row's file is re-hashed via `Sha2Hasher`; a mismatch is recorded as drift and the row is corrected in place (`upsert_sha256` with the recomputed hash + fresh quad); an unreadable/gone file is skipped (not drift). `run_cache_verify` wraps it with the CLI surface — prints `drift: <path>` lines, appends `cache_verify drift_count=N` to `${MODELTAP_DIAGNOSTICS_DIR:-~/.modeltap}/diagnostics.log`, and exits 0 (verify is a report, not a gate). Logic is covered by [[crates/modeltap-app/tests/cache_verify.rs]] (drift-detected-and-corrected, no-drift, gone-file-skipped).
+
 The byte-precise invariant is asserted by [[tests/src/fixtures/dir_manifest.rs|`DirManifest`]] — a recursive `(relative_path, size, mtime)` snapshot over `xdg-data/modeltap/`. The opt-out resolution (`--no-cache` + `[cache] enabled = false`) is covered by `modeltap-app`'s `config` unit tests; the standalone `cache_opt_out` acceptance binary was removed in the lean-UI-suite consolidation. AC-23-8 + AC-23-9 (zero new bytes means no `cache.sqlite`, no `-wal`, no `-shm`) remain expressible via the `DirManifest` snapshot helper.
 
 INT-INFO-6 (`modeltap --version` exits 0 with a corrupt cache) is satisfied by clap's auto-version handler — `#[command(version)]` on the `Cli` struct exits before `main()`'s body runs, so the cache resolution path is never reached. The fourth opt-out scenario seeds a 16 KB non-SQLite blob at `MODELTAP_CACHE_PATH` to prove this directly: if the version path ever regressed to opening the cache, the test would fail.

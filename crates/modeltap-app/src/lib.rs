@@ -47,6 +47,7 @@ pub mod refresh;
 // directly via `modeltap_app::registry::collect_plugins` rather than spawning
 // the binary. main.rs imports through `modeltap_app::registry` instead of
 // declaring its own `mod registry;`.
+pub mod cache_verify;
 pub mod registry;
 pub mod sha256_cache;
 pub mod sha256_persistence;
