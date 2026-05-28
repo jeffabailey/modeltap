@@ -179,3 +179,51 @@ fn sha256_persists_across_launches_so_unchanged_file_is_not_rehashed() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn sha256_invalidates_and_rehashes_when_the_file_changes(/* US-27 AC-27-2 */) {
+    let fx = fixture();
+    let model = fx.test_tool_root.join("test-model-7b.gguf");
+
+    // Launch 1: hash + persist the original content.
+    cmd(&fx, Some(&fx.config_path))
+        .env("MODELTAP_HEADLESS_INPUT", "<hash-complete>q")
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success();
+    assert!(
+        has_event(&read_launch_log(&fx.log_dir), "hash.computed"),
+        "launch 1 must compute the initial hash"
+    );
+
+    std::fs::write(fx.log_dir.join("launch.log"), b"").expect("truncate launch.log");
+
+    // The file changes on disk (different length → the size element of the
+    // validity quad drifts, regardless of mtime resolution). The persisted
+    // hash is now stale.
+    std::fs::write(
+        &model,
+        b"DIFFERENT content - this file changed since the cached hash was computed",
+    )
+    .expect("rewrite model with new content");
+
+    // Launch 2: the quad no longer matches, so the persisted hash is NOT
+    // seeded; the pool recomputes and the writeback overwrites the stale row.
+    // The observable: hash.computed IS emitted again (invalidation → re-hash).
+    cmd(&fx, Some(&fx.config_path))
+        .env("MODELTAP_HEADLESS_INPUT", "<hash-complete>q")
+        .timeout(Duration::from_secs(30))
+        .assert()
+        .success();
+
+    let after_launch_2 = read_launch_log(&fx.log_dir);
+    assert!(
+        has_event(&after_launch_2, "hash.computed"),
+        "launch 2 (file CHANGED) must invalidate the stale persisted hash and \
+         re-hash; hash.computed missing. events: {:?}",
+        after_launch_2
+            .iter()
+            .filter_map(|e| e.get("event").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>()
+    );
+}
