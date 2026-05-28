@@ -110,6 +110,22 @@ modeltap-tui = { path = "../crates/modeltap-tui" }
 # under `acceptance/<area>/<scenario>.rs`. The test name is the harness name
 # Cargo prints in test output.
 
+# Lean UI-lifecycle acceptance suite (load / navigate+shortcuts / close).
+# These three replace the per-feature cache + detail acceptance binaries;
+# detailed feature logic is covered by crate-level integration/unit tests.
+# US-27 AC-27-1 (SHA256 persistence) is folded into ui_navigate_shortcuts.
+[[test]]
+name = "ui_loads"
+path = "acceptance/ui_loads.rs"
+
+[[test]]
+name = "ui_navigate_shortcuts"
+path = "acceptance/ui_navigate_shortcuts.rs"
+
+[[test]]
+name = "ui_closes"
+path = "acceptance/ui_closes.rs"
+
 # tool-model-info-sqlite-cache step 04-02 — Cache opt-out paths (US-23
 # Scenario 6 + AC-23-8 / AC-23-9 + INT-INFO-6). Four scenarios proving the
 # `--no-cache` CLI flag, the `[cache] enabled = false` config file setting,
