@@ -88,6 +88,47 @@ fn seeds_in_process_cache_when_quad_matches_so_pool_does_not_recompute() {
 }
 
 #[test]
+fn writeback_then_seed_round_trips_so_next_launch_skips_recompute() {
+    // The AC-27-1 cross-launch property at module level: launch 1 writes the
+    // hash back; "launch 2" (a fresh Sha256Cache) seeds from the persisted row
+    // and the pool finds a hit without recomputing.
+    use modeltap_app::sha256_persistence::writeback_hash;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+    let cache = Cache::open_in_memory().expect("open_in_memory");
+    let path = write_file(dir.path(), "llama.gguf", b"the quick brown fox");
+
+    // Launch 1: a hash was computed for `path`; write it back.
+    let computed = ContentHash([0x42; 32]);
+    assert!(
+        writeback_hash(&cache, &path, &computed),
+        "writeback must persist for an existing file"
+    );
+
+    // Launch 2: seed a fresh in-process cache from the persisted row.
+    let sha_cache = Sha256Cache::new();
+    assert_eq!(seed_sha256_cache(&cache, &sha_cache), 1, "row must seed");
+
+    let fresh = stat_file_quad(&path).expect("stat").expect("present");
+    let key = Sha256CacheKey {
+        path: path.clone(),
+        mtime: fresh
+            .mtime
+            .duration_since(UNIX_EPOCH)
+            .expect("after epoch")
+            .as_secs(),
+        size: fresh.size_bytes,
+    };
+    let got = sha_cache
+        .get_or_compute(key, &PanicHasher, &mut |_| {})
+        .expect("seeded hit");
+    assert_eq!(
+        got, computed,
+        "the hash from launch 1 must survive to launch 2 unchanged"
+    );
+}
+
+#[test]
 fn does_not_seed_when_quad_drifted() {
     let dir = tempfile::tempdir().expect("tempdir");
     let cache = Cache::open_in_memory().expect("open_in_memory");

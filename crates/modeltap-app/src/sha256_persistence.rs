@@ -8,9 +8,9 @@
 //! - [`seed_sha256_cache`] (read side) lifts persisted hashes whose validity
 //!   quad still matches the on-disk file into the in-process cache at
 //!   warm-start, so the background hash pool skips recomputation (AC-27-1).
-//! - [`writeback_payload_to_entry`] / [`parse_hex_hash`] (write side helpers)
-//!   convert a freshly computed hash + its file stat into a `CachedSha256` the
-//!   composition root upserts best-effort on `Msg::HashComputed` (ADR-018 R10).
+//! - [`writeback_hash`] (write side) re-stats the path and upserts a freshly
+//!   computed hash into `cache_sha256` best-effort on `Msg::HashComputed`
+//!   (ADR-018 R10), via [`build_writeback_entry`] / [`hash_to_hex`].
 //!
 //! All persistence here is OPT-IN: callers invoke these only when
 //! `AppConfig.cache.persist_sha256` is true.
@@ -114,6 +114,28 @@ pub fn build_writeback_entry(
         content_hash: hash_to_hex(hash),
         computed_at,
     }
+}
+
+/// Best-effort writeback of one freshly computed hash to the persistent
+/// `cache_sha256` table (ADR-018 R10). Called by the composition root on
+/// `Msg::HashComputed` when `persist_sha256` is enabled.
+///
+/// The validity quad is captured by RE-STATTING the path here (full-precision
+/// `SystemTime` mtime + inode + dev + size) rather than reusing the hash job's
+/// second-granularity stat — this is what makes the NEXT launch's
+/// [`seed_sha256_cache`] quad comparison (`FileStat::matches`, full precision)
+/// succeed for an unchanged file. `computed_at` is `now`.
+///
+/// Returns `true` iff a row was written. ANY failure (file vanished between
+/// hashing and writeback, stat error, SQLite error) returns `false` WITHOUT
+/// propagating — a writeback failure must never block the user-facing action.
+pub fn writeback_hash(cache: &Cache, path: &std::path::Path, hash: &ContentHash) -> bool {
+    let stat = match stat_file_quad(path) {
+        Ok(Some(stat)) => stat,
+        Ok(None) | Err(_) => return false,
+    };
+    let entry = build_writeback_entry(path.to_path_buf(), stat, hash, std::time::SystemTime::now());
+    cache.upsert_sha256(&entry).is_ok()
 }
 
 #[cfg(test)]
