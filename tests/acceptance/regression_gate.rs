@@ -1,6 +1,6 @@
 //! Phase 06 finalize regression gate (Step 06-02).
 //!
-//! This test does NOT exercise new business logic. It pins three invariants
+//! This test does NOT exercise new business logic. It pins four invariants
 //! at the boundary between this feature and (a) the parent modeltap-tui
 //! feature, (b) the sibling folder-group-bulk-delete feature, and (c) the
 //! deferred US-27 SHA256 work:
@@ -33,15 +33,9 @@
 //!    render_help_lines` (the same pure function the Help screen calls at
 //!    runtime) and substring-greps the joined output.
 //!
-//! 5. **AC-22-7 sentinel pin** — the `model_detail.rs` acceptance test's
-//!    un-introspectable-file assertion must match the literal value of
-//!    `modeltap_app::orchestration::open_tool_detail::INSPECT_PANIC_SENTINEL`.
-//!    This catches the exact drift that broke the test before this gate
-//!    existed: a plugin override changes which `InspectError` variant fires,
-//!    `merge` routes through a different sentinel arm, and the test's
-//!    hard-coded substring goes stale. By importing the constant from
-//!    production code and string-grepping the test file on disk, both sides
-//!    fail loudly if either drifts.
+//! (A former invariant 5 — an AC-22-7 sentinel pin that read
+//! `tests/acceptance/model_detail.rs` — was removed when that per-feature
+//! detail acceptance binary was folded into the 3 lean UI-lifecycle tests.)
 //!
 //! Test classification: this is a **regression gate**, not a behavioural
 //! acceptance test. It pins structural counts and string presence so a
@@ -307,48 +301,11 @@ fn help_overlay_render_includes_int_info_9_vocabulary_sample() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. AC-22-7 sentinel pin — the model_detail.rs un-introspectable-file
-//    assertion must match the production INSPECT_PANIC_SENTINEL literal.
+// (Former invariant 5 — AC-22-7 sentinel pin — was removed in the lean-UI-
+// suite consolidation: it read `tests/acceptance/model_detail.rs`, which was
+// deleted when the per-feature detail acceptance binaries were folded into the
+// 3 UI-lifecycle tests. The sentinel-drift class it guarded is now covered by
+// the plugin-contract tests' panic-isolation case + `modeltap-app` model-
+// detail tests; if a live acceptance assertion on INSPECT_PANIC_SENTINEL is
+// reintroduced, restore a pin against that file.)
 // ---------------------------------------------------------------------------
-
-/// Pins the relationship between the production sentinel constant and the
-/// acceptance test's substring assertion for AC-22-7.
-///
-/// The bug this gate catches: a plugin's `inspect_model` override changes
-/// which `InspectError` variant fires on an un-locatable model id, the
-/// orchestrator's `merge` routes through a different sentinel arm
-/// (`METADATA_UNSUPPORTED_SENTINEL` vs `INSPECT_PANIC_SENTINEL`), and the
-/// acceptance test's hard-coded substring silently goes stale. That exact
-/// drift escaped review when step 03-02 part 1 added the Ollama
-/// `inspect_model` override (commit e2e320e) — the un-introspectable
-/// scenario kept asserting on `(metadata unsupported for this tool)` after
-/// the live render switched to `(inspection failed -- see diagnostics.log)`.
-///
-/// The gate's contract:
-/// 1. The constant `modeltap_app::orchestration::open_tool_detail::
-///    INSPECT_PANIC_SENTINEL` must be importable (compile-time check —
-///    catches a rename or removal of the constant).
-/// 2. The file `tests/acceptance/model_detail.rs` must contain the literal
-///    value of that constant as a substring (catches the test asserting on
-///    a different sentinel than what the merge layer actually emits).
-///
-/// If a future change deliberately switches AC-22-7 to a different sentinel
-/// (e.g., adding a new `InspectError::ModelNotFound` variant with its own
-/// renderable text), update the constant + the test together; the gate will
-/// follow because it derives its expectation from the constant.
-#[test]
-fn ac_22_7_assertion_pins_inspect_panic_sentinel_literal() {
-    let sentinel = modeltap_app::orchestration::open_tool_detail::INSPECT_PANIC_SENTINEL;
-    let test_body = read_feature("tests/acceptance/model_detail.rs");
-    assert!(
-        test_body.contains(sentinel),
-        "tests/acceptance/model_detail.rs does NOT contain the production \
-         INSPECT_PANIC_SENTINEL literal '{sentinel}'. The AC-22-7 \
-         un-introspectable-file assertion must match the sentinel the merge \
-         layer actually emits — see the commit history for e2e320e where this \
-         drift first appeared (step 03-02 added the Ollama inspect_model \
-         override, switching the error variant from Unsupported to \
-         FileReadable, which routes to INSPECT_PANIC_SENTINEL rather than \
-         METADATA_UNSUPPORTED_SENTINEL)."
-    );
-}

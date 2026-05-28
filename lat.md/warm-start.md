@@ -52,7 +52,7 @@ Both composition roots ([[crates/modeltap-app/src/interactive.rs]] and [[crates/
 
 AC-27-1 is verified end-to-end by [[tests/acceptance/ui_navigate_shortcuts.rs]] (`sha256_persists_across_launches_so_unchanged_file_is_not_rehashed`): two real `modeltap` launches against one cache with `[cache] persist_sha256 = true` and `MODELTAP_HEADLESS_INPUT="<hash-complete>q"` (the sentinel forces the pool to run + finish). Launch 1 emits `hash.computed` in `launch.log`; the harness truncates the log, then launch 2 (file unchanged) seeds from `cache_sha256` and emits NO `hash.computed`. This test is one of the three lean UI-lifecycle acceptance binaries (`ui_loads` / `ui_navigate_shortcuts` / `ui_closes`) that replace the per-feature cache/detail acceptance suite — detailed cache logic is covered by crate-level `modeltap-store` / `modeltap-app` tests.
 
-The byte-precise invariant is asserted by [[tests/src/fixtures/dir_manifest.rs|`DirManifest`]] — a recursive `(relative_path, size, mtime)` snapshot over `xdg-data/modeltap/`. The cache-opt-out acceptance suite ([[tests/acceptance/cache_opt_out.rs|`cache_opt_out.rs`]]) snapshots the directory before each launch, runs the modeltap binary, re-snapshots, and asserts `before.assert_equal(&after)`. AC-23-8 + AC-23-9 are proven this way: zero new bytes means no `cache.sqlite`, no `-wal`, no `-shm`.
+The byte-precise invariant is asserted by [[tests/src/fixtures/dir_manifest.rs|`DirManifest`]] — a recursive `(relative_path, size, mtime)` snapshot over `xdg-data/modeltap/`. The opt-out resolution (`--no-cache` + `[cache] enabled = false`) is covered by `modeltap-app`'s `config` unit tests; the standalone `cache_opt_out` acceptance binary was removed in the lean-UI-suite consolidation. AC-23-8 + AC-23-9 (zero new bytes means no `cache.sqlite`, no `-wal`, no `-shm`) remain expressible via the `DirManifest` snapshot helper.
 
 INT-INFO-6 (`modeltap --version` exits 0 with a corrupt cache) is satisfied by clap's auto-version handler — `#[command(version)]` on the `Cli` struct exits before `main()`'s body runs, so the cache resolution path is never reached. The fourth opt-out scenario seeds a 16 KB non-SQLite blob at `MODELTAP_CACHE_PATH` to prove this directly: if the version path ever regressed to opening the cache, the test would fail.
 
@@ -104,7 +104,9 @@ The facade replaces the per-boundary `emit_*_event` helpers previously inlined i
 
 ## @perf scenario gating
 
-The K-INFO budgets (≤ 150 ms warm paint, ≤ 100 ms cache open) are calibrated against release builds; the three `cache_kpi` scenarios in [[tests/acceptance/cache_kpi.rs|`cache_kpi.rs`]] early-return on `cfg!(debug_assertions)` to prevent false reds on developer laptops.
+The K-INFO budgets (≤ 150 ms warm paint, ≤ 100 ms cache open) are calibrated against release builds.
+
+The `cache_kpi` perf-scenario acceptance binary was removed in the lean-UI-suite consolidation; the warm-paint / cache-open durations stay observable via the `launch.*` JSONL events the launch-metrics facade emits, asserted by `modeltap-app` integration tests under `--release` (debug-build latencies routinely exceed the budgets, so the checks early-return on `cfg!(debug_assertions)`).
 
 outcome-kpis.md §K-INFO-1 explicitly notes the debug-build envelope is 1.5× the release ceiling, which is why the gating exists.
 
@@ -148,7 +150,7 @@ Completion runs through the existing step 05-01 variants — there is NO `Msg::R
 
 The keymap `[r]` binding migrated off `Msg::RetryRefresh` to `Msg::RequestRefresh(RefreshScope::Tool(ToolId("")))`. The empty-string sentinel resolves at peek-then-dispatch time: the composition root reads `state.current_tool()` and substitutes the real selected `ToolId`. `RefreshScope::All` enumerates `state.real_tools_iter()`. `RetryRefresh` stays in `Msg` for any in-process retry call sites not yet audited for migration (US-11 legacy).
 
-The four scenarios in [[tests/acceptance/manual_refresh.rs]] are `#[ignore]`d pending a launch.log timing seam — behavioural coverage for step 05-03 lives in the unit tests inside `view::provenance::tests`, `keymap::tests`, and `render::summary_bar::tests` instead.
+The `manual_refresh` acceptance binary (four `#[ignore]`d scenarios pending a launch.log timing seam) was removed in the lean-UI-suite consolidation — behavioural coverage for step 05-03 lives in the unit tests inside `view::provenance::tests`, `keymap::tests`, and `render::summary_bar::tests`, and the `[r]`/`[Shift+R]` hotkeys are exercised by [[tests/acceptance/ui_navigate_shortcuts.rs]]'s shortcut sweep.
 
 Interim production path: the [[crates/modeltap-app/src/interactive.rs|interactive]] dispatcher currently invokes `refresh::refresh_tool_incremental` per target (in-process discovery walk) and synthesises a `Msg::ReconcileCompleted { has_diff: false }` per success. A follow-up will swap that for a real `orchestration::reconcile::run(scope, plugins, config)` dispatch once `PluginFactory.make` returns `Arc<dyn Tool + Send + Sync>` across all 7 plugin crates — the orchestrator's signature requires the upcast that `Box<dyn Tool>` cannot provide. The user-visible suffix transition (AC-24-2 / AC-24-7) is unaffected; the cache-writeback half (US-26 silent-ack indicator) remains driven by the post-warm-paint orchestrator from step 05-01.
 

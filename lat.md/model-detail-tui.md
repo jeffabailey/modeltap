@@ -54,7 +54,9 @@ The interactive path defaults `diagnostics_dir` to `None` for now — wiring `MO
 
 ## Cucumber acceptance
 
-[[tests/acceptance/model_detail.rs]] is the end-to-end driver for the five `model-detail.feature` scenarios. It spawns the production `modeltap` binary headless against fixture-populated tempdirs (Strategy B per `wave-decisions.md`) and substring-matches the captured stdout frame.
+The standalone `model_detail` acceptance binary was removed in the lean-UI-suite consolidation.
+
+The `[i]` model-detail screen open is now exercised by [[tests/acceptance/ui_navigate_shortcuts.rs]]'s shortcut sweep; the detailed metadata + graceful-degradation logic (the five former `model-detail.feature` scenarios) is covered by `modeltap-app` model-detail integration/unit tests.
 
 Step 03-02 un-ignored the four remaining scenarios (GGUF header metadata, Ollama manifest fields, HF config.json fields, re-introspect cache writeback) as each plugin landed its `inspect_model` override; all five model-detail scenarios are now active.
 
