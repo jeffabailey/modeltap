@@ -81,7 +81,10 @@ pub fn run_cache_verify(cache_path: &Path) -> i32 {
     for path in &report.drifted {
         println!("drift: {}", path.display());
     }
-    append_diagnostics(&format!("cache_verify drift_count={}", report.drifted.len()));
+    append_diagnostics(&format!(
+        "cache_verify drift_count={}",
+        report.drifted.len()
+    ));
     println!(
         "cache verify complete: {} checked, {} drifted, {} skipped",
         report.checked,

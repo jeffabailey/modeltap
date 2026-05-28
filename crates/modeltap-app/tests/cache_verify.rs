@@ -47,7 +47,11 @@ fn verify_detects_content_drift_and_corrects_the_row() {
     let hasher = Sha2Hasher::new();
 
     let good = write_file(dir.path(), "good.gguf", b"unchanged content");
-    let swapped = write_file(dir.path(), "swapped.gguf", b"NEW content swapped since hashing");
+    let swapped = write_file(
+        dir.path(),
+        "swapped.gguf",
+        b"NEW content swapped since hashing",
+    );
 
     // good.gguf: persisted hash matches the file.
     upsert(&cache, &good, hash_hex(&hasher, &good));

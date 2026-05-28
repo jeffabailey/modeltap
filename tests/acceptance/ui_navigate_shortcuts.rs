@@ -63,7 +63,10 @@ fn cmd(fx: &UiFixture, config: Option<&Path>) -> Command {
         .env("MODELTAP_OLLAMA_DIR", "/nonexistent/no-such-ollama")
         .env("MODELTAP_LOOSE_GGUF_DIRS", "/nonexistent/no-such-llama-cli")
         .env("MODELTAP_LMSTUDIO_DIRS", "/nonexistent/no-such-lm-studio")
-        .env("MODELTAP_ATOMIC_CHAT_DIRS", "/nonexistent/no-such-atomic-chat")
+        .env(
+            "MODELTAP_ATOMIC_CHAT_DIRS",
+            "/nonexistent/no-such-atomic-chat",
+        )
         .env("MODELTAP_GPT4ALL_DIRS", "/nonexistent/no-such-gpt4all")
         .env("HF_HOME", "/nonexistent/no-such-hf-cache");
     match config {
@@ -123,10 +126,7 @@ fn ui_navigates_and_dispatches_every_shortcut_then_quits_cleanly() {
     );
 
     // Clean shutdown via q.
-    assert!(has_event(
-        &read_launch_log(&fx.log_dir),
-        "launch.ended"
-    ));
+    assert!(has_event(&read_launch_log(&fx.log_dir), "launch.ended"));
 }
 
 // ---------------------------------------------------------------------------
