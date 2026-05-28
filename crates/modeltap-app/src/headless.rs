@@ -72,6 +72,11 @@ pub struct HeadlessConfig {
     /// without changing the in-TUI panic surface (the sentinel still
     /// renders).
     pub diagnostics_dir: Option<PathBuf>,
+    /// US-27: seed the in-process SHA256 cache from the persistent
+    /// `cache_sha256` table before the hash pool spawns, and write freshly
+    /// computed hashes back. Already AND-ed with `cache_enabled` at the
+    /// composition root; `false` leaves the launch path unchanged.
+    pub persist_sha256: bool,
 }
 
 /// Run the headless event loop. Returns the process exit code.
@@ -137,6 +142,9 @@ pub fn run(
     let spawn_pool = !(config.quit_after_paint && tokens.is_empty());
     let (msg_tx, mut msg_rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
     let cancel = CancellationToken::new();
+    // US-27 Tier-3 persistence context — set inside the spawn block, consumed
+    // at the drain sites below. Gated on `persist_sha256`.
+    let mut persist_ctx: Option<modeltap_app::sha256_persistence::PersistCtx> = None;
     let pool: Option<HashPoolHandle> = if spawn_pool {
         let per_tool_refs: Vec<(ToolId, &[DiscoveredModel])> = discovered
             .iter()
@@ -146,6 +154,14 @@ pub fn run(
         state.hash_state.total = jobs.len() as u64;
 
         let cache = Sha256Cache::new();
+        if config.persist_sha256 {
+            if let Some(sc) =
+                modeltap_app::sha256_persistence::open_store_cache(config.cache_path.as_deref())
+            {
+                modeltap_app::sha256_persistence::seed_sha256_cache(&sc, &cache);
+                persist_ctx = Some((sc, modeltap_app::sha256_persistence::job_path_index(&jobs)));
+            }
+        }
         let hasher: Arc<dyn Hasher + Send + Sync> = Arc::new(Sha2Hasher::new());
         Some(hash_pool::spawn(
             jobs,
@@ -168,6 +184,14 @@ pub fn run(
         loop {
             match msg_rx.try_recv() {
                 Ok(msg) => {
+                    if let Some((sc, jp)) = &persist_ctx {
+                        modeltap_app::sha256_persistence::observe_and_persist_hash(
+                            &msg,
+                            &mut logger,
+                            sc,
+                            jp,
+                        );
+                    }
                     let (next, _eff) = update(state, msg);
                     state = next;
                 }
@@ -197,6 +221,14 @@ pub fn run(
                     loop {
                         match msg_rx.try_recv() {
                             Ok(msg) => {
+                                if let Some((sc, jp)) = &persist_ctx {
+                                    modeltap_app::sha256_persistence::observe_and_persist_hash(
+                                        &msg,
+                                        &mut logger,
+                                        sc,
+                                        jp,
+                                    );
+                                }
                                 let (next, _eff) = update(state, msg);
                                 state = next;
                             }

@@ -64,6 +64,13 @@ pub(super) async fn worker_loop(
                 mtime,
                 size,
             };
+            // Peek BEFORE computing: a hit means the hash was seeded from the
+            // persistent Tier-3 cache (or computed earlier this session), so
+            // this job is NOT a fresh computation. The composition root uses
+            // `was_computed` to decide whether to emit the `hash.computed`
+            // event (US-27 AC-27-1) and whether to write the hash back to the
+            // persistent cache.
+            let was_computed = cache_inner.peek(&key).is_none();
             let mut sink = |_p: HashProgress| {};
             let hash_result = cache_inner.get_or_compute(key, &*hasher_inner, &mut sink);
             // Capture (device, inode) only on success.
@@ -71,7 +78,7 @@ pub(super) async fn worker_loop(
                 .as_ref()
                 .ok()
                 .and_then(|_| read_inode(&path).ok());
-            (hash_result, inode)
+            (hash_result, inode, was_computed)
         });
 
         // Wait either for the blocking job to finish OR for cancel — but if
@@ -89,7 +96,7 @@ pub(super) async fn worker_loop(
         };
 
         match result {
-            Ok((Ok(hash), inode)) => {
+            Ok((Ok(hash), inode, was_computed)) => {
                 let (device, inode) = inode.unwrap_or((0, 0));
                 progress.completed.fetch_add(1, Ordering::SeqCst);
                 let _ = msg_tx.send(Msg::HashComputed {
@@ -98,9 +105,10 @@ pub(super) async fn worker_loop(
                     hash,
                     device,
                     inode,
+                    was_computed,
                 });
             }
-            Ok((Err(io_err), _)) => {
+            Ok((Err(io_err), _, _)) => {
                 progress.completed.fetch_add(1, Ordering::SeqCst);
                 progress.failed.fetch_add(1, Ordering::SeqCst);
                 let _ = msg_tx.send(Msg::HashFailed {

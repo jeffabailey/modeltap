@@ -434,6 +434,14 @@ pub enum Msg {
         hash: ContentHash,
         device: u64,
         inode: u64,
+        /// `true` when the worker actually computed this hash; `false` when it
+        /// was a cache HIT (seeded from the persistent Tier-3 `cache_sha256`
+        /// table or hashed earlier this session). The pure `update` ignores
+        /// this; the composition root uses it to emit the `hash.computed`
+        /// observability event and persist the writeback only on a real
+        /// computation (US-27 AC-27-1 — no `hash.computed` for an unchanged,
+        /// already-persisted file on the next launch).
+        was_computed: bool,
     },
     /// Composition root dispatches this when a worker fails to compute a
     /// SHA256 hash (read error, cancellation, etc.). Per BR-3 the

@@ -15,12 +15,17 @@
 //! All persistence here is OPT-IN: callers invoke these only when
 //! `AppConfig.cache.persist_sha256` is true.
 
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use modeltap_core::ContentHash;
+use modeltap_core::{ContentHash, ToolId};
 use modeltap_store::types::CachedSha256;
-use modeltap_store::{stat_file_quad, Cache};
+use modeltap_store::{stat_file_quad, Cache, CacheOpenResult};
+use modeltap_tui::msg::Msg;
 
+use crate::hash_pool::HashJob;
+use crate::observability::{LaunchLogger, RecordKind};
 use crate::sha256_cache::{Sha256Cache, Sha256CacheKey};
 
 /// Read every persisted `cache_sha256` row; for each whose `(mtime,size,inode,
@@ -136,6 +141,62 @@ pub fn writeback_hash(cache: &Cache, path: &std::path::Path, hash: &ContentHash)
     };
     let entry = build_writeback_entry(path.to_path_buf(), stat, hash, std::time::SystemTime::now());
     cache.upsert_sha256(&entry).is_ok()
+}
+
+/// Open the Tier-3 store cache for the seed + per-compute writeback. Returns
+/// the live `Cache` handle the composition root holds for the session, or
+/// `None` when there is no cache path or the open fails — persistence is then
+/// silently disabled and launch proceeds normally (best-effort, ADR-018 R10).
+pub fn open_store_cache(cache_path: Option<&Path>) -> Option<Cache> {
+    let path = cache_path?;
+    match Cache::open(path).ok()? {
+        CacheOpenResult::OpenedFresh(c) | CacheOpenResult::OpenedExisting(c) => Some(c),
+        CacheOpenResult::OpenedAfterMigration { cache, .. }
+        | CacheOpenResult::OpenedAfterRecovery { cache, .. } => Some(cache),
+    }
+}
+
+/// Composition-root SHA256 persistence context held for a launch's lifetime:
+/// the live Tier-3 store handle plus the `(tool, model_id) → path` index the
+/// per-compute writeback resolves against. `None` when persistence is off.
+pub type PersistCtx = (Cache, HashMap<(ToolId, String), PathBuf>);
+
+/// Build the `(tool, model_id) → path` lookup the writeback needs. Captured
+/// from the hash jobs BEFORE they are moved into the pool on spawn.
+pub fn job_path_index(jobs: &[HashJob]) -> HashMap<(ToolId, String), PathBuf> {
+    jobs.iter()
+        .map(|j| ((j.tool, j.model_id.clone()), j.path.clone()))
+        .collect()
+}
+
+/// At a hash-pool drain site, react to a freshly COMPUTED hash (a cache hit
+/// has `was_computed == false` and is skipped): emit the `hash.computed`
+/// observability event and persist the hash to the Tier-3 store. Called ONLY
+/// when persistence is enabled, so the default (non-persist) launch path is
+/// byte-identical. Both side effects are best-effort.
+pub fn observe_and_persist_hash(
+    msg: &Msg,
+    logger: &mut LaunchLogger,
+    store_cache: &Cache,
+    job_paths: &HashMap<(ToolId, String), PathBuf>,
+) {
+    let Msg::HashComputed {
+        tool,
+        model_id,
+        hash,
+        was_computed: true,
+        ..
+    } = msg
+    else {
+        return;
+    };
+    logger.record(RecordKind::HashComputed {
+        tool: tool.0.to_string(),
+        model: model_id.clone(),
+    });
+    if let Some(path) = job_paths.get(&(*tool, model_id.clone())) {
+        let _ = writeback_hash(store_cache, path, hash);
+    }
 }
 
 #[cfg(test)]

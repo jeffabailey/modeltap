@@ -392,6 +392,11 @@ pub fn update(state: AppState, msg: Msg) -> (AppState, UpdateEffect) {
             hash,
             device,
             inode,
+            // The composition root peeks `was_computed` BEFORE this pure update
+            // to drive the `hash.computed` event + Tier-3 writeback; the pure
+            // state transition is identical whether the hash was computed or
+            // seeded.
+            was_computed: _,
         } => (
             apply_hash_computed(state, tool, model_id, hash, device, inode),
             UpdateEffect::default(),

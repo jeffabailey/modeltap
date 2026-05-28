@@ -199,6 +199,8 @@ fn main() -> ExitCode {
     // without the env var, meaning real users never opened the cache.
     let app_config = config::load_from_env();
     let cache_enabled = !cli.no_cache && app_config.cache.enabled;
+    // US-27: SHA256 persistence is opt-in AND requires the cache to be on.
+    let persist_sha256 = cache_enabled && app_config.cache.persist_sha256;
     let cache_env_override = std::env::var_os("MODELTAP_CACHE_PATH");
     let warm_start_outcome = if !cache_enabled {
         // Cache disabled (CLI flag or config) — skip warm-start
@@ -364,6 +366,7 @@ fn main() -> ExitCode {
             cache_path: tool_detail_cache_path.clone(),
             log_dir: log_dir.clone(),
             diagnostics_dir: diagnostics_dir.clone(),
+            persist_sha256,
         };
         let exit = headless::run(
             config,
@@ -387,8 +390,11 @@ fn main() -> ExitCode {
         logger,
         plugins_for_actions,
         discovered_per_tool,
-        tool_detail_cache_path,
-        log_dir.clone(),
+        interactive::RunPaths {
+            cache_path: tool_detail_cache_path,
+            log_dir: log_dir.clone(),
+            persist_sha256,
+        },
     ) {
         Ok(code) => ExitCode::from(code as u8),
         Err(e) => {

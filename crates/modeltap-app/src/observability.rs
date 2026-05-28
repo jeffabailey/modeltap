@@ -198,6 +198,17 @@ pub enum RecordKind {
         tool: String,
         source: &'static str,
     },
+    /// A SHA256 hash was ACTUALLY computed by the background hash pool (US-27
+    /// AC-27-1). Emitted once per genuine computation — NOT on a cache hit
+    /// (a hash seeded from the persistent Tier-3 `cache_sha256` table, or
+    /// hashed earlier this session). Its ABSENCE for an unchanged file on a
+    /// subsequent launch is the observable proof that persistence skipped the
+    /// re-hash. Per the privacy rule: `tool` is the registered plugin id,
+    /// `model` is the plugin-supplied id_in_tool — NO path, NO hash hex.
+    HashComputed {
+        tool: String,
+        model: String,
+    },
 }
 
 pub struct LaunchLogger {
@@ -427,6 +438,12 @@ impl LaunchLogger {
                 let mut env = self.base_envelope("refresh.tool");
                 env["tool"] = json!(tool);
                 env["source"] = json!(source);
+                env
+            }
+            RecordKind::HashComputed { tool, model } => {
+                let mut env = self.base_envelope("hash.computed");
+                env["tool"] = json!(tool);
+                env["model"] = json!(model);
                 env
             }
             RecordKind::DiscoveredModel { .. } => unreachable!("handled above"),

@@ -84,6 +84,16 @@ impl Sha256Cache {
         Ok(computed)
     }
 
+    /// Non-mutating lookup: return the cached hash for `key` if present, else
+    /// `None`. The hash pool worker peeks BEFORE computing so it can report
+    /// whether a job was a cache HIT (seeded from Tier-3 or a prior in-session
+    /// hash) or an actual COMPUTE — the `hash.computed` observability event
+    /// fires only on a compute (US-27 AC-27-1), and the Tier-3 writeback only
+    /// persists freshly computed hashes.
+    pub fn peek(&self, key: &Sha256CacheKey) -> Option<ContentHash> {
+        self.inner.lock().unwrap().get(key).copied()
+    }
+
     /// Pre-populate one entry without computing. Used by the US-27 Tier-3 seed
     /// at warm-start: a persisted `cache_sha256` row whose `(mtime,size,inode,
     /// dev)` quad still matches the on-disk file is lifted into this in-process

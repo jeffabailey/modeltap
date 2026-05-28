@@ -172,6 +172,7 @@ fn hash_computed_records_hash_and_inode_and_recomputes_summary() {
             hash: h(7),
             device: 1,
             inode: 100,
+            was_computed: true,
         },
     );
 
@@ -460,6 +461,7 @@ fn hash_computed_when_not_in_progress_still_records_outcome() {
             hash: h(9),
             device: 1,
             inode: 100,
+            was_computed: true,
         },
     );
 

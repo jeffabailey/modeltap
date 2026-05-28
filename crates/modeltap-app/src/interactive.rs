@@ -81,14 +81,22 @@ const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// Returns the desired process exit code: `0` for a user-driven quit
 /// (`q`) and `130` for SIGINT-style interrupt (`Ctrl+C`), per the
 /// AppState/exit_code contract.
+/// Owned launch-path bundle for `run()`. Groups the cache/log paths + the
+/// US-27 persist flag so `run`'s argument count stays within clippy's budget;
+/// borrowed into `OrchestrationPaths` for `event_loop`.
+pub struct RunPaths {
+    pub cache_path: Option<PathBuf>,
+    pub log_dir: Option<PathBuf>,
+    pub persist_sha256: bool,
+}
+
 pub fn run(
     runtime: &tokio::runtime::Runtime,
     initial_state: AppState,
     mut logger: LaunchLogger,
     plugins: Vec<Box<dyn Tool>>,
     discovered: Vec<(ToolId, Vec<DiscoveredModel>)>,
-    cache_path: Option<PathBuf>,
-    log_dir: Option<PathBuf>,
+    paths: RunPaths,
 ) -> io::Result<i32> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -112,8 +120,9 @@ pub fn run(
         &plugins,
         &discovered,
         OrchestrationPaths {
-            cache_path: cache_path.as_deref(),
-            log_dir: log_dir.as_deref(),
+            cache_path: paths.cache_path.as_deref(),
+            log_dir: paths.log_dir.as_deref(),
+            persist_sha256: paths.persist_sha256,
         },
     );
 
@@ -134,6 +143,11 @@ pub fn run(
 struct OrchestrationPaths<'a> {
     cache_path: Option<&'a Path>,
     log_dir: Option<&'a Path>,
+    /// US-27: when true (and a cache path resolves) the event loop seeds the
+    /// in-process SHA256 cache from the persistent `cache_sha256` table before
+    /// the hash pool spawns, and writes freshly computed hashes back. Already
+    /// AND-ed with `cache_enabled` at the composition root.
+    persist_sha256: bool,
 }
 
 /// The actual event loop, factored out so the surrounding `run()` can
@@ -175,6 +189,22 @@ fn event_loop(
 
     let (msg_tx, mut msg_rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
     let cache = Sha256Cache::new();
+
+    // US-27 Tier-3 persistence: open the store cache, seed the in-process
+    // cache from persisted hashes whose validity quad still matches (so
+    // unchanged files skip re-hash), and keep the handle + (tool,model)→path
+    // index for per-compute writeback in the drain loop below. Gated on
+    // `persist_sha256` so the default (non-persist) launch path is unchanged.
+    let persist_ctx: Option<modeltap_app::sha256_persistence::PersistCtx> = if paths.persist_sha256
+    {
+        modeltap_app::sha256_persistence::open_store_cache(paths.cache_path).map(|sc| {
+            modeltap_app::sha256_persistence::seed_sha256_cache(&sc, &cache);
+            (sc, modeltap_app::sha256_persistence::job_path_index(&jobs))
+        })
+    } else {
+        None
+    };
+
     let hasher: Arc<dyn Hasher + Send + Sync> = Arc::new(Sha2Hasher::new());
     let cancel = CancellationToken::new();
     let pool: HashPoolHandle = hash_pool::spawn(
@@ -194,6 +224,11 @@ fn event_loop(
         loop {
             match msg_rx.try_recv() {
                 Ok(msg) => {
+                    if let Some((sc, jp)) = &persist_ctx {
+                        modeltap_app::sha256_persistence::observe_and_persist_hash(
+                            &msg, logger, sc, jp,
+                        );
+                    }
                     let (next, _eff) = update(state, msg);
                     state = next;
                     drained_any = true;
