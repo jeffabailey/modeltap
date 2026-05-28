@@ -95,6 +95,19 @@ pub struct CachedFile {
     pub last_stat_at: SystemTime,
 }
 
+/// Row type for `cache_sha256` (US-27, Release 3). The Tier-3 file-level
+/// content-hash store from ADR-018. Keyed by absolute `path`; the `stat` quad
+/// is the validity fingerprint (a fresh stat must still match all four fields
+/// for the cached `content_hash` to be trusted). `content_hash` is lowercase
+/// hex; `computed_at` drives the "dedup key computed N days ago" provenance.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CachedSha256 {
+    pub path: PathBuf,
+    pub stat: FileStat,
+    pub content_hash: String,
+    pub computed_at: SystemTime,
+}
+
 /// Result of `Cache::verify_against_fs`. Returned in step 04 when the
 /// revalidator lands; type declared here to keep all wire types in one place.
 #[derive(Debug, Clone, PartialEq)]

@@ -232,7 +232,10 @@ fn hydrate_file(raw: RawFileRow) -> Result<CachedFile, CacheError> {
 
 /// Convert a `SystemTime` to nanoseconds-since-UNIX-epoch as an i64. The
 /// `cache_model_files.mtime_epoch_ns` column is INTEGER (i64 range).
-fn mtime_to_epoch_ns(t: &SystemTime) -> Result<i64, CacheError> {
+///
+/// `pub(crate)` so `repo/sha256.rs` reuses the same mtime encoding for the
+/// `cache_sha256.mtime_epoch_ns` column (US-27).
+pub(crate) fn mtime_to_epoch_ns(t: &SystemTime) -> Result<i64, CacheError> {
     let duration = t
         .duration_since(UNIX_EPOCH)
         .map_err(|e| CacheError::MalformedRow {
@@ -258,7 +261,7 @@ fn mtime_to_epoch_ns(t: &SystemTime) -> Result<i64, CacheError> {
     Ok(ns as i64)
 }
 
-fn epoch_ns_to_system_time(ns: i64) -> Result<SystemTime, CacheError> {
+pub(crate) fn epoch_ns_to_system_time(ns: i64) -> Result<SystemTime, CacheError> {
     // MUTATION: cargo-mutants flags `< -> ==` / `< -> <=` here as MISSED.
     // The guard fires only when a negative `cache_model_files.mtime_epoch_ns`
     // is read out of SQLite. Per the schema this column is written by

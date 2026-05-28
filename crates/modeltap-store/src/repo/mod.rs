@@ -6,4 +6,5 @@
 
 pub(crate) mod intern;
 pub(crate) mod models;
+pub(crate) mod sha256;
 pub(crate) mod tools;

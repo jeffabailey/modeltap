@@ -46,6 +46,8 @@ Both repos accept a borrowed `&rusqlite::Connection` per call rather than owning
 
 The full repository surface — including `delete_tool`, `replace_models`, `model_files_for`, `cache_meta_get/set`, and the corruption-recovery escape hatch — lands in Phase 04 when the cache state model becomes user-visible. The Phase 01 slice is deliberately the minimum that lets the walking skeleton commit a single end-to-end vertical without dragging the rest of the API along.
 
+[[crates/modeltap-store/src/repo/sha256.rs]] is the Tier-3 `cache_sha256` repo (US-27): `upsert_sha256` (insert-or-replace on the `path` PK), `get_sha256_by_path` (None when absent), `invalidate_sha256` (idempotent delete, used by drift invalidation), and `all_sha256` (drives `modeltap cache verify`). It reuses the `(mtime,size,inode,dev)` quad via [[crates/modeltap-store/src/types.rs|FileStat]] and shares the `mtime_to_epoch_ns` / `epoch_ns_to_system_time` / iso8601 converters with the revalidator and tools repos (promoted to `pub(crate)`).
+
 ## Recovery routine
 
 [[crates/modeltap-store/src/recovery.rs]] holds the `RecoveryReason` enum and the rename-then-reopen routine that `Cache::open` calls when one of three recoverable failure modes fires. AC-23-11 mandates that a corrupt cache must never block launch — modeltap always proceeds to cold-start.
