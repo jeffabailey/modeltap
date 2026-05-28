@@ -52,6 +52,13 @@ pub struct CacheConfig {
     /// rows are stale and the tool is dispatched to cold-scan. Setting `0`
     /// effectively disables warm-paint (every tool is stale on each launch).
     pub tool_ttl_seconds: u64,
+
+    /// `[cache] persist_sha256 = <bool>` in `~/.modeltap/config.toml`.
+    /// Defaults to `false` — SHA256 persistence is OPT-IN (US-27 / ADR-018),
+    /// unlike the opt-out `enabled` flag. When `true`, the warm-start path
+    /// seeds the in-process Sha256Cache from the persistent `cache_sha256`
+    /// table (Tier 3) and the hash pool writes computed hashes back to it.
+    pub persist_sha256: bool,
 }
 
 /// Documented default TTL window: 24 hours. Exposed as a constant so
@@ -64,6 +71,7 @@ impl Default for CacheConfig {
         Self {
             enabled: true,
             tool_ttl_seconds: DEFAULT_TOOL_TTL_SECONDS,
+            persist_sha256: false,
         }
     }
 }
@@ -123,6 +131,10 @@ fn parse_str(raw: &str, path: &Path) -> AppConfig {
                 .as_ref()
                 .and_then(|c| c.tool_ttl_seconds)
                 .unwrap_or(DEFAULT_TOOL_TTL_SECONDS),
+            persist_sha256: cache_section
+                .as_ref()
+                .and_then(|c| c.persist_sha256)
+                .unwrap_or(false),
         },
     }
 }
@@ -144,6 +156,10 @@ struct CacheSection {
     /// when absent or malformed. Step 04-03.
     #[serde(default)]
     tool_ttl_seconds: Option<u64>,
+    /// `[cache] persist_sha256 = <bool>`. Optional; defaults to false (opt-in)
+    /// when absent. US-27 / ADR-018.
+    #[serde(default)]
+    persist_sha256: Option<bool>,
 }
 
 #[cfg(test)]
@@ -240,5 +256,33 @@ mod tests {
         let f = write_config("[cache]\nenabled = true\n");
         let cfg = load_from_path(f.path());
         assert_eq!(cfg.cache.tool_ttl_seconds, DEFAULT_TOOL_TTL_SECONDS);
+    }
+
+    #[test]
+    fn persist_sha256_defaults_to_false() {
+        // US-27 / ADR-018: SHA256 persistence is OPT-IN. A fresh install with
+        // no config file must NOT persist SHA256 (default false), unlike the
+        // opt-out `enabled` flag.
+        assert!(!AppConfig::default().cache.persist_sha256);
+    }
+
+    #[test]
+    fn persist_sha256_true_parsed() {
+        let f = write_config("[cache]\npersist_sha256 = true\n");
+        let cfg = load_from_path(f.path());
+        assert!(
+            cfg.cache.persist_sha256,
+            "explicit persist_sha256=true must propagate"
+        );
+        // Other defaults preserved.
+        assert!(cfg.cache.enabled, "enabled stays at its default = true");
+    }
+
+    #[test]
+    fn persist_sha256_absent_keeps_default_false() {
+        // `[cache]` present but `persist_sha256` key missing → default false.
+        let f = write_config("[cache]\nenabled = true\n");
+        let cfg = load_from_path(f.path());
+        assert!(!cfg.cache.persist_sha256);
     }
 }
