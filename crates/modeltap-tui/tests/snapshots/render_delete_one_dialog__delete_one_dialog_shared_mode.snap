@@ -42,4 +42,4 @@ expression: frame
 │                                  ││                                                                                  │
 └──────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────┘
 Total: 0 models | Disk: 0 B | Dedup-able: computing... | as of never reconciled                                         
-[<-/->] tools  [up/down] tools  [u] unify  [z] zap tool  [r] refresh  [R] refresh-all  [d] delete-from-one  [?] help  [q
+[<-/->] tools  [up/down] tools  [u] unify  [z] zap tool  [r] refresh  [d] delete-from-one  [?] help  [q] quit
