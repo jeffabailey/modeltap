@@ -176,6 +176,24 @@ impl Cache {
     }
 }
 
+/// Re-`stat()` `path` and project it into a `FileStat`, or `None` when the
+/// file no longer exists. Unix-only (MetadataExt) — the WSL target is
+/// architecturally identical to Linux. Public so `modeltap-app`'s Tier-3
+/// SHA256 seed (US-27) builds the validity quad through the same code path the
+/// revalidator uses, keeping quad construction in one place.
+pub fn stat_file_quad(path: &Path) -> std::io::Result<Option<FileStat>> {
+    match std::fs::metadata(path) {
+        Ok(meta) => Ok(Some(FileStat {
+            size_bytes: meta.len(),
+            mtime: meta.modified()?,
+            inode: meta.ino(),
+            dev: meta.dev(),
+        })),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 /// Reasons `stat_file` can fail. `NotFound` is special-cased because the
 /// revalidator translates it into `ValidationResult::Gone`; every other
 /// I/O error propagates as `CacheError::Io`.

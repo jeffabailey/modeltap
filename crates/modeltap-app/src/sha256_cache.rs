@@ -83,6 +83,17 @@ impl Sha256Cache {
         self.inner.lock().unwrap().insert(key, computed);
         Ok(computed)
     }
+
+    /// Pre-populate one entry without computing. Used by the US-27 Tier-3 seed
+    /// at warm-start: a persisted `cache_sha256` row whose `(mtime,size,inode,
+    /// dev)` quad still matches the on-disk file is lifted into this in-process
+    /// cache so the background hash pool's `get_or_compute` hits and never
+    /// recomputes the unchanged file (AC-27-1). This is the ONLY way a hash
+    /// enters the cache without a `Hasher` call; the source of truth for the
+    /// persisted value is the SQLite `cache_sha256` table (ADR-018 Tier 3).
+    pub fn seed(&self, key: Sha256CacheKey, hash: ContentHash) {
+        self.inner.lock().unwrap().insert(key, hash);
+    }
 }
 
 // ---------------------------------------------------------------------------

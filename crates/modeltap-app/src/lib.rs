@@ -49,3 +49,4 @@ pub mod refresh;
 // declaring its own `mod registry;`.
 pub mod registry;
 pub mod sha256_cache;
+pub mod sha256_persistence;

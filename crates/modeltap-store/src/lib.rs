@@ -30,3 +30,4 @@ pub use error::CacheError;
 pub use migrate::EXPECTED_SCHEMA_VERSION;
 pub use open::{Cache, CacheOpenResult};
 pub use recovery::RecoveryReason;
+pub use revalidate::stat_file_quad;
